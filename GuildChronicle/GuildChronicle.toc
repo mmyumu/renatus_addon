@@ -2,9 +2,10 @@
 ## Title: Guild Chronicle
 ## Notes: Memoire vivante de la guilde : journal, tableau de chasse, gazette, album et (en option) les repliques de Renacoach.
 ## Author: Dakey
-## Version: 0.2.0
+## Version: 0.3.0
 ## SavedVariables: GuildChronicleDB
 ## SavedVariablesPerCharacter: GuildChronicleCharDB
+## OptionalDeps: GuildChronicle_Press
 
 Core\Init.lua
 Core\EventBus.lua
@@ -14,7 +15,13 @@ Core\Store.lua
 Core\Views.lua
 Core\Album.lua
 Core\Demo.lua
+Core\Press.lua
+Sync\Serialize.lua
+Sync\Transport.lua
+Sync\Sync.lua
+Collectors\Enemies.lua
 Collectors\Basic.lua
+Collectors\Expedition.lua
 Voice\Voice.lua
 UI\Widgets.lua
 UI\MainWindow.lua

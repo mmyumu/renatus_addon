@@ -11,7 +11,7 @@
 | # | Décision | Conséquence |
 |---|---|---|
 | D1 | **Un seul addon** `GuildChronicle`. Renacoach devient le module `Voice`, une option « pour la blague ». | Fait : `GuildChronicle/Voice/`, désactivé par défaut, `/chronicle voice on` ou `/renacoach on`. |
-| D2 | **Bibliothèques externes autorisées.** | AceComm-3.0, ChatThrottleLib, LibSerialize et LibDeflate seront intégrées en Phase 2. Intégrer des bibliothèques est la norme : la politique Blizzard impose seulement que l'addon soit gratuit et que son code ne soit pas obfusqué. Chaque licence sera vérifiée à l'ajout, et il faut confirmer qu'elles se chargent sur Forever. |
+| D2 | **Bibliothèques externes autorisées.** | v0.3.0 : finalement **aucune** n'est nécessaire. Sérialisation, découpage et file d'envoi sont écrits dans l'addon (`Sync/`, quelques centaines de lignes, testées), ce qui évite toute dépendance à vérifier sur Forever. LibDeflate (compression) reste une option si le débit s'avère insuffisant. |
 | D3 | Renacoach visait **Retail** (dernière mise à jour en mai 2026). | Le TOC déclare `16001, 120005` (Forever et Retail). Le code teste l'existence de chaque API au lieu de supposer une version. |
 | D4 | Dépôt git initialisé. Le dossier est une copie de travail. | L'historique conserve Renacoach d'origine (`07cd01b`). |
 | D5 | Le « TCG » devient l'**Album de guilde** : collection et échanges, **aucun combat de cartes**. | §9 |
@@ -19,6 +19,17 @@
 ---
 
 ## 1. État actuel du dépôt
+
+### Avancement v0.3.0 (18/11/2026)
+
+- **Synchronisation entre membres** (`Sync/`) : protocole par vecteurs (§10), canal GUILD uniquement, envoi seulement hors instance et hors combat, débit limité, validation stricte de ce qui est reçu, distinction « reçu de l'auteur » / « relayé ». Seuls les événements des catégories réglées sur « Guilde » partent ; le reste ne quitte jamais le client.
+- **Expéditions** (`Collectors/Expedition.lua`) : donjon, raid, champ de bataille, groupe avec un membre de la guilde ; tolérance de 10 min à la sortie d'instance ; fin estimée (`ded`) après une déconnexion ; membres de la guilde nommés, autres joueurs seulement comptés.
+- **Tableau de chasse automatique** (`Collectors/Enemies.lua`) : rencontres avec la **guilde rivale configurée** (cible, survol, barres de nom), une observation par ennemi et par 10 min ; à la mort, rivaux aperçus dans les 30 s notés « présents » (supposé), jamais « tueurs ».
+- **Voix** : spécialisations reconnues par **identifiant** (et non par index), repli sur la classe, réglage manuel du rôle et du style de combat (pour les spés propres à Forever).
+- **Compagnon v1, sans LLM** (`companion/`) : lecture des SavedVariables et des journaux de combat, causes de mort, affrontements PvP contre des rivaux connus, articles écrits à la main, écriture de `GuildChronicle_Press/Press.lua`. En jeu, **Gazette > Rédaction** : rien n'est publié sans validation.
+- **Gazette réelle** : articles (`ARTICLE`, provenance « Rédaction »), votes pour la une (un par membre et par semaine), causes de mort affichées sur les morts (« d'après le journal de combat de X »).
+- 66 tests Lua (`lua tests/run.lua`) et 14 tests Python (`python3 -m unittest discover -s tests/companion -t .`).
+- **Pas encore faits** : LLM de la gazette, obtention réelle de boosters (modèle à choisir, §9.2), réglages de guilde signés par le chef (`GUILD_CONFIG` : rédacteurs, rivale commune), tombstones, rivalités détectées (§6.4).
 
 ### Avancement v0.2.0 (18/11/2026)
 
@@ -354,7 +365,13 @@ Les enrichissements `LOG` (causes de mort, coups fataux PvP) passent par le mêm
 
 ## 10. Synchronisation
 
-Le protocole est inchangé par rapport à la v1 :
+**Implémentation v0.3.0** (`Sync/Serialize.lua`, `Sync/Transport.lua`, `Sync/Sync.lua`) : trois messages suffisent.
+- `V` : vecteur `{auteur → séquence contiguë max}`, annoncé à la connexion (+15 à 30 s) puis toutes les 15 min, et en réponse à un vecteur en retard.
+- `R` : demande d'une plage (25 événements max) d'un auteur. L'auteur répond sous 1 s, les relais après 3 à 8 s, et se taisent si l'événement est passé sur le canal entre-temps.
+- `E` : un événement, diffusé à toute la guilde. Un nouvel événement public est diffusé dès sa création (la file attend la sortie d'instance ou de combat).
+- Messages découpés en morceaux de 250 octets ; 4 messages en rafale puis 1 toutes les 1,2 s.
+
+Conception d'origine :
 - Journaux par auteur en ajout seul ; anti-entropie par vecteur `{auteur → séquence contiguë max}`.
 - Messages `H` (hello), `V` (vecteur), `R` (requête), `E` (événements), `N` (nouveau) ; préfixe `GChron`.
 - Envoi uniquement hors instance et hors combat ; réponses espacées par un délai aléatoire.
@@ -376,11 +393,11 @@ Points nouveaux :
 | 0.1 | **Sonde en jeu (toi)** : V1–V11 | ⏳ bloquant pour les collecteurs |
 | 1-V | Addon unique ; Renacoach → module Voice ; tests | ✅ (à valider en jeu) |
 | 1a | Core : Ids, Store (dédup, requêtes), Provenance | ✅ v0.2.0 |
-| 1b | Collecteurs fiables (niveau, mort, boss, quêtes, zones, guilde) + **détecteur d'expéditions** | collecteurs de base ✅ ; expéditions après 0.1 |
+| 1b | Collecteurs fiables (niveau, mort, boss, quêtes, zones, guilde) + **détecteur d'expéditions** | ✅ v0.3.0 (à valider en jeu) |
 | 1c | Interface : **tous les onglets** (journal, guilde, membres, chasse, gazette, album, voix, paramètres), mode démo | ✅ v0.2.0 (à valider en jeu) |
-| 2 | Synchro (bibliothèques, protocole, confidentialité), timeline de guilde, vue collective | — |
-| 3 | **Wanted Board v1** : observations, déclarations manuelles, avis de recherche, fiches | après 2 |
-| 4 | **Compagnon v1, sans LLM** : lecture des SavedVariables et des journaux de combat, résumés factuels d'expédition, écriture de `GuildChronicle_Press` | après 1b |
+| 2 | Synchro (protocole, confidentialité), timeline de guilde, vue collective | ✅ v0.3.0 (sans bibliothèque ; tombstones à faire) |
+| 3 | **Wanted Board v1** : observations, déclarations manuelles, avis de recherche, fiches | ✅ v0.3.0 (rivalités §6.4 à faire) |
+| 4 | **Compagnon v1, sans LLM** : lecture des SavedVariables et des journaux de combat, écriture de `GuildChronicle_Press` | ✅ v0.3.0 (résumés d'expédition : commande `facts`) |
 | 5 | **Gazette** : LLM et styles dans le compagnon ; dans le jeu, lecture des articles, votes, commentaires, courrier | après 2 et 4 |
 | 6 | Legacy : rivalités, titres, anecdotes ; déclencheurs vocaux historiques | après 2 |
 | 7 | **Album** : catalogue, boosters (modèle choisi), échanges | après 2, 3 et 6 |

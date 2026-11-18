@@ -1,0 +1,5 @@
+# Copie ce fichier en config.toml et adapte-le.
+# Dossier du client WoW Forever (celui qui contient Interface/, WTF/ et Logs/).
+wow_path = "C:/Program Files (x86)/World of Warcraft/_forever_"
+# Nom du dossier de compte sous WTF/Account (facultatif s'il n'y en a qu'un).
+# account = "MONCOMPTE"

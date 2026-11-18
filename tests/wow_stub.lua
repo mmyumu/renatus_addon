@@ -91,6 +91,9 @@ function Stub.reset(opts)
         printed = {}, unknown = opts.unknownEvents or {},
         guild = opts.guild == nil and "Les Testeurs" or opts.guild,
         mapID = opts.mapID or 1429, zone = "Forêt d'Elwynn", level = 20,
+        sent = {}, units = opts.units or {}, group = opts.group or {}, roster = opts.roster or {},
+        instance = opts.instance, -- { type = "party", name = "Mortemines", iid = 36 }
+        me = opts.me or { guid = "Player-1-ABC", name = "Testeur" },
     }
     Stub.state = S
 
@@ -120,30 +123,88 @@ function Stub.reset(opts)
     function StopSound(handle) table.insert(S.stopped, handle) end
     function InCombatLockdown() return S.inCombat end
     function UnitIsDeadOrGhost() return S.dead end
-    function UnitClass() return "Guerrier", opts.class or "WARRIOR", 1 end
-    function UnitGUID(unit) if unit == "player" then return "Player-1-ABC" end end
-    function UnitName(unit) if unit == "player" then return "Testeur" end end
-    function UnitLevel() return S.level end
+    local function groupUnit(unit)
+        local i = unit and tonumber(unit:match("^party(%d+)$") or unit:match("^raid(%d+)$") or "")
+        return i and S.group[i]
+    end
+    function UnitClass(unit)
+        local u = S.units[unit]
+        if u then return u.class, u.class, 1 end
+        return "Guerrier", opts.class or "WARRIOR", 1
+    end
+    function UnitGUID(unit)
+        if unit == "player" then return S.me.guid end
+        local g = groupUnit(unit)
+        if g then return g.guid end
+    end
+    function UnitName(unit)
+        if unit == "player" then return S.me.name end
+        local g = groupUnit(unit)
+        if g then return g.name end
+        local u = S.units[unit]
+        if u then return u.name, u.realm end
+    end
+    function UnitLevel(unit)
+        local u = S.units[unit]
+        if u then return u.level end
+        return S.level
+    end
+    function UnitExists(unit) return unit == "player" or S.units[unit] ~= nil or groupUnit(unit) ~= nil end
+    function UnitIsPlayer(unit) local u = S.units[unit]; return u and u.player ~= false or false end
+    function UnitRace(unit) local u = S.units[unit]; if u then return u.race end return "Humain" end
+    function UnitIsPVP(unit) local u = S.units[unit]; return u and u.pvp or false end
+    function UnitIsGroupLeader(unit)
+        if unit == "player" then return S.leader == true end
+        local g = groupUnit(unit)
+        return g and g.leader or false
+    end
+    function GetTime() return S.now end
     if opts.specIndex ~= nil then
         function GetSpecialization()
             if opts.specIndex == "error" then error("no specs here") end
             return opts.specIndex
         end
-        function GetSpecializationInfo() return 1, "spec", "", 0, opts.specRole or "DAMAGER" end
+        function GetSpecializationInfo() return opts.specID or 1, "spec", "", 0, opts.specRole or "DAMAGER" end
     else
         GetSpecialization, GetSpecializationInfo = nil, nil
     end
     function UnitGroupRolesAssigned() return opts.groupRole or "NONE" end
     function IsInGuild() return S.guild ~= false end
-    function GetGuildInfo() if S.guild then return S.guild, "Membre", 3 end end
+    function GetGuildInfo(unit)
+        if unit and unit ~= "player" then
+            local u = S.units[unit]
+            return u and u.guild
+        end
+        if S.guild then return S.guild, "Membre", 3 end
+    end
     function GetNormalizedRealmName() return "Forever" end
     function GetRealZoneText() return S.zone end
     function GetSubZoneText() return "" end
-    function IsInInstance() return false, "none" end
+    function IsInInstance()
+        if S.instance then return true, S.instance.type end
+        return false, "none"
+    end
+    function GetInstanceInfo()
+        local i = S.instance
+        if i then return i.name, i.type, 1, "Normal", 5, 0, false, i.iid end
+        return S.zone, "none", 0, "", 0, 0, false, 0
+    end
     function IsInRaid() return false end
-    function IsInGroup() return false end
-    function GetNumGroupMembers() return 0 end
-    function GetNumGuildMembers() return 0 end
+    function IsInGroup() return #S.group > 0 end
+    function GetNumGroupMembers() return #S.group > 0 and (#S.group + 1) or 0 end
+    function GetNumGuildMembers() return #S.roster end
+    function GetGuildRosterInfo(i)
+        local r = S.roster[i]
+        if r then return r.name .. "-Forever", "Membre", r.rank or 2, r.level or 20, "", "", "", "", true, 0, r.class or "WARRIOR" end
+    end
+    C_ChatInfo = {
+        RegisterAddonMessagePrefix = function(prefix) S.prefix = prefix; return true end,
+        SendAddonMessage = function(prefix, msg, channel)
+            assert(#msg <= 255, "message d'addon trop long : " .. #msg)
+            table.insert(S.sent, { prefix = prefix, msg = msg, channel = channel })
+            return 0
+        end,
+    }
     C_Map = {
         GetBestMapForUnit = function() return S.mapID end,
         GetPlayerMapPosition = function() return { GetXY = function() return 0.5, 0.25 end } end,
@@ -200,6 +261,13 @@ function Stub.advance(seconds)
         end
         table.sort(due, function(a, b) return a.at < b.at end)
         for _, t in ipairs(due) do t.fn() end
+    end
+end
+
+-- Rejoue les messages d'addon emis par un autre client (sender = "Nom-Royaume").
+function Stub.deliver(messages, sender)
+    for _, m in ipairs(messages) do
+        Stub.fire("CHAT_MSG_ADDON", m.prefix, m.msg, m.channel, sender)
     end
 end
 

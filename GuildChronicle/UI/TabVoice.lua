@@ -14,6 +14,17 @@ local CHANNELS = {
     { value = "SFX", label = "Effets" }, { value = "Dialog", label = "Dialogues" }, { value = "Music", label = "Musique" },
 }
 
+local ROLES = {
+    { value = "AUTO", label = "Automatique" }, { value = "TANK", label = "Tank" },
+    { value = "HEALER", label = "Soigneur" }, { value = "DAMAGER", label = "DPS" },
+}
+local KINDS = {
+    { value = "AUTO", label = "Automatique" }, { value = "melee", label = "Corps à corps" },
+    { value = "caster", label = "Lanceur de sorts" }, { value = "ranged", label = "Distance" },
+}
+local ROLE_LABEL = { TANK = "tank", HEALER = "soigneur", DAMAGER = "DPS" }
+local KIND_LABEL = { melee = "corps à corps", caster = "lanceur de sorts", ranged = "distance" }
+
 local function build(c)
     local s = function() return ns.char.voice end
     local title = UI.Title(c, 20)
@@ -28,7 +39,7 @@ local function build(c)
     c.enabled.label:SetFont(UI.FONT_BODY, 14, "")
 
     c.status = UI.Text(c, 11, UI.C.dim)
-    c.status:SetPoint("TOPLEFT", 8, -78)
+    c.status:SetPoint("TOPLEFT", 8, -74)
     c.status:SetWidth(UI.CONTENT_W - 20)
 
     local general = UI.Section(c, "Fréquence et son", 320)
@@ -60,7 +71,21 @@ local function build(c)
         ns.Voice:PlayFamilies(ns.Voice:GetCombatFamilies())
         s().enabled = was
     end)
-    test:SetPoint("TOPLEFT", 4, -356)
+    test:SetPoint("TOPLEFT", 4, -350)
+
+    -- Les specialisations de Forever peuvent differer de Retail : reglage manuel possible.
+    local roleLabel = UI.Text(c, 12)
+    roleLabel:SetPoint("TOPLEFT", 4, -394)
+    roleLabel:SetText("Rôle :")
+    c.role = UI.Dropdown(c, 150, ROLES, function(v) s().roleOverride = v; ns.Voice:RebuildPools(); c:Refresh() end)
+    c.role:SetPoint("TOPLEFT", 120, -390)
+    local kindLabel = UI.Text(c, 12)
+    kindLabel:SetPoint("TOPLEFT", 4, -424)
+    kindLabel:SetText("Style de combat :")
+    c.kind = UI.Dropdown(c, 150, KINDS, function(v) s().typeOverride = v; ns.Voice:RebuildPools(); c:Refresh() end)
+    c.kind:SetPoint("TOPLEFT", 120, -420)
+    UI.Tooltip(c.role, "Rôle", { "Automatique : d'après la spécialisation ou le rôle de groupe.",
+        "Si ta spé n'est pas reconnue (Forever), choisis-le ici." })
 
     local fam = UI.Section(c, "Familles de répliques", 320)
     fam:SetPoint("TOPLEFT", 350, -104)
@@ -87,10 +112,16 @@ local function build(c)
         self.duckVolume:SetValue(v.duckVolume)
         self.channel:SetValue(v.channel)
         for key, cb in pairs(self.families) do cb:SetChecked(v.families[key] ~= false) end
-        local role = ns.Voice.role or "inconnu"
-        local ctype = ns.Voice.characterType or "inconnu"
-        self.status:SetText(("Rôle détecté : %s  ·  type : %s  ·  familles jouées en combat : %s"):format(
-            role, ctype, table.concat(ns.Voice:GetCombatFamilies(), ", ")))
+        self.role:SetValue(v.roleOverride or "AUTO")
+        self.kind:SetValue(v.typeOverride or "AUTO")
+        local V = ns.Voice
+        local role = ROLE_LABEL[V.role] or "inconnu"
+        if V.roleSource then role = role .. " (" .. V.roleSource .. ")" end
+        local ctype = KIND_LABEL[V.characterType] or "inconnu"
+        if V.typeSource then ctype = ctype .. " (" .. V.typeSource .. ")" end
+        local spec = V.specID and ("  ·  spé n°" .. tostring(V.specID) .. (V.SPEC_TYPES[V.specID] and "" or " (non reconnue)")) or ""
+        self.status:SetText(("Rôle : %s  ·  style : %s%s\nFamilles jouées en combat : %s"):format(
+            role, ctype, spec, table.concat(V:GetCombatFamilies(), ", ")))
     end
 end
 

@@ -1,0 +1,10 @@
+---
+title: Une expédition réussie malgré tout
+format: Édition spéciale
+style: Journaliste sarcastique
+refs: Player-1-ABC:12, Player-1-ABC:13
+---
+Hier soir, cinq courageux aventuriers ont pénétré dans les Mortemines...
+
+(Renomme ce fichier en .md pour qu'il soit pris en compte. Les identifiants des refs
+viennent de la commande : python -m companion facts)

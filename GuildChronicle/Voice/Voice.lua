@@ -7,7 +7,8 @@
 -- Differences volontaires (voir docs/ARCHITECTURE.md) :
 --   - module optionnel, desactive par defaut, reglable (/chronicle voice) ;
 --   - plus aucune fonction globale ;
---   - repli si les specialisations n'existent pas (WoW Forever) ;
+--   - specialisations reconnues par identifiant (et non par index), repli sur la classe
+--     puis reglage manuel du role et du type (les specialisations de Forever peuvent differer) ;
 --   - correction de la table du chasseur (Precision etait classe "melee") ;
 --   - le volume SFX est restaure au chargement suivant si le jeu a quitte pendant un ducking ;
 --   - la replique de mort n'est pas coupee par celle de fin de combat.
@@ -18,27 +19,32 @@ ns.Voice = Voice
 
 local SOUND_DIR = "Interface\\AddOns\\" .. ADDON .. "\\Voice\\Sounds\\"
 
--- Type de personnage par classe et index de specialisation (ordre Retail).
-local classSpecToType = {
-    DEATHKNIGHT = { "melee", "melee", "melee" },
-    DEMONHUNTER = { "melee", "melee" },
-    DRUID = { "caster", "melee", "melee", "caster" },
-    EVOKER = { "caster", "caster", "caster" },
-    HUNTER = { "ranged", "ranged", "melee" },   -- Maitrise des betes, Precision, Survie
-    MAGE = { "caster", "caster", "caster" },
-    MONK = { "melee", "melee", "melee" },
-    PALADIN = { "melee", "melee", "melee" },
-    PRIEST = { "caster", "caster", "caster" },
-    ROGUE = { "melee", "melee", "melee" },
-    SHAMAN = { "caster", "melee", "caster" },
-    WARLOCK = { "caster", "caster", "caster" },
-    WARRIOR = { "melee", "melee", "melee" },
+-- Type de personnage par IDENTIFIANT de specialisation Retail (stable, contrairement a l'index).
+-- Si Forever a d'autres specialisations, leurs identifiants ne sont pas dans la table :
+-- on retombe alors sur la classe, puis sur le reglage manuel (onglet Voix).
+local specIdToType = {
+    [250] = "melee", [251] = "melee", [252] = "melee",                    -- chevalier de la mort
+    [577] = "melee", [581] = "melee",                                     -- chasseur de demons
+    [102] = "caster", [103] = "melee", [104] = "melee", [105] = "caster", -- druide
+    [1467] = "caster", [1468] = "caster", [1473] = "caster",              -- evocateur
+    [253] = "ranged", [254] = "ranged", [255] = "melee",                  -- chasseur (Survie = melee)
+    [62] = "caster", [63] = "caster", [64] = "caster",                    -- mage
+    [268] = "melee", [269] = "melee", [270] = "melee",                    -- moine
+    [65] = "melee", [66] = "melee", [70] = "melee",                       -- paladin
+    [256] = "caster", [257] = "caster", [258] = "caster",                 -- pretre
+    [259] = "melee", [260] = "melee", [261] = "melee",                    -- voleur
+    [262] = "caster", [263] = "melee", [264] = "caster",                  -- chaman
+    [265] = "caster", [266] = "caster", [267] = "caster",                 -- demoniste
+    [71] = "melee", [72] = "melee", [73] = "melee",                       -- guerrier
 }
+Voice.SPEC_TYPES = specIdToType
 
--- Repli sans specialisation : seulement les classes sans ambiguite.
+-- Repli sans specialisation reconnue : seulement les classes sans ambiguite.
+-- (druide, chaman : impossible a deviner -> reglage manuel dans l'onglet Voix)
 local classOnlyType = {
     HUNTER = "ranged", MAGE = "caster", PRIEST = "caster", WARLOCK = "caster",
-    ROGUE = "melee", WARRIOR = "melee", PALADIN = "melee",
+    ROGUE = "melee", WARRIOR = "melee", PALADIN = "melee", DEATHKNIGHT = "melee",
+    DEMONHUNTER = "melee", MONK = "melee", EVOKER = "caster",
 }
 
 -- Familles de repliques : contenu identique a Renacoach v1.0.0.
@@ -75,34 +81,44 @@ ticker:Hide()
 
 local function settings() return ns.char.voice end
 
--- Role : specialisation Retail si disponible, sinon role de groupe, sinon inconnu.
+-- Role : reglage manuel, sinon specialisation, sinon role de groupe, sinon inconnu.
+-- Renvoie aussi l'identifiant de specialisation (pour le type).
 function Voice.ResolveRole()
+    local override = settings().roleOverride
+    local specID
     if type(GetSpecialization) == "function" and type(GetSpecializationInfo) == "function" then
         local ok, specIndex = pcall(GetSpecialization)
-        if ok and specIndex then
-            local ok2, _, _, _, _, role = pcall(GetSpecializationInfo, specIndex)
-            if ok2 and role then return role, specIndex end
+        if ok and type(specIndex) == "number" and specIndex > 0 then
+            local ok2, id, _, _, _, role = pcall(GetSpecializationInfo, specIndex)
+            if ok2 then
+                specID = id
+                if override == "AUTO" and (role == "TANK" or role == "HEALER" or role == "DAMAGER") then
+                    return role, specID, "spé"
+                end
+            end
         end
     end
+    if override and override ~= "AUTO" then return override, specID, "manuel" end
     if type(UnitGroupRolesAssigned) == "function" then
         local ok, role = pcall(UnitGroupRolesAssigned, "player")
-        if ok and role and role ~= "NONE" then return role, nil end
+        if ok and role and role ~= "NONE" then return role, specID, "groupe" end
     end
+    return nil, specID, nil
+end
+
+function Voice.ResolveCharacterType(specID)
+    local override = settings().typeOverride
+    if override and override ~= "AUTO" then return override, "manuel" end
+    if specID and specIdToType[specID] then return specIdToType[specID], "spé" end
+    local _, playerClass = UnitClass("player")
+    if playerClass and classOnlyType[playerClass] then return classOnlyType[playerClass], "classe" end
     return nil, nil
 end
 
-function Voice.ResolveCharacterType(specIndex)
-    local _, playerClass = UnitClass("player")
-    if not playerClass then return nil end
-    if specIndex and classSpecToType[playerClass] then
-        return classSpecToType[playerClass][specIndex]
-    end
-    return classOnlyType[playerClass]
-end
-
 function Voice:RebuildPools()
-    local role, specIndex = Voice.ResolveRole()
-    local characterType = Voice.ResolveCharacterType(specIndex)
+    local role, specID, roleSource = Voice.ResolveRole()
+    local characterType, typeSource = Voice.ResolveCharacterType(specID)
+    self.specID, self.roleSource, self.typeSource = specID, roleSource, typeSource
     combatFamilies = { "fightGeneric" }
     if ROLE_FAMILY[role] then table.insert(combatFamilies, ROLE_FAMILY[role]) end
     if TYPE_FAMILY[characterType] then table.insert(combatFamilies, TYPE_FAMILY[characterType]) end

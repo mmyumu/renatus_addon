@@ -101,11 +101,14 @@ local function nextSeq(guid, public)
     return seq.private
 end
 
--- Construit un evenement (sans l'enregistrer). opts : prov, miss, refs, occ, x, pt, loc, t
+-- Construit un evenement (sans l'enregistrer). opts : prov, miss, refs, occ, x, pt, loc, t, vis, ded
+-- (ded = liste des champs du contenu qui sont deduits et non observes, ex. { "enemies" })
 function Store.Build(kind, payload, opts)
     opts = opts or {}
     local def = ns.Types.Get(kind)
     local mode = ns.char.privacy[def.cat] or "P"
+    -- opts.vis = "G" : publication explicite (article, vote...), independante du reglage de categorie.
+    if opts.vis == "G" then mode = "G" end
     if mode == "OFF" then return nil end
     local guid, name, class = Context.Me()
     local public = (mode == "G")
@@ -120,7 +123,8 @@ function Store.Build(kind, payload, opts)
         g = Context.GuildKey(),
         loc = opts.loc or Context.Location(),
         pt = opts.pt, prov = opts.prov or "OBS", miss = opts.miss, refs = opts.refs,
-        occ = opts.occ, x = opts.x,
+        occ = opts.occ, ded = opts.ded,
+        x = opts.x or (not opts.noExp and ns.Expedition and ns.Expedition.CurrentKey and ns.Expedition:CurrentKey()) or nil,
         vis = public and "G" or "P",
         src = (opts.prov == "MAN") and "M" or "A",
         p = payload or {},
@@ -172,12 +176,14 @@ end
 function Store.Dataset()
     if ns.char.ui.demo then return ns.Demo:Get() end
     local guid = Context.Me()
+    local events = realEvents()
     return {
         isDemo = false,
         me = guid,
         guildKey = Context.GuildKey(),
-        events = realEvents(),
-        articles = ns.db.articles,
+        events = events,
+        articles = ns.Views.Articles(events, guid),
+        causes = ns.Views.DeathCauses(events),
         collection = ns.db.collection,
         boosters = 0,
         founders = {},

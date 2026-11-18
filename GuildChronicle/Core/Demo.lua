@@ -49,7 +49,7 @@ local function build()
         local ev = {
             v = 1, id = w.g .. ":" .. seq[author], a = w.g, n = w.n, c = w.c, s = seq[author], t = t,
             k = kind, g = guildKey, loc = opts.loc or { z = opts.zone }, pt = opts.pt, prov = opts.prov or "OBS",
-            miss = opts.miss, refs = opts.refs, occ = opts.occ, vis = "G", src = opts.prov == "MAN" and "M" or "A",
+            miss = opts.miss, refs = opts.refs, occ = opts.occ, ded = opts.ded, vis = "G", src = opts.prov == "MAN" and "M" or "A",
             p = payload or {},
         }
         table.insert(events, ev)
@@ -70,8 +70,9 @@ local function build()
     E("me", "ZONE_FIRST_VISIT", 3, 20, {}, { zone = "Vallée de Strangleronce" })
     E("me", "QUEST_DONE", 12, 19, { q = 155, title = "La Confrérie défias" }, { zone = "Marche de l'Ouest" })
     E("me", "QUEST_DONE", 10, 21, { q = 166, title = "La Confrérie défias (suite)" }, { zone = "Marche de l'Ouest" })
-    local exp = E("me", "EXPEDITION", 9, 20, { title = "Expédition aux Mortemines", duration = 5400, bosses = 1, deaths = 2 },
-        { loc = dm, pt = P("bri", "mel", "tob", "pis") })
+    local expOcc = "EXP:36:demo"
+    local function expP(duration, deaths) return { type = "DUNGEON", inst = "Les Mortemines", duration = duration, bosses = 1, deaths = deaths, bossNames = { "Edwin VanCleef" } } end
+    local exp = E("me", "EXPEDITION", 9, 20, expP(5400, 2), { loc = dm, pt = P("bri", "mel", "tob", "pis"), occ = expOcc })
     local d1 = E("me", "DEATH", 9, 20, { lvl = 20 }, { loc = dm, min = 30, miss = { "killer" } })
     local d2 = E("me", "DEATH", 9, 20, { lvl = 20 }, { loc = dm, min = 50, miss = { "killer" } })
     local occ = "ENC:1:demo"
@@ -79,14 +80,17 @@ local function build()
     E("me", "ANECDOTE", 5, 22, { title = "Le saut de la foi raté", desc = "Tentative de raccourci depuis la falaise de Strangleronce. La falaise a gagné.", cat = "Exploit" },
         { zone = "Vallée de Strangleronce", prov = "MAN", pt = P("ves") })
     seen("me", 3, 20, "Gorbash", "Vallée de Strangleronce")
-    local d3 = E("me", "DEATH", 3, 20, { lvl = 22, enemies = { "Gorbash" } }, { zone = "Vallée de Strangleronce", min = 5, miss = { "killer" } })
+    local d3 = E("me", "DEATH", 3, 20, { lvl = 22, enemies = { "Gorbash" } }, { zone = "Vallée de Strangleronce", min = 5, miss = { "killer" }, ded = { "enemies" } })
     E("me", "PVP_CLASH", 2, 21, { name = "Sombrelame", enemy = "Sombrelame", result = "win" }, { zone = "Bois de la Pénombre", prov = "MAN" })
 
     -- Les autres
     E("bri", "BOSS_KILL", 9, 21, { enc = 1, name = "Edwin VanCleef" }, { loc = dm, min = 21, occ = occ })
     E("mel", "BOSS_KILL", 9, 21, { enc = 1, name = "Edwin VanCleef" }, { loc = dm, min = 20, occ = occ })
-    E("bri", "EXPEDITION", 9, 20, { title = "Expédition aux Mortemines", duration = 5300, bosses = 1, deaths = 0 }, { loc = dm, pt = P("mel", "tob", "pis") })
-    E("pis", "EXPEDITION", 9, 20, { title = "Expédition aux Mortemines", duration = 5400, bosses = 1, deaths = 1 }, { loc = dm, pt = P("bri", "mel", "tob") })
+    E("bri", "EXPEDITION", 9, 20, expP(5300, 0), { loc = dm, pt = P("mel", "tob", "pis"), occ = expOcc, min = 1 })
+    E("pis", "EXPEDITION", 9, 20, expP(5400, 1), { loc = dm, pt = P("bri", "mel", "tob"), occ = expOcc, min = 2 })
+    -- Cause de mort issue du journal de combat de Pistache (compagnon), publiee par elle.
+    E("pis", "DEATH_CAUSE", 9, 20, { victim = meName, cause = "Ronfleur le Maladroit (Coup de pioche)", killer = "Ronfleur le Maladroit" },
+        { loc = {}, prov = "LOG", refs = { d1.id }, min = 31 })
     E("bri", "LEVEL_UP", 4, 22, { lvl = 23 }, { zone = "Les Carmines" })
     E("bri", "PVP_CLASH", 3, 20, { name = "Gorbash", enemy = "Gorbash", result = "loss" }, { zone = "Vallée de Strangleronce", prov = "LOG" })
     E("mel", "ANECDOTE", 7, 21, { title = "Le mouton de la discorde", desc = "Mélisande a soigné un mouton métamorphosé pendant trois minutes, persuadée qu'il s'agissait du tank.", cat = "Fait divers" },
@@ -154,6 +158,7 @@ local function build()
         guildKey = guildKey,
         events = events,
         articles = articles,
+        causes = ns.Views.DeathCauses(events),
         collection = {},
         boosters = 3,
         boostersOpened = 0,

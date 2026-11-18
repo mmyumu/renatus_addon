@@ -5,10 +5,70 @@ local Types = ns.Types
 
 local LIST_W = 220
 
+-- Fenetre de redaction : elements du compagnon a publier ou ignorer (un par un).
+local review
+local function openReview(onDone)
+    if review then review:Hide() end
+    local f = CreateFrame("Frame", nil, UI.GetWindow())
+    review = f
+    f:SetFrameStrata("DIALOG")
+    f:SetToplevel(true)
+    f:EnableMouse(true)
+    f:SetPoint("CENTER")
+    f:SetSize(560, 400)
+    UI.Box(f, { 0.07, 0.055, 0.04, 0.99 }, UI.C.gold, 2)
+    local t = UI.Title(f, 18)
+    t:SetPoint("TOPLEFT", 16, -14)
+    t:SetText("Rédaction : éléments du compagnon")
+    local hint = UI.Text(f, 10, UI.C.dim)
+    hint:SetPoint("TOPLEFT", 16, -38)
+    hint:SetWidth(528)
+    hint:SetText("Rien n'est publié sans toi. Publier = partager avec la guilde, signé de ton nom. "
+        .. "Les causes de mort et affrontements viennent de ton journal de combat (provenance « Journal de combat »).")
+    local list = UI.List(f, 528, 290, 40, function(row)
+        row.label = UI.Text(row, 12)
+        row.label:SetPoint("TOPLEFT", 6, -4)
+        row.label:SetPoint("RIGHT", -190, 0)
+        row.label:SetWordWrap(false)
+        row.sub = UI.Text(row, 10, UI.C.dim)
+        row.sub:SetPoint("TOPLEFT", row.label, "BOTTOMLEFT", 0, -3)
+        row.sub:SetPoint("RIGHT", -190, 0)
+        row.sub:SetWordWrap(false)
+        row.pub = UI.Button(row, "Publier", 80, 22, function()
+            ns.Press.Publish(row.item); f:Update(); if onDone then onDone() end
+        end)
+        row.pub:SetPoint("RIGHT", -96, 0)
+        row.ign = UI.Button(row, "Ignorer", 80, 22, function()
+            ns.Press.Ignore(row.item); f:Update(); if onDone then onDone() end
+        end)
+        row.ign:SetPoint("RIGHT", -8, 0)
+    end, function(row, item)
+        row.label:SetText(ns.Press.Label(item))
+        local bits = { ns.Press.KINDS[item.kind].label }
+        if item.t then table.insert(bits, UI.Date(item.t, true)) end
+        if item.refs then table.insert(bits, #item.refs .. " source(s)") end
+        if item.note then table.insert(bits, item.note) end
+        row.sub:SetText(table.concat(bits, "  ·  "))
+    end)
+    list:SetPoint("TOPLEFT", 16, -64)
+    local close = UI.Button(f, "Fermer", 100, 24, function() f:Hide() end)
+    close:SetPoint("BOTTOMRIGHT", -16, 12)
+    function f:Update()
+        list:SetItems(ns.Press.Pending(), "Rien en attente. Lance le compagnon, puis /reload.")
+    end
+    f:Update()
+    f:Show()
+    return f
+end
+
 local function build(c)
     local title = UI.Title(c, 20)
     title:SetPoint("TOPLEFT", 4, -2)
     title:SetText("La Gazette de la Guilde")
+    c.press = UI.Button(c, "Rédaction", 130, 22, function() openReview(function() c:Refresh() end) end)
+    c.press:SetPoint("TOPRIGHT", -4, -6)
+    UI.Tooltip(c.press, "Rédaction", { "Articles et causes de mort produits par l'application compagnon,",
+        "à relire avant publication. Nécessite le compagnon et l'addon GuildChronicle_Press." })
     local motto = UI.Text(c, 11, UI.C.dim)
     motto:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -3)
     motto:SetText("Toute l'information, rien que l'information, et parfois un peu plus.")
@@ -72,10 +132,15 @@ local function build(c)
         local ds = ns.Store.Dataset()
         local a = c.current
         if not a then return end
+        if a.voted then return end
         if ds.isDemo then
-            if not a.voted then a.votes = (a.votes or 0) + 1; a.voted = true end
-            c:Refresh()
+            a.votes = (a.votes or 0) + 1; a.voted = true
+        else
+            -- Un vote par membre et par semaine : le dernier compte (calcule dans Views.Articles).
+            ns.Store.Add("VOTE", { week = ns.Views.WeekKey(ns.Views.Now()) },
+                { refs = { a.id }, vis = "G", prov = "MAN", noExp = true, loc = {} })
         end
+        c:Refresh()
     end)
     paper.vote:SetPoint("LEFT", paper.sources, "RIGHT", 8, 0)
     paper.letter = UI.Button(paper, "Courrier des lecteurs", 160, 22, function() UI.Dialogs.Letter() end)
@@ -83,6 +148,9 @@ local function build(c)
 
     function c:Refresh()
         local ds = ns.Store.Dataset()
+        local pending = (not ds.isDemo and ns.Press.Available()) and #ns.Press.Pending() or 0
+        self.press:SetLabel(pending > 0 and ("Rédaction (" .. pending .. ")") or "Rédaction")
+        self.press:SetShown(not ds.isDemo and ns.Press.Available())
         local articles = {}
         for _, a in ipairs(ds.articles or {}) do table.insert(articles, a) end
         table.sort(articles, function(a, b) return (a.t or 0) > (b.t or 0) end)
@@ -95,8 +163,8 @@ local function build(c)
             paper.kind:SetText("")
             paper.title:SetText("Les rotatives sont à l'arrêt")
             paper.meta:SetText("")
-            paper.body:SetText("La gazette est rédigée hors du jeu par l'application compagnon, à partir du journal de la guilde, "
-                .. "puis publiée en jeu par un rédacteur. Elle arrive dans une prochaine étape.\n\n"
+            paper.body:SetText("La gazette est rédigée hors du jeu (application compagnon du rédacteur), à partir du journal de la guilde, "
+                .. "puis publiée en jeu par le rédacteur avec le bouton « Rédaction ». Les autres membres la reçoivent par la synchronisation.\n\n"
                 .. "En attendant, tape |cff8a1a10/chronicle demo|r pour feuilleter une édition de démonstration.")
             paper.sources:SetDisabled(true)
             paper.vote:SetDisabled(true)
@@ -104,11 +172,12 @@ local function build(c)
         end
         paper.kind:SetText(string.upper(a.kind or "Article"))
         paper.title:SetText(a.title or "")
-        local meta = UI.Date(a.t) .. "  ·  style : " .. (a.style or "?") .. "  ·  " .. #(a.refs or {}) .. " source(s)"
-        if a.votes then meta = meta .. "  ·  " .. a.votes .. " vote(s) pour la une" end
+        local meta = UI.Date(a.t) .. (a.author and ("  ·  par " .. a.author) or "") .. "  ·  style : " .. (a.style or "?")
+            .. "  ·  " .. #(a.refs or {}) .. " source(s)"
+        if a.votes and a.votes > 0 then meta = meta .. "  ·  " .. a.votes .. " vote(s) pour la une" end
         paper.meta:SetText(meta)
         paper.sources:SetDisabled(false)
-        paper.vote:SetDisabled(not ds.isDemo or a.voted)
+        paper.vote:SetDisabled(a.voted)
         paper.sources:SetLabel(self.showSources and "Article" or "Sources")
         if self.showSources then
             local byId = {}

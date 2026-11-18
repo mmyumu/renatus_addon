@@ -24,6 +24,7 @@ function Views.Filter(events, f)
         if keep and f.authorName and ev.n ~= f.authorName then keep = false end
         if keep and f.guild and ev.g ~= f.guild then keep = false end
         if keep and f.kind and ev.k ~= f.kind then keep = false end
+        if keep and not f.kind and ns.Types.Get(ev.k).hidden then keep = false end
         if keep and f.category and ns.Types.Get(ev.k).cat ~= f.category then keep = false end
         if keep and f.since and ev.t < f.since then keep = false end
         if keep and f.minImportance and ns.Types.Get(ev.k).importance < f.minImportance then keep = false end
@@ -209,14 +210,14 @@ function Views.Enemies(ds)
             if p.level then see(e, "level", p.level, ev.t) end
             if ev.k == "ENEMY_SEEN" or ev.k == "PVP_CLASH" then
                 e.lastSeen, e.lastZone = ev.t, ns.Types.Zone(ev)
-                e.members[ev.n or "?"] = true
+                e.members[p.member or ev.n or "?"] = true
                 table.insert(e.encounters, 1, ev)
             end
             if ev.k == "PVP_CLASH" then
                 if p.result == "win" then e.wins[ev.prov] = (e.wins[ev.prov] or 0) + 1
                 elseif p.result == "loss" then
                     e.losses[ev.prov] = (e.losses[ev.prov] or 0) + 1
-                    e.killedMembers[ev.n or "?"] = true
+                    e.killedMembers[p.member or ev.n or "?"] = true
                 end
             end
             if ev.k == "ENEMY_NOTE" then
@@ -267,4 +268,49 @@ function Views.Wanted(ds)
         end
     end
     return posters, enemies
+end
+
+------------------------------------------------------------------------
+-- Gazette : articles (evenements ARTICLE) et votes (VOTE, un par membre et par semaine)
+------------------------------------------------------------------------
+function Views.WeekKey(t) return date("%Y-%W", t) end
+
+function Views.Articles(events, meGuid)
+    local list, byId = {}, {}
+    for _, ev in ipairs(events) do
+        if ev.k == "ARTICLE" then
+            local p = ev.p or {}
+            local a = { id = ev.id, t = ev.t, kind = p.format, title = p.title, body = p.body, style = p.style,
+                refs = ev.refs, author = ev.n, week = Views.WeekKey(ev.t), votes = 0, ev = ev }
+            byId[ev.id] = a
+            table.insert(list, a)
+        end
+    end
+    -- Le dernier vote de chaque membre pour une semaine donnee l'emporte (events : recent d'abord).
+    local counted = {}
+    for _, ev in ipairs(events) do
+        if ev.k == "VOTE" and ev.refs and ev.refs[1] then
+            local key = ev.a .. "|" .. tostring(ev.p.week)
+            if not counted[key] then
+                counted[key] = true
+                local a = byId[ev.refs[1]]
+                if a then
+                    a.votes = a.votes + 1
+                    if ev.a == meGuid then a.voted = true end
+                end
+            end
+        end
+    end
+    return list
+end
+
+-- Causes de mort issues des journaux de combat : [id de la mort] = evenement DEATH_CAUSE.
+function Views.DeathCauses(events)
+    local causes = {}
+    for _, ev in ipairs(events) do
+        if ev.k == "DEATH_CAUSE" and ev.refs and ev.refs[1] and not causes[ev.refs[1]] then
+            causes[ev.refs[1]] = ev
+        end
+    end
+    return causes
 end

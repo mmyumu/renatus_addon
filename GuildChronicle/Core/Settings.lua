@@ -13,7 +13,8 @@ local ACCOUNT_DEFAULTS = {
     voiceDuck = {},   -- volume SFX a restaurer si le jeu a quitte pendant un ducking
     events = {},      -- [id] = evenement (tous personnages du compte + recus plus tard par la synchro)
     seq = {},         -- [guid] = { public = n, private = n }
-    articles = {},    -- gazette (importee par le compagnon, plus tard)
+    articles = {},    -- (obsolete : les articles sont des evenements ARTICLE)
+    pressDone = {},   -- [id] = "published" | "ignored" : elements du compagnon deja traites
     collection = {},  -- album : [cardId] = nombre d'exemplaires
 }
 
@@ -27,6 +28,8 @@ local CHAR_DEFAULTS = {
         channel = "Ambience",
         duck = true,
         duckVolume = 0.25,
+        roleOverride = "AUTO",   -- AUTO, TANK, HEALER, DAMAGER
+        typeOverride = "AUTO",   -- AUTO, melee, caster, ranged
         families = {
             startFight = true, endFight = true, death = true,
             fightGeneric = true, fightTank = true, fightHealer = true, fightDPS = true,
@@ -34,14 +37,17 @@ local CHAR_DEFAULTS = {
         },
     },
     -- Confidentialite par categorie : "OFF" (non enregistre), "P" (prive), "G" (guilde).
-    -- "G" ne prendra effet qu'avec la synchronisation.
+    -- "G" : partage avec les membres de la guilde equipes de l'addon (synchronisation).
     privacy = {
-        progression = "P", combat = "P", exploration = "P", social = "P", pvp = "P", anecdote = "P",
+        progression = "P", combat = "P", exploration = "P", social = "P", pvp = "P", anecdote = "P", gazette = "P",
     },
     exportConsent = false,   -- export hors jeu (compagnon / LLM), consentement distinct
     rivalGuild = "",         -- nom de la guilde rivale (Wanted Board)
     albumOptOut = false,     -- ne pas apparaitre dans l'album des autres
     visitedMaps = {},        -- zones deja visitees (pour "premiere visite")
+    enemySeenAt = {},        -- [nom] = derniere observation enregistree (limite de frequence)
+    expSeq = 0,              -- compteur local des expeditions
+    -- expedition = nil      -- expedition en cours (Collectors/Expedition.lua)
     ui = {
         tab = "journal",
         showMinimap = true,

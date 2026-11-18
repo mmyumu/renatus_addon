@@ -18,24 +18,24 @@ local function build(c)
     local help = UI.Text(c, 11, UI.C.dim)
     help:SetPoint("TOPLEFT", 4, -64)
     help:SetWidth(320)
-    help:SetText("Désactivé : rien n'est enregistré. Privé : visible par toi seul. Guilde : partagé avec les membres équipés (dès que la synchronisation sera disponible).")
+    help:SetText("Désactivé : rien n'est enregistré. Privé : visible par toi seul. Guilde : partagé avec les membres équipés de l'addon.")
     c.privacy = {}
     for i, cat in ipairs(ns.Types.CATEGORIES) do
         local label = UI.Text(c, 12)
-        label:SetPoint("TOPLEFT", 4, -118 - (i - 1) * 30)
+        label:SetPoint("TOPLEFT", 4, -112 - (i - 1) * 27)
         label:SetText(cat.label)
         local d = UI.Dropdown(c, 130, MODES, function(v) ns.char.privacy[cat.key] = v end)
-        d:SetPoint("TOPLEFT", 160, -114 - (i - 1) * 30)
+        d:SetPoint("TOPLEFT", 180, -108 - (i - 1) * 27)
         c.privacy[cat.key] = d
     end
     c.export = UI.Checkbox(c, "Autoriser l'export hors jeu (gazette / LLM)", function(v) ns.char.exportConsent = v end)
-    c.export:SetPoint("TOPLEFT", 4, -310)
+    c.export:SetPoint("TOPLEFT", 4, -300)
     UI.Tooltip(c.export, "Export hors jeu", {
         "Consentement distinct du partage en guilde.",
         "Si coché, l'application compagnon du rédacteur pourra utiliser tes événements partagés pour écrire la gazette.",
     })
     local note = UI.Text(c, 10, UI.C.dim)
-    note:SetPoint("TOPLEFT", 4, -340)
+    note:SetPoint("TOPLEFT", 4, -328)
     note:SetWidth(320)
     note:SetText("Un événement déjà partagé peut avoir été copié par d'autres membres : le supprimer chez toi ne garantit pas sa disparition chez eux.")
 
@@ -63,13 +63,24 @@ local function build(c)
     c.optOut = UI.Checkbox(c, "Ne pas apparaître dans l'album des autres", function(v) ns.char.albumOptOut = v end)
     c.optOut:SetPoint("TOPLEFT", 360, -208)
 
+    local sync = UI.Section(c, "Synchronisation", 320)
+    sync:SetPoint("TOPLEFT", 360, -242)
+    c.syncInfo = UI.Text(c, 11)
+    c.syncInfo:SetPoint("TOPLEFT", 360, -266)
+    c.syncInfo:SetWidth(320)
+    c.syncNow = UI.Button(c, "Synchroniser maintenant", 190, 22, function()
+        if ns.Sync then ns.Sync.SendVector(true) end
+        c:Refresh()
+    end)
+    c.syncNow:SetPoint("TOPLEFT", 360, -340)
+
     local data = UI.Section(c, "Données", 320)
-    data:SetPoint("TOPLEFT", 360, -250)
-    c.dataInfo = UI.Text(c, 12)
-    c.dataInfo:SetPoint("TOPLEFT", 360, -276)
+    data:SetPoint("TOPLEFT", 4, -384)
+    c.dataInfo = UI.Text(c, 11)
+    c.dataInfo:SetPoint("TOPLEFT", 4, -408)
     c.dataInfo:SetWidth(320)
     local unsupported = UI.Text(c, 10, UI.C.dim)
-    unsupported:SetPoint("TOPLEFT", 360, -330)
+    unsupported:SetPoint("TOPLEFT", 360, -384)
     unsupported:SetWidth(320)
     c.unsupported = unsupported
 
@@ -81,6 +92,17 @@ local function build(c)
         self.demo:SetChecked(ns.char.ui.demo)
         self.optOut:SetChecked(ns.char.albumOptOut)
         self.dataInfo:SetText(("%d événement(s) enregistré(s) sur ce compte.\nSchéma de données v%d."):format(ns.Store.Count(), ns.Settings.SCHEMA))
+        if ns.Sync then
+            local st = ns.Sync.Status()
+            local lines = {}
+            table.insert(lines, st.canSend and "|cff8fd88fActive|r" or ("|cffcc9933En pause|r (" .. tostring(st.reason) .. ")"))
+            table.insert(lines, ("Membres équipés vus : %d  ·  messages en attente : %d"):format(st.peers, st.queue))
+            table.insert(lines, ("Événements partagés connus : %d (%d auteurs)"):format(st.shared, st.authors))
+            local last = st.stats.lastReceived and UI.Ago(st.stats.lastReceived) or "jamais"
+            table.insert(lines, ("Reçus : %d  ·  dernier message : %s"):format(st.received, last))
+            if st.rejected > 0 then table.insert(lines, ("|cffcc6633%d événement(s) rejeté(s) (invalides)|r"):format(st.rejected)) end
+            self.syncInfo:SetText(table.concat(lines, "\n"))
+        end
         local list = {}
         for ev in pairs(ns.unsupportedEvents) do table.insert(list, ev) end
         table.sort(list)

@@ -23,6 +23,8 @@ local IMPORTANCE = {
     { value = 3, label = "Grandes étapes" },
 }
 
+local causes = {}   -- causes de mort (journal de combat) du jeu de donnees affiche
+
 local function hasMissing(ev, what)
     for _, m in ipairs(ev.miss or {}) do if m == what then return true end end
     return false
@@ -56,8 +58,24 @@ local function rowTooltip(row)
     end
     local pt = participantsText(ev)
     if pt then table.insert(lines, { "Présents selon " .. (ev.n or "?") .. " : " .. pt, 0.8, 0.8, 0.8 }) end
-    if hasMissing(ev, "killer") then
+    if ev.k == "EXPEDITION" and ev.p then
+        if ev.p.bossNames then table.insert(lines, { "Boss : " .. table.concat(ev.p.bossNames, ", "), 1, 0.82, 0 }) end
+        if ev.p.others then table.insert(lines, { ev.p.others .. " joueur(s) hors guilde dans le groupe", 0.8, 0.8, 0.8 }) end
+        if ev.p.finish then table.insert(lines, { "Fin : " .. UI.Date(ev.p.finish, true), 0.8, 0.8, 0.8 }) end
+    end
+    local cause = causes[ev.id]
+    if cause then
+        table.insert(lines, { "Cause : " .. tostring(cause.p.cause) .. " (d'après le journal de combat de " .. tostring(cause.n) .. ")",
+            Types.PROVENANCE.LOG.color[1], Types.PROVENANCE.LOG.color[2], Types.PROVENANCE.LOG.color[3] })
+    elseif hasMissing(ev, "killer") then
         table.insert(lines, { "Cause de la mort inconnue : le journal de combat n'est pas accessible aux addons.", 0.6, 0.6, 0.6 })
+    end
+    for _, field in ipairs(ev.ded or {}) do
+        if Types.DEDUCED[field] then table.insert(lines, { "Supposé — " .. Types.DEDUCED[field], 0.75, 0.75, 0.75 }) end
+    end
+    if ev.rx then
+        table.insert(lines, { ev.rx.direct and ("Reçu directement de " .. tostring(ev.rx.by))
+            or ("Relayé par " .. tostring(ev.rx.by) .. " (copie de l'original de " .. tostring(ev.n) .. ")"), 0.6, 0.6, 0.6 })
     end
     if ev.vis == "P" then table.insert(lines, { "Privé : visible uniquement par toi.", 0.6, 0.6, 0.6 }) end
     return Types.Describe(ev, true), lines
@@ -109,7 +127,8 @@ local function updateRow(row, item, mode)
         if pt then table.insert(bits, "avec " .. pt) end
     end
     if ev.k == "ANECDOTE" and ev.p.cat then table.insert(bits, ev.p.cat) end
-    if hasMissing(ev, "killer") and not (ev.p and ev.p.cause) then table.insert(bits, "cause inconnue") end
+    if causes[ev.id] then table.insert(bits, "|cff73b3ff" .. tostring(causes[ev.id].p.cause) .. "|r")
+    elseif hasMissing(ev, "killer") and not (ev.p and ev.p.cause) then table.insert(bits, "cause inconnue") end
     row.line2:SetText(table.concat(bits, "  ·  "))
     local prov = Types.PROVENANCE[ev.prov] or Types.PROVENANCE.OBS
     row.badge:SetText(prov.label .. (ev.vis == "P" and "  |cff999999(privé)|r" or ""))
@@ -172,6 +191,7 @@ function UI.BuildTimeline(c, mode)
 
     function c:Refresh()
         local ds = ns.Store.Dataset()
+        causes = ds.causes or {}
         local f = {
             category = state.category ~= "all" and state.category or nil,
             since = Views.PeriodStart(state.period),
@@ -189,8 +209,11 @@ function UI.BuildTimeline(c, mode)
             f.authorName = state.member ~= "all" and state.member or nil
             f.minImportance = state.importance > 0 and state.importance or nil
             self.title:SetText("Histoire de la guilde")
-            self.info:SetText(ds.isDemo and "Événements partagés par les membres équipés de l'addon."
-                or "La synchronisation n'est pas encore active : seuls tes propres événements apparaissent ici.")
+            local shared = ns.char.privacy
+            local anyShared = false
+            for _, v in pairs(shared) do if v == "G" then anyShared = true end end
+            self.info:SetText((ds.isDemo or anyShared) and "Événements partagés par les membres équipés de l'addon."
+                or "Tu ne partages encore rien : règle des catégories sur « Guilde » dans les Paramètres.")
             emptyText = ds.guildKey and "Aucun événement pour ces filtres." or "Tu n'es dans aucune guilde."
         end
         local events = Views.Filter(ds.events, f)

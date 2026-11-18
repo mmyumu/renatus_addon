@@ -12,6 +12,7 @@ Types.CATEGORIES = {
     { key = "social", label = "Vie sociale" },
     { key = "pvp", label = "PvP" },
     { key = "anecdote", label = "Anecdotes" },
+    { key = "gazette", label = "Gazette (votes, courrier)" },
 }
 
 -- Provenance : jamais confondue (voir docs/ARCHITECTURE.md §4.2).
@@ -20,15 +21,23 @@ Types.PROVENANCE = {
     LOG = { label = "Journal de combat", color = { 0.45, 0.7, 1 }, help = "Issu d'un fichier de journal de combat (application compagnon)." },
     MAN = { label = "Déclaré", color = { 1, 0.75, 0.3 }, help = "Déclaré manuellement par un membre, non vérifié automatiquement." },
     DED = { label = "Supposé", color = { 0.75, 0.75, 0.75 }, help = "Déduit par une règle : ce n'est pas un fait confirmé." },
+    GEN = { label = "Rédaction", color = { 0.85, 0.6, 0.85 }, help = "Texte écrit par la rédaction de la gazette ; seuls les faits cités en sources font foi." },
+}
+
+-- Libelles des champs deduits (ev.ded) et manquants (ev.miss).
+Types.DEDUCED = {
+    enemies = "Les « ennemis présents » sont ceux aperçus dans les 30 secondes avant la mort, pas forcément les tueurs.",
+    finish = "Fin estimée : la session s'est terminée pendant l'expédition.",
 }
 
 local function zoneOf(ev) return ev.loc and (ev.loc.i or ev.loc.z) or nil end
 
 local function resultText(p)
-    if p.result == "win" then return "l'emporte face à " .. (p.enemy or "un ennemi")
-    elseif p.result == "loss" then return "tombe face à " .. (p.enemy or "un ennemi")
+    local enemy = p.enemy or p.name or "un ennemi"
+    if p.result == "win" then return "l'emporte face à " .. enemy
+    elseif p.result == "loss" then return "tombe face à " .. enemy
     end
-    return "affronte " .. (p.enemy or "un ennemi")
+    return "affronte " .. enemy
 end
 
 local TYPES = {
@@ -56,7 +65,12 @@ local TYPES = {
     EXPEDITION = { cat = "social", icon = "Interface\\Icons\\INV_Misc_Map02", importance = 4,
         text = function(ev)
             local p = ev.p
-            local s = (p.title or ("expédition à " .. (zoneOf(ev) or "?")))
+            local where = p.inst or zoneOf(ev) or "?"
+            local default = (p.type == "RAID" and ("raid : " .. where))
+                or (p.type == "DUNGEON" and ("expédition dans " .. where))
+                or (p.type == "PVP" and ("bataille : " .. where))
+                or ("expédition en " .. where)
+            local s = p.title or default
             local bits = {}
             if p.duration then table.insert(bits, math.floor(p.duration / 60) .. " min") end
             if p.bosses and p.bosses > 0 then table.insert(bits, p.bosses .. " boss") end
@@ -78,7 +92,13 @@ local TYPES = {
             return "aperçoit " .. tostring(ev.p.name) .. g
         end },
     PVP_CLASH = { cat = "pvp", icon = "Interface\\Icons\\Ability_DualWield", importance = 3,
-        text = function(ev) return resultText(ev.p) end },
+        text = function(ev)
+            -- publie par le redacteur pour un autre membre (journal de combat)
+            if ev.p.member and ev.p.member ~= ev.n then
+                return "rapporte : " .. ev.p.member .. " " .. resultText(ev.p)
+            end
+            return resultText(ev.p)
+        end },
     ENEMY_NOTE = { cat = "pvp", icon = "Interface\\Icons\\INV_Misc_Note_02", importance = 1,
         text = function(ev)
             if ev.p.nickname then return "surnomme " .. tostring(ev.p.name) .. " « " .. ev.p.nickname .. " »" end
@@ -88,6 +108,15 @@ local TYPES = {
         text = function(ev) return "placarde un avis de recherche contre " .. tostring(ev.p.name) end },
     WANTED_CLOSE = { cat = "pvp", icon = "Interface\\Icons\\INV_Misc_Note_06", importance = 2,
         text = function(ev) return "lève l'avis de recherche contre " .. tostring(ev.p.name) end },
+    ARTICLE = { cat = "gazette", icon = "Interface\\Icons\\INV_Misc_Note_06", importance = 3,
+        text = function(ev) return "publie dans la gazette : « " .. tostring(ev.p.title) .. " »" end },
+    VOTE = { cat = "gazette", icon = "Interface\\Icons\\INV_Misc_Coin_01", importance = 0, hidden = true,
+        text = function() return "vote pour la une" end },
+    DEATH_CAUSE = { cat = "combat", icon = "Interface\\Icons\\INV_Misc_Bone_HumanSkull_01", importance = 1, hidden = true,
+        text = function(ev)
+            return ("rapporte, d'après son journal de combat, la mort de %s : %s"):format(
+                tostring(ev.p.victim), tostring(ev.p.cause))
+        end },
     LETTER = { cat = "anecdote", icon = "Interface\\Icons\\INV_Letter_15", importance = 1,
         text = function(ev) return "écrit au courrier des lecteurs : « " .. tostring(ev.p.title) .. " »" end },
 }

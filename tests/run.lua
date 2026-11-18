@@ -461,5 +461,454 @@ test("formulaire en demo : rien n'est sauvegarde", function()
     eq(ns.Store.Count(), 0)
 end)
 
+
+print("Voix : specialisations (Retail / Forever)")
+
+test("spe reconnue par identifiant : guerrier Protection (73) = tank corps a corps", function()
+    local ns = boot({ class = "WARRIOR", specIndex = 3, specID = 73, specRole = "TANK" })
+    eq(table.concat(ns.Voice:GetCombatFamilies(), ","), "fightGeneric,fightTank,fightMelee")
+end)
+
+test("chasseur : Precision (254) distance, Survie (255) corps a corps", function()
+    eq(boot({ class = "HUNTER", specIndex = 2, specID = 254 }).Voice.characterType, "ranged")
+    eq(boot({ class = "HUNTER", specIndex = 3, specID = 255 }).Voice.characterType, "melee")
+end)
+
+test("spe inconnue (Forever) : role de la spe garde, type par la classe ou rien", function()
+    local ns = boot({ class = "DRUID", specIndex = 2, specID = 9999, specRole = "HEALER" })
+    eq(ns.Voice.role, "HEALER")
+    eq(ns.Voice.characterType, nil, "druide : pas de devinette")
+    eq(table.concat(ns.Voice:GetCombatFamilies(), ","), "fightGeneric,fightHealer")
+end)
+
+test("reglage manuel du role et du style", function()
+    local ns = boot({ class = "SHAMAN", specIndex = nil })
+    ns.char.voice.roleOverride = "HEALER"
+    ns.char.voice.typeOverride = "caster"
+    ns.Voice:RebuildPools()
+    eq(table.concat(ns.Voice:GetCombatFamilies(), ","), "fightGeneric,fightHealer,fightCaster")
+    eq(ns.Voice.roleSource, "manuel")
+end)
+
+print("Synchronisation")
+
+local ALICE = { guid = "Player-1-AAA", name = "Alice" }
+local BOB = { guid = "Player-1-BBB", name = "Bob" }
+local CAROL = { guid = "Player-1-CCC", name = "Carol" }
+
+-- Messages complets (morceaux reassembles) emis par le client courant.
+local function decodeSent(ns, sent)
+    local out, acc = {}, nil
+    for _, m in ipairs(sent) do
+        local tag, body = m.msg:sub(1, 1), m.msg:sub(2)
+        if tag == "S" then table.insert(out, ns.Serialize.Decode(body))
+        elseif tag == "F" then acc = { body }
+        elseif tag == "M" then table.insert(acc, body)
+        elseif tag == "L" then table.insert(acc, body); table.insert(out, ns.Serialize.Decode(table.concat(acc))); acc = nil end
+    end
+    return out
+end
+
+local function ops(ns, sent, op)
+    local out = {}
+    for _, m in ipairs(decodeSent(ns, sent)) do if m.o == op then table.insert(out, m) end end
+    return out
+end
+
+test("serialisation : aller-retour, caracteres speciaux, entree invalide", function()
+    local ns = boot({ specIndex = 1 })
+    local v = { a = "x;y~z\n|é", n = -3.25, big = 1795000000, t = true, f = false, list = { 1, "deux", { 3 } } }
+    local text = ns.Serialize.Encode(v)
+    assert(not text:find("\n"), "pas de saut de ligne brut")
+    local back = ns.Serialize.Decode(text)
+    eq(back.a, v.a); eq(back.n, -3.25); eq(back.big, 1795000000); eq(back.t, true); eq(back.f, false)
+    eq(back.list[2], "deux"); eq(back.list[3][1], 3)
+    eq(ns.Serialize.Encode(v), text, "deterministe")
+    eq(ns.Serialize.Decode("{s1;"), nil)
+    eq(ns.Serialize.Decode("zzz"), nil)
+    eq(ns.Serialize.Decode(text .. "x"), nil)
+end)
+
+test("evenement public diffuse, evenement prive jamais", function()
+    local ns, S = boot({ specIndex = 1, me = ALICE })
+    ns.char.privacy.combat = "G"
+    Stub.fire("PLAYER_DEAD")
+    Stub.fire("PLAYER_LEVEL_UP", 21)       -- progression : privee
+    Stub.advance(2)
+    local es = ops(ns, S.sent, "E")
+    eq(#es, 1)
+    eq(es[1].e.k, "DEATH")
+    eq(es[1].e.vis, "G")
+    for _, m in ipairs(S.sent) do
+        eq(m.channel, "GUILD"); eq(m.prefix, "GChron")
+        assert(not m.msg:find("LEVEL_UP"), "evenement prive envoye !")
+    end
+end)
+
+test("reception : evenement insere, verifie (recu de l'auteur), visible dans Guilde", function()
+    local nsA, SA = boot({ specIndex = 1, me = ALICE })
+    nsA.char.privacy.combat = "G"
+    Stub.fire("PLAYER_DEAD")
+    Stub.advance(2)
+    local sent = SA.sent
+    local ns = boot({ specIndex = 1, me = BOB })
+    Stub.deliver(sent, "Alice-Forever")
+    local ev = ns.db.events["Player-1-AAA:1"]
+    assert(ev, "evenement recu")
+    eq(ev.n, "Alice")
+    eq(ev.rx.direct, true)
+    local ds = ns.Store.Dataset()
+    eq(#ns.Views.Filter(ds.events, { guild = ds.guildKey }), 1)
+end)
+
+test("message long (article) : decoupe en morceaux <= 255 octets et reassemble", function()
+    local ns, S = boot({ specIndex = 1, me = ALICE })
+    local body = string.rep("La rédaction s'étonne ; ~ encore. ", 60)
+    local ev = ns.Store.Add("ARTICLE", { title = "Long", body = body }, { vis = "G", prov = "GEN", noExp = true })
+    Stub.advance(20)
+    assert(#S.sent > 5, "plusieurs morceaux")
+    local nsB = boot({ specIndex = 1, me = BOB })
+    Stub.deliver(S.sent, "Alice-Forever")
+    eq(nsB.db.events[ev.id].p.body, body)
+end)
+
+test("trou dans la sequence : demande ciblee, l'auteur repond", function()
+    local nsA, SA = boot({ specIndex = 1, me = ALICE })
+    nsA.char.privacy.combat = "G"
+    Stub.fire("PLAYER_DEAD"); Stub.fire("PLAYER_DEAD")
+    Stub.advance(5)
+    local savedA, savedAC = GuildChronicleDB, GuildChronicleCharDB
+    -- regroupe les morceaux de chaque message, garde ceux de l'evenement n°2
+    local onlySecond, current = {}, {}
+    for _, m in ipairs(SA.sent) do
+        table.insert(current, m)
+        local tag = m.msg:sub(1, 1)
+        if tag == "S" or tag == "L" then
+            local d = decodeSent(nsA, current)[1]
+            if d and d.o == "E" and d.e.s == 2 then for _, x in ipairs(current) do table.insert(onlySecond, x) end end
+            current = {}
+        end
+    end
+    assert(#onlySecond >= 1)
+    -- Bob ne recoit que le n°2 : il demande le n°1
+    local nsB, SB = boot({ specIndex = 1, me = BOB })
+    Stub.deliver(onlySecond, "Alice-Forever")
+    Stub.advance(2)
+    local rs = ops(nsB, SB.sent, "R")
+    eq(#rs, 1); eq(rs[1].a, ALICE.guid); eq(rs[1].f, 1); eq(rs[1].t, 1)
+    local savedB, savedBC, requestMsgs = GuildChronicleDB, GuildChronicleCharDB, SB.sent
+    -- Alice recoit la demande et renvoie le n°1
+    local nsA2, SA2 = boot({ specIndex = 1, me = ALICE, savedAccount = savedA, savedChar = savedAC })
+    Stub.deliver(requestMsgs, "Bob-Forever")
+    Stub.advance(3)
+    local es = ops(nsA2, SA2.sent, "E")
+    eq(#es, 1); eq(es[1].e.s, 1)
+    local answer = SA2.sent
+    local nsB2 = boot({ specIndex = 1, me = BOB, savedAccount = savedB, savedChar = savedBC })
+    Stub.deliver(answer, "Alice-Forever")
+    eq(nsB2.Sync.Vector()[ALICE.guid].max, 2)
+end)
+
+test("vecteurs : un nouveau venu rattrape l'historique via un relais", function()
+    -- Bob possede 2 evenements d'Alice ; Carol n'a rien.
+    local nsA, SA = boot({ specIndex = 1, me = ALICE })
+    nsA.char.privacy.combat = "G"
+    Stub.fire("PLAYER_DEAD"); Stub.fire("PLAYER_DEAD")
+    Stub.advance(5)
+    local fromAlice = SA.sent
+    local nsB = boot({ specIndex = 1, me = BOB })
+    Stub.deliver(fromAlice, "Alice-Forever")
+    local savedB, savedBC = GuildChronicleDB, GuildChronicleCharDB
+    -- Carol se connecte et annonce son vecteur (vide)
+    local nsC, SC = boot({ specIndex = 1, me = CAROL })
+    Stub.advance(31)
+    eq(#ops(nsC, SC.sent, "V"), 1)
+    local savedC, savedCC, carolV = GuildChronicleDB, GuildChronicleCharDB, SC.sent
+    -- Bob voit que Carol est en retard : il annonce le sien
+    local nsB2, SB2 = boot({ specIndex = 1, me = BOB, savedAccount = savedB, savedChar = savedBC })
+    Stub.deliver(carolV, "Carol-Forever")
+    Stub.advance(10)
+    local vs = ops(nsB2, SB2.sent, "V")
+    assert(#vs >= 1, "Bob annonce son vecteur")
+    eq(vs[1].v[ALICE.guid], 2)
+    local bobV = SB2.sent
+    -- Carol demande, Bob (relais) repond
+    local nsC2, SC2 = boot({ specIndex = 1, me = CAROL, savedAccount = savedC, savedChar = savedCC })
+    Stub.deliver(bobV, "Bob-Forever")
+    Stub.advance(2)
+    local rs = ops(nsC2, SC2.sent, "R")
+    eq(#rs, 1); eq(rs[1].f, 1); eq(rs[1].t, 2)
+    local carolR, savedC2, savedCC2 = SC2.sent, GuildChronicleDB, GuildChronicleCharDB
+    local nsB3, SB3 = boot({ specIndex = 1, me = BOB, savedAccount = savedB, savedChar = savedBC })
+    Stub.deliver(carolR, "Carol-Forever")
+    Stub.advance(10)
+    eq(#ops(nsB3, SB3.sent, "E"), 2)
+    local relayed = SB3.sent
+    local nsC3 = boot({ specIndex = 1, me = CAROL, savedAccount = savedC2, savedChar = savedCC2 })
+    Stub.deliver(relayed, "Bob-Forever")
+    local ev = nsC3.db.events["Player-1-AAA:2"]
+    assert(ev, "recu par relais")
+    eq(ev.rx.direct, nil); eq(ev.rx.by, "Bob")
+end)
+
+test("rejets : autre guilde, prive, identifiant falsifie", function()
+    local ns = boot({ specIndex = 1, me = BOB })
+    local function deliverEvent(e)
+        local text = ns.Serialize.Encode({ o = "E", g = "Les Testeurs-Forever", e = e })
+        Stub.deliver({ { prefix = "GChron", channel = "GUILD", msg = "S" .. text } }, "Mallory-Forever")
+    end
+    local base = { v = 1, id = "Player-1-AAA:1", a = "Player-1-AAA", n = "Alice", s = 1, t = 1, k = "DEATH",
+        g = "Les Testeurs-Forever", vis = "G", p = {}, prov = "OBS" }
+    local function copy(over) local t = {} for k, v in pairs(base) do t[k] = v end for k, v in pairs(over) do t[k] = v end return t end
+    deliverEvent(copy({ g = "Autre-Forever" }))
+    deliverEvent(copy({ vis = "P" }))
+    deliverEvent(copy({ id = "Player-1-AAA:7" }))
+    deliverEvent(copy({ prov = "VRAI" }))
+    eq(ns.Store.Count(), 0)
+    eq(ns.Sync.Status().rejected, 4)
+    deliverEvent(copy({ secret = "x" }))
+    eq(ns.Store.Count(), 1)
+    eq(ns.db.events["Player-1-AAA:1"].secret, nil, "champ hors schema retire")
+    eq(ns.db.events["Player-1-AAA:1"].rx.direct, nil, "envoye par un autre que l'auteur : relaye")
+end)
+
+test("pas d'envoi en instance ni en combat ; reprise a la sortie", function()
+    local ns, S = boot({ specIndex = 1, me = ALICE, instance = { type = "party", name = "Mortemines", iid = 36 } })
+    ns.char.privacy.combat = "G"
+    Stub.fire("PLAYER_DEAD")
+    Stub.advance(5)
+    eq(#S.sent, 0, "rien en instance")
+    S.instance = nil
+    S.inCombat = true
+    Stub.advance(5)
+    eq(#S.sent, 0, "rien en combat")
+    S.inCombat = false
+    Stub.advance(2)
+    eq(#ops(ns, S.sent, "E"), 1)
+end)
+
+test("debit limite : rafale de 4 puis 1 message par 1,2 s", function()
+    local ns, S = boot({ specIndex = 1, me = ALICE })
+    for i = 1, 10 do ns.Transport.Send("x" .. i) end
+    Stub.advance(0.1)
+    eq(#S.sent, 4)
+    Stub.advance(12)
+    eq(#S.sent, 10)
+end)
+
+print("Expeditions")
+
+local ROSTER = { { name = "Bob" }, { name = "Testeur" } }
+
+test("donjon : debut a l'entree, boss rattache, fin 10 min apres la sortie", function()
+    local ns, S = boot({ specIndex = 1, roster = ROSTER, group = { { guid = BOB.guid, name = "Bob", leader = true }, { guid = "Player-9-X", name = "Inconnu" } } })
+    S.instance = { type = "party", name = "Mortemines", iid = 36 }
+    Stub.fire("PLAYER_ENTERING_WORLD")
+    local st = ns.Expedition:Current()
+    eq(st.kind, "DUNGEON")
+    eq(st.leader, BOB.guid)
+    Stub.advance(400)
+    Stub.fire("ENCOUNTER_END", 1, "VanCleef", 1, 5, 1)
+    local boss = eventsOf(ns, "BOSS_KILL")[1]
+    eq(boss.x, st.key)
+    S.instance = nil
+    Stub.fire("ZONE_CHANGED_NEW_AREA")
+    Stub.advance(300)
+    eq(#eventsOf(ns, "EXPEDITION"), 0, "tolerance de sortie")
+    Stub.advance(330)
+    local exp = eventsOf(ns, "EXPEDITION")[1]
+    assert(exp, "expedition cloturee")
+    eq(exp.p.type, "DUNGEON"); eq(exp.p.inst, "Mortemines"); eq(exp.p.bosses, 1)
+    eq(exp.p.bossNames[1], "VanCleef")
+    eq(exp.p.others, 1, "joueur hors guilde compte, pas nomme")
+    eq(#exp.pt, 1); eq(exp.pt[1].n, "Bob")
+    eq(exp.x, nil)
+    eq(ns.Expedition:Current(), nil)
+    assert(ns.Types.Describe(exp, true):find("Mortemines"), "texte")
+end)
+
+test("donjon : ressortir et revenir (reparation) = meme expedition", function()
+    local ns, S = boot({ specIndex = 1 })
+    S.instance = { type = "party", name = "Mortemines", iid = 36 }
+    Stub.fire("PLAYER_ENTERING_WORLD")
+    local key = ns.Expedition:CurrentKey()
+    S.instance = nil; Stub.fire("ZONE_CHANGED_NEW_AREA"); Stub.advance(200)
+    S.instance = { type = "party", name = "Mortemines", iid = 36 }; Stub.fire("PLAYER_ENTERING_WORLD")
+    Stub.advance(700)
+    eq(ns.Expedition:CurrentKey(), key)
+end)
+
+test("passage eclair sans rien de notable : oublie", function()
+    local ns, S = boot({ specIndex = 1 })
+    S.instance = { type = "party", name = "Mortemines", iid = 36 }
+    Stub.fire("PLAYER_ENTERING_WORLD")
+    Stub.advance(30)
+    S.instance = nil; Stub.fire("ZONE_CHANGED_NEW_AREA")
+    Stub.advance(700)
+    eq(#eventsOf(ns, "EXPEDITION"), 0)
+end)
+
+test("groupe avec un membre de la guilde : expedition QUESTING, fin a la dissolution", function()
+    local ns, S = boot({ specIndex = 1, roster = ROSTER })
+    S.group = { { guid = BOB.guid, name = "Bob-Forever" } }
+    Stub.fire("GROUP_ROSTER_UPDATE")
+    eq(ns.Expedition:Current().kind, "QUESTING")
+    Stub.advance(200)
+    Stub.fire("QUEST_TURNED_IN", 42)
+    Stub.advance(200)
+    S.group = {}
+    Stub.fire("GROUP_ROSTER_UPDATE")
+    local exp = eventsOf(ns, "EXPEDITION")[1]
+    eq(exp.p.type, "QUESTING"); eq(exp.p.quests, 1); eq(exp.pt[1].n, "Bob")
+end)
+
+test("groupe sans membre de la guilde : pas d'expedition", function()
+    local ns, S = boot({ specIndex = 1, roster = ROSTER })
+    S.group = { { guid = "Player-9-X", name = "Inconnu" } }
+    Stub.fire("GROUP_ROSTER_UPDATE")
+    eq(ns.Expedition:Current(), nil)
+end)
+
+test("deconnexion pendant une expedition : fin estimee a la connexion suivante", function()
+    local ns, S = boot({ specIndex = 1 })
+    S.instance = { type = "raid", name = "Molten Core", iid = 409 }
+    Stub.fire("PLAYER_ENTERING_WORLD")
+    Stub.advance(1000)
+    Stub.fire("PLAYER_DEAD")
+    Stub.fire("PLAYER_LOGOUT")
+    local savedA, savedC = GuildChronicleDB, GuildChronicleCharDB
+    local ns2, S2 = boot({ specIndex = 1, savedAccount = savedA, savedChar = savedC })
+    -- reconnexion "plus tard", hors instance : le stub repart de t=0, on simule l'ecart
+    S2.now = 5000
+    ns2.Expedition:OnLogin()
+    local exp = eventsOf(ns2, "EXPEDITION")[1]
+    assert(exp, "cloturee")
+    eq(exp.ded[1], "finish"); eq(exp.p.type, "RAID"); eq(exp.p.deaths, 1)
+end)
+
+print("Tableau de chasse automatique")
+
+local GORBASH = { name = "Gorbash", realm = "Forever", guild = "Les Crocs de Sang", level = 25, race = "Orc", class = "WARRIOR", pvp = true }
+
+test("sans guilde rivale configuree : rien n'est enregistre", function()
+    local ns = boot({ specIndex = 1, units = { target = GORBASH } })
+    Stub.fire("PLAYER_TARGET_CHANGED")
+    eq(#eventsOf(ns, "ENEMY_SEEN"), 0)
+end)
+
+test("rival cible : fiche creee, une observation par 10 min", function()
+    local ns, S = boot({ specIndex = 1, units = { target = GORBASH, mouseover = GORBASH } })
+    ns.char.rivalGuild = "les crocs de sang "
+    Stub.fire("PLAYER_TARGET_CHANGED")
+    Stub.fire("UPDATE_MOUSEOVER_UNIT")
+    eq(#eventsOf(ns, "ENEMY_SEEN"), 1)
+    local ev = eventsOf(ns, "ENEMY_SEEN")[1]
+    eq(ev.p.name, "Gorbash"); eq(ev.p.level, 25); eq(ev.p.class, "WARRIOR"); eq(ev.p.race, "Orc")
+    Stub.advance(601)
+    Stub.fire("UPDATE_MOUSEOVER_UNIT")
+    eq(#eventsOf(ns, "ENEMY_SEEN"), 2)
+    local enemies = ns.Views.Enemies(ns.Store.Dataset())
+    eq(#enemies, 1); eq(enemies[1].level, 25)
+end)
+
+test("autre guilde, PNJ ou nom secret : ignores", function()
+    local secret = { name = { secret = true }, guild = "Les Crocs de Sang" }
+    local ns = boot({ specIndex = 1, units = {
+        target = { name = "Passant", guild = "Les Gentils" },
+        mouseover = { name = "Garde", guild = "Les Crocs de Sang", player = false },
+        nameplate1 = secret } })
+    ns.char.rivalGuild = "Les Crocs de Sang"
+    Stub.fire("PLAYER_TARGET_CHANGED"); Stub.fire("UPDATE_MOUSEOVER_UNIT"); Stub.fire("NAME_PLATE_UNIT_ADDED", "nameplate1")
+    eq(#eventsOf(ns, "ENEMY_SEEN"), 0)
+end)
+
+test("mort juste apres avoir vu un rival : present (suppose), pas tueur", function()
+    local ns = boot({ specIndex = 1, units = { nameplate3 = GORBASH } })
+    ns.char.rivalGuild = "Les Crocs de Sang"
+    Stub.fire("NAME_PLATE_UNIT_ADDED", "nameplate3")
+    Stub.advance(10)
+    Stub.fire("PLAYER_DEAD")
+    local death = eventsOf(ns, "DEATH")[1]
+    eq(death.p.enemies[1], "Gorbash"); eq(death.ded[1], "enemies"); eq(death.prov, "OBS")
+    local enemies = ns.Views.Enemies(ns.Store.Dataset())
+    eq(enemies[1].presentAtDeaths, 1)
+    eq(ns.Views.Total(enemies[1].losses), 0, "aucune defaite inventee")
+    Stub.advance(60)
+    Stub.fire("PLAYER_DEAD")
+    local withEnemies = 0
+    for _, d in ipairs(eventsOf(ns, "DEATH")) do if d.p.enemies then withEnemies = withEnemies + 1 end end
+    eq(withEnemies, 1, "fenetre de 30 s")
+end)
+
+print("Presse (compagnon)")
+
+local function withPress(items)
+    GuildChroniclePress = { version = 1, items = items }
+end
+
+test("elements du compagnon : en attente, publies signes LOG / GEN, jamais automatiques", function()
+    local ns = boot({ specIndex = 1 })
+    ns.char.privacy.combat = "G"
+    Stub.fire("PLAYER_DEAD")
+    local death = eventsOf(ns, "DEATH")[1]
+    withPress({
+        { id = "c1", kind = "DEATH_CAUSE", t = death.t, refs = { death.id },
+          p = { victim = "Testeur", cause = "Hogger (Coup de massue)", killer = "Hogger" } },
+        { id = "a1", kind = "ARTICLE", refs = { death.id },
+          p = { title = "Drame à Elwynn", body = "Selon nos sources...", style = "sarcastique", format = "Brève" } },
+        { id = "bad", kind = "INCONNU", p = {} },
+    })
+    eq(#ns.Press.Pending(), 2)
+    eq(#eventsOf(ns, "DEATH_CAUSE"), 0, "rien de publie tout seul")
+    local cause = ns.Press.Publish(ns.Press.Pending()[1])
+    eq(cause.prov, "LOG"); eq(cause.vis, "G"); eq(cause.refs[1], death.id); eq(cause.t, death.t)
+    local ds = ns.Store.Dataset()
+    eq(ds.causes[death.id], cause)
+    eq(#ns.Views.Filter(ds.events, {}), 1, "DEATH_CAUSE masque de la chronologie (affiche sur la mort)")
+    ns.UI.Open("journal")
+    local row = GuildChronicleMainFrame.containers.journal.list.rows[1]
+    assert(row.line2:GetText():find("Hogger"), "cause affichee sur la ligne de la mort")
+    ns.Press.Ignore(ns.Press.Pending()[1])
+    eq(#ns.Press.Pending(), 0)
+    local clash = ns.Store.Add("PVP_CLASH", { name = "Gorbash", result = "loss", member = "Bob" }, { prov = "LOG", vis = "G" })
+    eq(ns.Types.Describe(clash, true), "Testeur rapporte : Bob tombe face à Gorbash")
+    local e = ns.Views.Enemies(ns.Store.Dataset())[1]
+    eq(e.losses.LOG, 1); eq(e.memberList[1], "Bob")
+    local savedA, savedC = GuildChronicleDB, GuildChronicleCharDB
+    local ns2 = boot({ specIndex = 1, savedAccount = savedA, savedChar = savedC })
+    eq(#ns2.Press.Pending(), 0, "decisions memorisees")
+    GuildChroniclePress = nil
+end)
+
+test("gazette reelle : article publie, vote une fois par semaine", function()
+    local ns = boot({ specIndex = 1 })
+    withPress({ { id = "a1", kind = "ARTICLE", p = { title = "Une", body = "Texte", style = "épique", format = "Hebdomadaire" } } })
+    local art = ns.Press.Publish(ns.Press.Pending()[1])
+    eq(art.prov, "GEN")
+    ns.UI.Open("gazette")
+    local c = GuildChronicleMainFrame.containers.gazette
+    eq(c.current.id, art.id)
+    eq(c.current.author, "Testeur")
+    c.paper.vote:Click()
+    eq(c.current.votes, 1); eq(c.current.voted, true)
+    c.paper.vote:Click()
+    eq(c.current.votes, 1, "pas de double vote")
+    c.press:Click()
+    GuildChroniclePress = nil
+end)
+
+print("Interface (v0.3)")
+
+test("parametres : etat de la synchronisation ; voix : reglages manuels", function()
+    local ns = boot({ specIndex = 1 })
+    ns.UI.Open("settings")
+    local c = GuildChronicleMainFrame.containers.settings
+    assert(c.syncInfo:GetText():find("Membres"), "etat de synchro")
+    c.syncNow:Click()
+    ns.UI.Open("voice")
+    local v = GuildChronicleMainFrame.containers.voice
+    assert(v.status:GetText():find("Rôle"), "statut voix")
+end)
+
 print(string.format("\n%d ok, %d echec(s)", passed, failed))
 os.exit(failed == 0 and 0 or 1)

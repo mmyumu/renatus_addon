@@ -14,9 +14,12 @@ local function onLevelUp(_, level)
 end
 
 local function onDead()
-    ns.Store.Add("DEATH", { lvl = try(UnitLevel, "player") }, {
+    -- Rivaux apercus juste avant : "presents", pas "tueurs" (deduction, marquee comme telle).
+    local enemies = ns.EnemyWatch and ns.EnemyWatch.RecentNames() or {}
+    ns.Store.Add("DEATH", { lvl = try(UnitLevel, "player"), enemies = #enemies > 0 and enemies or nil }, {
         miss = { "killer" },                 -- inaccessible aux addons (journal de combat ferme)
         pt = ns.Context.Participants(),
+        ded = #enemies > 0 and { "enemies" } or nil,
     })
 end
 

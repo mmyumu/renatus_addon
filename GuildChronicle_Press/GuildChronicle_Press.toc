@@ -1,0 +1,7 @@
+## Interface: 16001, 120005
+## Title: Guild Chronicle - Presse
+## Notes: Donnees produites par l'application compagnon (articles, causes de mort). Aucun code : une table Lua, reecrite par le compagnon et relue a chaque /reload.
+## Author: Dakey
+## Version: 1
+
+Press.lua
