@@ -5,7 +5,7 @@
 --   en combat, toutes les 3 s, 50 % de chances de jouer une replique de combat
 --   (generique + role + type) ; une seule replique a la fois ; ducking du volume SFX.
 -- Differences volontaires (voir docs/ARCHITECTURE.md) :
---   - module optionnel, desactive par defaut, reglable (/chronicle voice) ;
+--   - module optionnel, desactive par defaut, reglable (/renatus voice) ;
 --   - plus aucune fonction globale ;
 --   - specialisations reconnues par identifiant (et non par index), repli sur la classe
 --     puis reglage manuel du role et du type (les specialisations de Forever peuvent differer) ;

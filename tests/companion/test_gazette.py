@@ -45,7 +45,7 @@ def saved(consent_bob=False):
     ]
     if consent_bob:
         events.append(ev(BOB, "Bob", 2, "AI_CONSENT", 100, {"ok": True}, prov="MAN"))
-    return {"GuildChronicleDB": {"events": {e["id"]: e for e in events}, "pressDone": {}}}
+    return {"RenatusDB": {"events": {e["id"]: e for e in events}, "pressDone": {}}}
 
 
 def brief(**kw):
@@ -122,13 +122,13 @@ class EndToEndGazette(unittest.TestCase):
         self.root = self.tmp / "_forever_"
         sv = self.root / "WTF" / "Account" / "COMPTE" / "SavedVariables"
         sv.mkdir(parents=True)
-        (sv / "GuildChronicle.lua").write_text(luadata.dumps(saved()), encoding="utf-8")
+        (sv / "Renatus.lua").write_text(luadata.dumps(saved()), encoding="utf-8")
         (self.tmp / "fake.py").write_text(FAKE, encoding="utf-8")
         cfg = self.tmp / "config.toml"
         cmd = json.dumps([sys.executable, str(self.tmp / "fake.py")])
         cfg.write_text(f"[llm]\nenabled = true\ncommand = {cmd}\n", encoding="utf-8")
         self.cfg = cfg
-        self.press = self.root / "Interface" / "AddOns" / "GuildChronicle_Press" / "Press.lua"
+        self.press = self.root / "Interface" / "AddOns" / "Renatus_Press" / "Press.lua"
 
     def tearDown(self):
         shutil.rmtree(self.tmp)

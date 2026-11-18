@@ -1,6 +1,6 @@
 -- Core/Press.lua : elements produits hors jeu par l'application compagnon du redacteur.
 --
--- Le compagnon ecrit Interface/AddOns/GuildChronicle_Press/Press.lua (une simple table Lua).
+-- Le compagnon ecrit Interface/AddOns/Renatus_Press/Press.lua (une simple table Lua).
 -- Le jeu le relit a chaque /reload. Rien n'est publie automatiquement : le redacteur
 -- passe en revue chaque element (Publier / Ignorer) dans l'onglet Gazette.
 -- Une fois publie, l'element devient un evenement signe par le redacteur :
@@ -24,13 +24,13 @@ local function valid(item)
 end
 
 function Press.Available()
-    return type(GuildChroniclePress) == "table" and type(GuildChroniclePress.items) == "table"
+    return type(RenatusPress) == "table" and type(RenatusPress.items) == "table"
 end
 
 function Press.Pending()
     local out = {}
     if not Press.Available() then return out end
-    for _, item in ipairs(GuildChroniclePress.items) do
+    for _, item in ipairs(RenatusPress.items) do
         if valid(item) and not ns.db.pressDone[item.id] then table.insert(out, item) end
     end
     return out

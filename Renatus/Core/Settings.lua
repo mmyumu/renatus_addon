@@ -1,6 +1,6 @@
 -- Core/Settings.lua : SavedVariables, valeurs par defaut, version de schema.
---   GuildChronicleDB      (compte)      : donnees partagees entre personnages
---   GuildChronicleCharDB  (personnage)  : reglages du personnage
+--   RenatusDB      (compte)      : donnees partagees entre personnages
+--   RenatusCharDB  (personnage)  : reglages du personnage
 local _, ns = ...
 
 local Settings = {}
@@ -83,12 +83,12 @@ local function migrate(db)
 end
 
 function Settings:Load()
-    GuildChronicleDB = type(GuildChronicleDB) == "table" and GuildChronicleDB or {}
-    GuildChronicleCharDB = type(GuildChronicleCharDB) == "table" and GuildChronicleCharDB or {}
-    migrate(GuildChronicleDB)
-    migrate(GuildChronicleCharDB)
-    applyDefaults(GuildChronicleDB, ACCOUNT_DEFAULTS)
-    applyDefaults(GuildChronicleCharDB, CHAR_DEFAULTS)
-    ns.db = GuildChronicleDB
-    ns.char = GuildChronicleCharDB
+    RenatusDB = type(RenatusDB) == "table" and RenatusDB or {}
+    RenatusCharDB = type(RenatusCharDB) == "table" and RenatusCharDB or {}
+    migrate(RenatusDB)
+    migrate(RenatusCharDB)
+    applyDefaults(RenatusDB, ACCOUNT_DEFAULTS)
+    applyDefaults(RenatusCharDB, CHAR_DEFAULTS)
+    ns.db = RenatusDB
+    ns.char = RenatusCharDB
 end

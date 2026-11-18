@@ -11,7 +11,7 @@ local _, ns = ...
 local Transport = {}
 ns.Transport = Transport
 
-Transport.PREFIX = "GChron"
+Transport.PREFIX = "Renatus"
 Transport.CHUNK = 250          -- octets utiles par message (limite client : 255)
 Transport.BURST = 4            -- jetons max
 Transport.RATE = 1.2           -- secondes par jeton

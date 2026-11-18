@@ -1,4 +1,4 @@
-"""Ecriture de GuildChronicle_Press/Press.lua, lu par l'addon a chaque /reload.
+"""Ecriture de Renatus_Press/Press.lua, lu par l'addon a chaque /reload.
 
 Le fichier est fusionne avec l'existant (identifiants deterministes : pas de doublon) et
 debarrasse des elements deja publies ou ignores en jeu (pressDone dans les SavedVariables).
@@ -21,7 +21,7 @@ def read_items(path: Path) -> list[dict[str, Any]]:
     if not path.exists():
         return []
     try:
-        data = luadata.load(path).get("GuildChroniclePress") or {}
+        data = luadata.load(path).get("RenatusPress") or {}
     except luadata.LuaParseError:
         return []
     items = data.get("items") or []
@@ -40,7 +40,7 @@ def merge(existing: list[dict[str, Any]], new: list[dict[str, Any]], done: dict[
 def write(path: Path, items: list[dict[str, Any]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     content = HEADER + luadata.dumps({
-        "GuildChroniclePress": {"version": 1, "generated": int(time.time()), "items": items},
+        "RenatusPress": {"version": 1, "generated": int(time.time()), "items": items},
     })
     tmp = path.with_suffix(".tmp")
     with open(tmp, "w", encoding="utf-8", newline="\n") as f:

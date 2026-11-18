@@ -36,5 +36,5 @@ function EventBus.Publish(topic, ...)
     return #snapshot
 end
 
-GuildChronicle.Subscribe = EventBus.Subscribe
-GuildChronicle.Unsubscribe = EventBus.Unsubscribe
+Renatus.Subscribe = EventBus.Subscribe
+Renatus.Unsubscribe = EventBus.Unsubscribe

@@ -68,7 +68,7 @@ local function build(c)
     c.press = UI.Button(c, "Rédaction", 130, 22, function() openReview(function() c:Refresh() end) end)
     c.press:SetPoint("TOPRIGHT", -4, -6)
     UI.Tooltip(c.press, "Rédaction", { "Articles et causes de mort produits par l'application compagnon,",
-        "à relire avant publication. Nécessite le compagnon et l'addon GuildChronicle_Press." })
+        "à relire avant publication. Nécessite le compagnon et l'addon Renatus_Press." })
     local motto = UI.Text(c, 11, UI.C.dim)
     motto:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -3)
     motto:SetText("Toute l'information, rien que l'information, et parfois un peu plus.")
@@ -165,7 +165,7 @@ local function build(c)
             paper.meta:SetText("")
             paper.body:SetText("La gazette est rédigée hors du jeu (application compagnon du rédacteur), à partir du journal de la guilde, "
                 .. "puis publiée en jeu par le rédacteur avec le bouton « Rédaction ». Les autres membres la reçoivent par la synchronisation.\n\n"
-                .. "En attendant, tape |cff8a1a10/chronicle demo|r pour feuilleter une édition de démonstration.")
+                .. "En attendant, tape |cff8a1a10/renatus demo|r pour feuilleter une édition de démonstration.")
             paper.sources:SetDisabled(true)
             paper.vote:SetDisabled(true)
             return

@@ -1,6 +1,6 @@
 __pycache__/
 *.pyc
-GuildChronicle/Voice/Sounds/boosted/
+Renatus/Voice/Sounds/boosted/
 tools/boosted_temp/
 .DS_Store
 Thumbs.db

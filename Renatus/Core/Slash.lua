@@ -1,4 +1,4 @@
--- Core/Slash.lua : /chronicle (et /renacoach comme raccourci vers les reglages vocaux).
+-- Core/Slash.lua : /renatus (et /renacoach comme raccourci vers les reglages vocaux).
 local _, ns = ...
 
 local function onOff(v) return v and "|cff40ff40on|r" or "|cffff4040off|r" end
@@ -18,9 +18,9 @@ local function voiceStatus()
 end
 
 local function voiceHelp()
-    ns.Print("/chronicle voice on|off|status|test")
-    ns.Print("/chronicle voice prob <0-1> | interval <secondes> | channel <Ambience|Master|SFX|Dialog>")
-    ns.Print("/chronicle voice duck on|off | family <nom> on|off")
+    ns.Print("/renatus voice on|off|status|test")
+    ns.Print("/renatus voice prob <0-1> | interval <secondes> | channel <Ambience|Master|SFX|Dialog>")
+    ns.Print("/renatus voice duck on|off | family <nom> on|off")
 end
 
 local function voiceCommand(args)
@@ -33,7 +33,7 @@ local function voiceCommand(args)
     elseif cmd == "" or cmd == "status" then
         voiceStatus()
     elseif cmd == "test" then
-        if not s.enabled then ns.Print("active d'abord le module : /chronicle voice on") return end
+        if not s.enabled then ns.Print("active d'abord le module : /renatus voice on") return end
         local pool = ns.Voice:GetCombatFamilies()
         local _, name = ns.Voice:PlayFamilies(pool)
         ns.Print("test : %s", tostring(name))
@@ -66,8 +66,8 @@ local function voiceCommand(args)
     end
 end
 
-SLASH_GUILDCHRONICLE1 = "/chronicle"
-SlashCmdList.GUILDCHRONICLE = function(msg)
+SLASH_RENATUS1 = "/renatus"
+SlashCmdList.RENATUS = function(msg)
     local cmd, rest = (msg or ""):match("^(%S*)%s*(.-)$")
     cmd = (cmd or ""):lower()
     if cmd == "voice" then
@@ -78,14 +78,14 @@ SlashCmdList.GUILDCHRONICLE = function(msg)
         ns.UI.Open()
         ns.UI.Refresh()
     elseif cmd == "help" then
-        ns.Print("/chronicle : ouvrir la fenêtre")
-        ns.Print("/chronicle demo : afficher des données fictives (rien n'est sauvegardé)")
-        ns.Print("/chronicle voice ... : réglages de Renacoach (aussi /renacoach)")
+        ns.Print("/renatus : ouvrir la fenêtre")
+        ns.Print("/renatus demo : afficher des données fictives (rien n'est sauvegardé)")
+        ns.Print("/renatus voice ... : réglages de Renacoach (aussi /renacoach)")
     elseif cmd == "" then
         ns.UI.Toggle()
     else
         local keys = { journal = true, guild = true, members = true, wanted = true, gazette = true, album = true, settings = true }
-        if keys[cmd] then ns.UI.Open(cmd) else ns.Print("commande inconnue, tape /chronicle help") end
+        if keys[cmd] then ns.UI.Open(cmd) else ns.Print("commande inconnue, tape /renatus help") end
     end
 end
 

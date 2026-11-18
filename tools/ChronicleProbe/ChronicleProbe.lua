@@ -6,7 +6,7 @@
 --   /gcprobe            resume dans le chat
 --   /gcprobe comm       envoie un message addon de test (GUILD, PARTY/RAID, WHISPER a soi-meme)
 --   /gcprobe burst      envoie 30 messages a soi-meme pour mesurer le throttling
---   /gcprobe sound      joue un son de GuildChronicle (module Voice) sur le canal Ambience
+--   /gcprobe sound      joue un son de Renatus (module Voice) sur le canal Ambience
 --   /gcprobe reset      efface les donnees collectees
 -- Les resultats complets sont dans WTF/Account/<COMPTE>/SavedVariables/ChronicleProbe.lua
 -- (ecrit a la deconnexion ou au /reload).
@@ -245,7 +245,7 @@ local function burstTest()
 end
 
 local function soundTest()
-    local path = "Interface\\AddOns\\GuildChronicle\\Voice\\Sounds\\cest_bien.ogg"
+    local path = "Interface\\AddOns\\Renatus\\Voice\\Sounds\\cest_bien.ogg"
     local res = { pcall(PlaySoundFile, path, "Ambience") }
     local ok = table.remove(res, 1)
     local out = ok and packSafe(unpack(res)) or { "ERROR: " .. safe(res[1]) }

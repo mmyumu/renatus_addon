@@ -57,26 +57,26 @@ def saved_variables():
         ev(f"{ME}:2", ME, "Testeur", "ENEMY_SEEN", ts(21, 9, 0) + SKEW, p={"name": "Gorbash", "guild": "Les Crocs"}),
         ev(f"{ME}:3", ME, "Testeur", "DEATH", ts(21, 10, 0) + SKEW, p={"enemies": ["Gorbash"]}),
     ]
-    return {"GuildChronicleDB": {"schema": 1, "events": {e["id"]: e for e in events}, "pressDone": {}},
-            "GuildChronicleCharDB": None}
+    return {"RenatusDB": {"schema": 1, "events": {e["id"]: e for e in events}, "pressDone": {}},
+            "RenatusCharDB": None}
 
 
 class LuaDataTests(unittest.TestCase):
     def test_wow_style_file(self):
         text = (
-            'GuildChronicleDB = {\n\t["events"] = {\n\t\t["Player-1-ABC:p1"] = {\n'
+            'RenatusDB = {\n\t["events"] = {\n\t\t["Player-1-ABC:p1"] = {\n'
             '\t\t\t["k"] = "LEVEL_UP",\n\t\t\t["p"] = {\n\t\t\t\t["lvl"] = 21,\n\t\t\t},\n'
             '\t\t\t["pt"] = {\n\t\t\t\t{\n\t\t\t\t\t["n"] = "Mélisande",\n\t\t\t\t}, -- [1]\n\t\t\t},\n'
             '\t\t\t["x"] = -1.5e2,\n\t\t\t["q"] = "dit \\"bonjour\\"\\n\\\\fin\\233",\n\t\t},\n\t},\n'
-            '\t["empty"] = {\n\t},\n\t["flag"] = true,\n}\nGuildChronicleCharDB = nil\n')
+            '\t["empty"] = {\n\t},\n\t["flag"] = true,\n}\nRenatusCharDB = nil\n')
         data = luadata.loads(text)
-        ev = data["GuildChronicleDB"]["events"]["Player-1-ABC:p1"]
+        ev = data["RenatusDB"]["events"]["Player-1-ABC:p1"]
         self.assertEqual(ev["p"]["lvl"], 21)
         self.assertEqual(ev["pt"][0]["n"], "Mélisande")
         self.assertEqual(ev["x"], -150.0)
         self.assertTrue(ev["q"].startswith('dit "bonjour"\n\\fin'))
-        self.assertEqual(data["GuildChronicleDB"]["empty"], {})
-        self.assertIsNone(data["GuildChronicleCharDB"])
+        self.assertEqual(data["RenatusDB"]["empty"], {})
+        self.assertIsNone(data["RenatusCharDB"])
 
     def test_roundtrip(self):
         value = {"items": [{"id": "a", "p": {"body": 'L1\nL2 "q" \\ é', "n": 3, "f": 0.5, "b": False}}], "v": 1}
@@ -142,7 +142,7 @@ class ReconcileTests(unittest.TestCase):
 
     def test_already_enriched_is_skipped(self):
         sv = saved_variables()
-        sv["GuildChronicleDB"]["events"]["X:1"] = {"id": "X:1", "a": "X", "k": "DEATH_CAUSE", "t": 0, "refs": [f"{ME}:1"]}
+        sv["RenatusDB"]["events"]["X:1"] = {"id": "X:1", "a": "X", "k": "DEATH_CAUSE", "t": 0, "refs": [f"{ME}:1"]}
         items, _ = propose(combatlog.analyse(combatlog.iter_events(LOG_LINES)), Chronicle.from_saved(sv))
         self.assertNotIn(f"dc:{ME}:1", {i["id"] for i in items})
 
@@ -177,7 +177,7 @@ class EndToEndTests(unittest.TestCase):
         self.root = Path(tempfile.mkdtemp()) / "_forever_"
         sv = self.root / "WTF" / "Account" / "COMPTE" / "SavedVariables"
         sv.mkdir(parents=True)
-        (sv / "GuildChronicle.lua").write_text(luadata.dumps(saved_variables()), encoding="utf-8")
+        (sv / "Renatus.lua").write_text(luadata.dumps(saved_variables()), encoding="utf-8")
         logs = self.root / "Logs"
         logs.mkdir()
         (logs / "WoWCombatLog-111826_210000.txt").write_text("".join(LOG_LINES), encoding="utf-8")
@@ -201,7 +201,7 @@ class EndToEndTests(unittest.TestCase):
         self.assertIn("4 événement(s)", out)
         code, out = self.run_cli("run", "--dir", str(self.articles))
         self.assertEqual(code, 0, out)
-        press_file = self.root / "Interface" / "AddOns" / "GuildChronicle_Press" / "Press.lua"
+        press_file = self.root / "Interface" / "AddOns" / "Renatus_Press" / "Press.lua"
         items = press.read_items(press_file)
         self.assertEqual(len(items), 6)  # 3 causes + 1 defaite + 1 victoire + 1 article
         self.run_cli("run", "--dir", str(self.articles))
@@ -212,8 +212,8 @@ class EndToEndTests(unittest.TestCase):
     @unittest.skipUnless(shutil.which("lua"), "interpreteur lua absent")
     def test_press_file_loads_in_lua(self):
         self.run_cli("run", "--dir", str(self.articles))
-        press_file = self.root / "Interface" / "AddOns" / "GuildChronicle_Press" / "Press.lua"
-        script = f'dofile([[{press_file}]]); print(#GuildChroniclePress.items, GuildChroniclePress.items[1].kind)'
+        press_file = self.root / "Interface" / "AddOns" / "Renatus_Press" / "Press.lua"
+        script = f'dofile([[{press_file}]]); print(#RenatusPress.items, RenatusPress.items[1].kind)'
         out = subprocess.run(["lua", "-e", script], capture_output=True, text=True, check=True).stdout.split()
         self.assertEqual(out[0], "6")
 

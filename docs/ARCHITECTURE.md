@@ -1,4 +1,4 @@
-# Guild Chronicle — Architecture (v2)
+# Renatus — Architecture (v2)
 
 > Mise à jour : 18/11/2026. Elle intègre les décisions du 18/11 et l'extension des spécifications : Wanted Board, Gazette, collecte enrichie, journaux de combat et cartes.
 > La v1 (analyse initiale détaillée de Renacoach) est dans l'historique git (`git show 4d6a2f9:docs/ARCHITECTURE.md`).
@@ -10,7 +10,7 @@
 
 | # | Décision | Conséquence |
 |---|---|---|
-| D1 | **Un seul addon** `GuildChronicle`. Renacoach devient le module `Voice`, une option « pour la blague ». | Fait : `GuildChronicle/Voice/`, désactivé par défaut, `/chronicle voice on` ou `/renacoach on`. |
+| D1 | **Un seul addon** `Renatus`. Renacoach devient le module `Voice`, une option « pour la blague ». | Fait : `Renatus/Voice/`, désactivé par défaut, `/renatus voice on` ou `/renacoach on`. |
 | D2 | **Bibliothèques externes autorisées.** | v0.3.0 : finalement **aucune** n'est nécessaire. Sérialisation, découpage et file d'envoi sont écrits dans l'addon (`Sync/`, quelques centaines de lignes, testées), ce qui évite toute dépendance à vérifier sur Forever. LibDeflate (compression) reste une option si le débit s'avère insuffisant. |
 | D3 | Renacoach visait **Retail** (dernière mise à jour en mai 2026). | Le TOC déclare `16001, 120005` (Forever et Retail). Le code teste l'existence de chaque API au lieu de supposer une version. |
 | D4 | Dépôt git initialisé. Le dossier est une copie de travail. | L'historique conserve Renacoach d'origine (`07cd01b`). |
@@ -35,15 +35,15 @@
 - **Expéditions** (`Collectors/Expedition.lua`) : donjon, raid, champ de bataille, groupe avec un membre de la guilde ; tolérance de 10 min à la sortie d'instance ; fin estimée (`ded`) après une déconnexion ; membres de la guilde nommés, autres joueurs seulement comptés.
 - **Tableau de chasse automatique** (`Collectors/Enemies.lua`) : rencontres avec la **guilde rivale configurée** (cible, survol, barres de nom), une observation par ennemi et par 10 min ; à la mort, rivaux aperçus dans les 30 s notés « présents » (supposé), jamais « tueurs ».
 - **Voix** : spécialisations reconnues par **identifiant** (et non par index), repli sur la classe, réglage manuel du rôle et du style de combat (pour les spés propres à Forever).
-- **Compagnon v1, sans LLM** (`companion/`) : lecture des SavedVariables et des journaux de combat, causes de mort, affrontements PvP contre des rivaux connus, articles écrits à la main, écriture de `GuildChronicle_Press/Press.lua`. En jeu, **Gazette > Rédaction** : rien n'est publié sans validation.
+- **Compagnon v1, sans LLM** (`companion/`) : lecture des SavedVariables et des journaux de combat, causes de mort, affrontements PvP contre des rivaux connus, articles écrits à la main, écriture de `Renatus_Press/Press.lua`. En jeu, **Gazette > Rédaction** : rien n'est publié sans validation.
 - **Gazette réelle** : articles (`ARTICLE`, provenance « Rédaction »), votes pour la une (un par membre et par semaine), causes de mort affichées sur les morts (« d'après le journal de combat de X »).
 - 66 tests Lua (`lua tests/run.lua`) et 14 tests Python (`python3 -m unittest discover -s tests/companion -t .`).
 - **Pas encore faits** : ~~LLM de la gazette (fait en v0.4.0)~~, obtention réelle de boosters (modèle à choisir, §9.2), réglages de guilde signés par le chef (`GUILD_CONFIG` : rédacteurs, rivale commune), tombstones, rivalités détectées (§6.4).
 
 ### Avancement v0.2.0 (18/11/2026)
 
-- **Interface complète** (`/chronicle`, bouton de minicarte) : Mon journal, Guilde, Membres, Tableau de chasse, Gazette, Album, Voix, Paramètres. Tout est construit sans templates FrameXML : de simples frames et textures, pour limiter la dépendance à des globales qui pourraient manquer sur Forever.
-- **Mode démo** (`/chronicle demo`) : données fictives en mémoire, jamais sauvegardées, pour voir chaque écran rempli.
+- **Interface complète** (`/renatus`, bouton de minicarte) : Mon journal, Guilde, Membres, Tableau de chasse, Gazette, Album, Voix, Paramètres. Tout est construit sans templates FrameXML : de simples frames et textures, pour limiter la dépendance à des globales qui pourraient manquer sur Forever.
+- **Mode démo** (`/renatus demo`) : données fictives en mémoire, jamais sauvegardées, pour voir chaque écran rempli.
 - **Données réelles** : stockage (`Core/Store.lua`), vues calculées (`Core/Views.lua`), catalogue et boosters déterministes (`Core/Album.lua`).
 - **Premiers collecteurs** (`Collectors/Basic.lua`) : niveau, mort (sans cause), quête, boss (`ENCOUNTER_END`), première visite de zone, entrée en guilde. Ils restent à confirmer par la sonde.
 - **Saisies manuelles** (marquées « déclaré ») : anecdote, fiche ennemie, affrontement, avis de recherche, courrier des lecteurs.
@@ -53,12 +53,12 @@
 ### Arborescence initiale (v0.1.0)
 
 ```text
-GuildChronicle/                 l'addon unique
-  GuildChronicle.toc            Interface 16001, 120005 ; SavedVariables GuildChronicleDB (compte), GuildChronicleCharDB (perso)
+Renatus/                 l'addon unique
+  Renatus.toc            Interface 16001, 120005 ; SavedVariables RenatusDB (compte), RenatusCharDB (perso)
   Core/Init.lua                 namespace, modules, RegisterGameEvent (inscription protégée par pcall)
-  Core/EventBus.lua             Publish/Subscribe, isolation des erreurs ; API publique GuildChronicle.Subscribe
+  Core/EventBus.lua             Publish/Subscribe, isolation des erreurs ; API publique Renatus.Subscribe
   Core/Settings.lua             valeurs par défaut, version de schéma, migrations
-  Core/Slash.lua                /chronicle, /chronicle voice …, /renacoach
+  Core/Slash.lua                /renatus, /renatus voice …, /renacoach
   Voice/Voice.lua               Renacoach porté (voir §1.1)
   Voice/Sounds/*.ogg            les 34 répliques d'origine, non modifiées
 tests/run.lua, tests/wow_stub.lua   17 tests hors client (lua tests/run.lua)
@@ -110,7 +110,7 @@ Chaque information partagée est un **événement d'un journal en ajout seul, po
 ### 3.2 Modules
 
 ```text
-GuildChronicle/
+Renatus/
   Core/        Init, EventBus, Settings, Slash, Ids, Store (dédup, requêtes), Provenance
   Collectors/  Progression, Combat, Exploration, Social, PvP
   Expedition/  Detector (machine à états), Aggregation (vue collective)
@@ -175,7 +175,7 @@ Règles :
 Inchangés par rapport à la v1 :
 - Identifiant d'auteur = GUID du joueur. Identifiant de guilde = `Nom-Royaume`.
 - Séquence publique par auteur ; les événements privés ne consomment pas de séquence.
-- `GuildChronicleDB.guilds[guilde].events`, plus des tombstones.
+- `RenatusDB.guilds[guilde].events`, plus des tombstones.
 - Plafond configurable : on purge d'abord les événements **reçus** anciens et peu importants.
 - Types inconnus conservés et relayés sans être affichés.
 
@@ -266,20 +266,20 @@ Ces rivalités alimentent le journal (événements `DED`) et la gazette (rubriqu
 
 ```text
 1. [jeu]        événements collectés et synchronisés
-2. [jeu]        /reload ou déconnexion : écriture de WTF/…/SavedVariables/GuildChronicle.lua
+2. [jeu]        /reload ou déconnexion : écriture de WTF/…/SavedVariables/Renatus.lua
 3. [compagnon]  lecture des SavedVariables (+ journaux de combat facultatifs, §8)
 4. [compagnon]  sélection : événements de la période, importance ≥ seuil, groupés par expédition
 5. [compagnon]  contexte structuré : faits numérotés, provenance, surnoms, rivalités,
                 3 à 5 articles précédents résumés (pour la continuité)
 6. [compagnon]  génération LLM : style éditorial configuré
 7. [compagnon]  relecture par le rédacteur (éditer, refuser, régénérer)
-8. [compagnon]  écriture de l'addon de données GuildChronicle_Press/Press.lua
+8. [compagnon]  écriture de l'addon de données Renatus_Press/Press.lua
 9. [jeu]        /reload chez le rédacteur : « 4 articles prêts, publier ? »
 10. [jeu]       publication = événements ARTICLE du rédacteur → synchro vers la guilde
 ```
 
 - **Un seul membre a besoin du compagnon** : le rédacteur. Les autres reçoivent les articles par la synchro de l'addon.
-- `GuildChronicle_Press` est un mini-addon, sans code, ne contenant qu'une table Lua. Il est réécrit par le compagnon pendant que le jeu tourne et relu au `/reload` (un `/reload` relit les fichiers Lua listés dans les TOC ; seul un **nouveau** fichier exige un redémarrage du client). C'est un mécanisme de fichiers standard, sans injection.
+- `Renatus_Press` est un mini-addon, sans code, ne contenant qu'une table Lua. Il est réécrit par le compagnon pendant que le jeu tourne et relu au `/reload` (un `/reload` relit les fichiers Lua listés dans les TOC ; seul un **nouveau** fichier exige un redémarrage du client). C'est un mécanisme de fichiers standard, sans injection.
 - Chaque article stocke `refs` (identifiants des événements sources) et `style`. Dans le jeu, un bouton « Sources » affiche les faits d'origine.
 
 ### 7.2 Garde-fous anti-invention
@@ -313,7 +313,7 @@ companion/
   expeditions.py   résumé factuel structuré par expédition
   llm.py           fournisseurs : API distante configurable, Ollama local
   gazette.py       gabarits, styles, vérification des faits
-  press.py         écriture de GuildChronicle_Press/Press.lua
+  press.py         écriture de Renatus_Press/Press.lua
   config.toml
 ```
 
@@ -327,7 +327,7 @@ companion/
 
 ### 8.3 Retour dans le jeu des informations des logs
 
-Les enrichissements `LOG` (causes de mort, coups fataux PvP) passent par le même addon de données `GuildChronicle_Press`. L'addon du rédacteur les publie comme événements `LOG` **signés par le rédacteur**. La fiche affiche « d'après le journal de combat de X ». Personne n'a besoin d'installer le compagnon pour les voir.
+Les enrichissements `LOG` (causes de mort, coups fataux PvP) passent par le même addon de données `Renatus_Press`. L'addon du rédacteur les publie comme événements `LOG` **signés par le rédacteur**. La fiche affiche « d'après le journal de combat de X ». Personne n'a besoin d'installer le compagnon pour les voir.
 
 ### 8.4 Confidentialité de l'export
 
@@ -382,7 +382,7 @@ Les enrichissements `LOG` (causes de mort, coups fataux PvP) passent par le mêm
 
 Conception d'origine :
 - Journaux par auteur en ajout seul ; anti-entropie par vecteur `{auteur → séquence contiguë max}`.
-- Messages `H` (hello), `V` (vecteur), `R` (requête), `E` (événements), `N` (nouveau) ; préfixe `GChron`.
+- Messages `H` (hello), `V` (vecteur), `R` (requête), `E` (événements), `N` (nouveau) ; préfixe `Renatus`.
 - Envoi uniquement hors instance et hors combat ; réponses espacées par un délai aléatoire.
 - Validation du schéma, de la taille et de l'appartenance de l'expéditeur au roster ; « vérifié » (reçu de l'auteur) ou « relayé ».
 - Partage désactivé par défaut, par catégorie ; tombstones sans promesse d'effacement des copies déjà reçues.
@@ -406,7 +406,7 @@ Points nouveaux :
 | 1c | Interface : **tous les onglets** (journal, guilde, membres, chasse, gazette, album, voix, paramètres), mode démo | ✅ v0.2.0 (à valider en jeu) |
 | 2 | Synchro (protocole, confidentialité), timeline de guilde, vue collective | ✅ v0.3.0 (sans bibliothèque ; tombstones à faire) |
 | 3 | **Wanted Board v1** : observations, déclarations manuelles, avis de recherche, fiches | ✅ v0.3.0 (rivalités §6.4 à faire) |
-| 4 | **Compagnon v1, sans LLM** : lecture des SavedVariables et des journaux de combat, écriture de `GuildChronicle_Press` | ✅ v0.3.0 (résumés d'expédition : commande `facts`) |
+| 4 | **Compagnon v1, sans LLM** : lecture des SavedVariables et des journaux de combat, écriture de `Renatus_Press` | ✅ v0.3.0 (résumés d'expédition : commande `facts`) |
 | 5 | **Gazette** : LLM et styles dans le compagnon ; dans le jeu, lecture des articles, votes, commentaires, courrier | après 2 et 4 |
 | 6 | Legacy : rivalités, titres, anecdotes ; déclencheurs vocaux historiques | après 2 |
 | 7 | **Album** : catalogue, boosters (modèle choisi), échanges | après 2, 3 et 6 |
@@ -430,7 +430,7 @@ Points nouveaux :
 | V11 | `/combatlog` écrit-il un fichier dans `_forever_/Logs/` ? (vérification à faire à la main) |
 
 Mode d'emploi :
-1. Copier `tools/ChronicleProbe` **et** `GuildChronicle` dans `_forever_/Interface/AddOns/`.
+1. Copier `tools/ChronicleProbe` **et** `Renatus` dans `_forever_/Interface/AddOns/`.
 2. Taper `/gcprobe`, `/gcprobe sound`, `/gcprobe comm` et `/gcprobe burst`.
 3. Refaire `/gcprobe comm` dans un donjon, en combat et hors combat.
 4. Tuer un boss, mourir une fois, monter un niveau.
@@ -438,14 +438,14 @@ Mode d'emploi :
 6. Taper `/combatlog`, combattre un peu, retaper `/combatlog`, puis regarder le dossier `Logs`.
 7. Faire `/reload`, puis transmettre `WTF/Account/<COMPTE>/SavedVariables/ChronicleProbe.lua` (et les premières lignes du fichier de journal de combat s'il existe).
 
-En parallèle, tester GuildChronicle : `/renacoach on`, entrer en combat, puis `/chronicle voice status`.
+En parallèle, tester Renatus : `/renacoach on`, entrer en combat, puis `/renatus voice status`.
 
 ---
 
 ## 13. Décisions encore ouvertes
 
 1. **Modèle de boosters** : A + C recommandé (§9.2).
-2. **Nom de l'addon** : `GuildChronicle`, ou le nom de la guilde ? C'est facile à changer maintenant, plus coûteux une fois l'addon diffusé (les SavedVariables portent le nom).
+2. **Nom de l'addon** : `Renatus`, ou le nom de la guilde ? C'est facile à changer maintenant, plus coûteux une fois l'addon diffusé (les SavedVariables portent le nom).
 3. **Rédacteurs de la gazette** : qui ? Désignés par le chef de guilde (§7.3) : est-ce que ça te convient ?
 4. **Fournisseur LLM** du compagnon : API distante (laquelle ?) ou Ollama local ?
 5. **Cartes Membres** : présence par défaut avec possibilité de se retirer (proposé), ou inscription volontaire ?

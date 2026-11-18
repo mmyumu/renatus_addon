@@ -15,7 +15,7 @@ end
 
 function M:OnLogin()
     if not Minimap then return end
-    local b = CreateFrame("Button", "GuildChronicleMinimapButton", Minimap)
+    local b = CreateFrame("Button", "RenatusMinimapButton", Minimap)
     b:SetSize(31, 31)
     b:SetFrameStrata("MEDIUM")
     b:SetFrameLevel(8)

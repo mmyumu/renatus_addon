@@ -1,4 +1,4 @@
-"""Compagnon Guild Chronicle : python -m companion <commande> [options]
+"""Compagnon Renatus : python -m companion <commande> [options]
 
 Commandes :
   status    ce que le compagnon voit (journal de l'addon, journaux de combat, presse en attente)

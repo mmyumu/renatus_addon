@@ -225,10 +225,10 @@ function Stub.reset(opts)
     end
 
     SlashCmdList = {}
-    GuildChronicleDB = opts.savedAccount
-    GuildChronicleCharDB = opts.savedChar
-    GuildChronicle = nil
-    GuildChronicleMainFrame = nil
+    RenatusDB = opts.savedAccount
+    RenatusCharDB = opts.savedChar
+    Renatus = nil
+    RenatusMainFrame = nil
     return S
 end
 

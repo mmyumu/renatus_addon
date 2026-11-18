@@ -23,13 +23,13 @@ MATCH_WINDOW = 5.0
 
 @dataclass
 class Chronicle:
-    """Vue minimale des SavedVariables de Guild Chronicle."""
+    """Vue minimale des SavedVariables de Renatus."""
     events: dict[str, dict[str, Any]]
     press_done: dict[str, str]
 
     @classmethod
     def from_saved(cls, saved: dict[str, Any]) -> "Chronicle":
-        db = saved.get("GuildChronicleDB") or {}
+        db = saved.get("RenatusDB") or {}
         events = db.get("events") or {}
         if isinstance(events, list):  # ne devrait pas arriver (cles = identifiants)
             events = {e.get("id"): e for e in events if isinstance(e, dict)}

@@ -1,4 +1,4 @@
--- UI/MainWindow.lua : fenetre principale (/chronicle), navigation par onglets a gauche.
+-- UI/MainWindow.lua : fenetre principale (/renatus), navigation par onglets a gauche.
 local _, ns = ...
 local UI = ns.UI
 
@@ -23,7 +23,7 @@ local function savePosition(f)
 end
 
 local function build()
-    local f = CreateFrame("Frame", "GuildChronicleMainFrame", UIParent)
+    local f = CreateFrame("Frame", "RenatusMainFrame", UIParent)
     f:SetSize(UI.WIDTH, UI.HEIGHT)
     local p = ns.char.ui.point
     if p then f:SetPoint(p[1], UIParent, p[2], p[3], p[4]) else f:SetPoint("CENTER") end
@@ -37,7 +37,7 @@ local function build()
     f:SetScript("OnDragStop", function(self) self:StopMovingOrSizing(); savePosition(self) end)
     f:SetScript("OnHide", function() UI.CloseMenus() end)
     UI.Box(f, UI.C.bg, { 0.75, 0.58, 0.25, 1 }, 2)
-    if UISpecialFrames then table.insert(UISpecialFrames, "GuildChronicleMainFrame") end
+    if UISpecialFrames then table.insert(UISpecialFrames, "RenatusMainFrame") end
 
     -- En-tete
     local header = CreateFrame("Frame", nil, f)

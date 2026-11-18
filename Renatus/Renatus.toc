@@ -1,11 +1,11 @@
 ## Interface: 16001, 120005
-## Title: Guild Chronicle
+## Title: Renatus
 ## Notes: Memoire vivante de la guilde : journal, tableau de chasse, gazette, album et (en option) les repliques de Renacoach.
 ## Author: Dakey
-## Version: 0.4.0
-## SavedVariables: GuildChronicleDB
-## SavedVariablesPerCharacter: GuildChronicleCharDB
-## OptionalDeps: GuildChronicle_Press
+## Version: 0.4.1
+## SavedVariables: RenatusDB
+## SavedVariablesPerCharacter: RenatusCharDB
+## OptionalDeps: Renatus_Press
 
 Core\Init.lua
 Core\EventBus.lua

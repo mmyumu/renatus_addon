@@ -1,4 +1,4 @@
--- Core/Demo.lua : jeu de donnees fictif pour visualiser l'interface (/chronicle demo).
+-- Core/Demo.lua : jeu de donnees fictif pour visualiser l'interface (/renatus demo).
 -- Rien n'est sauvegarde : tout vit en memoire et disparait au /reload.
 -- Les noms sont inventes (sauf le tien, pour peupler "Mon journal").
 local _, ns = ...

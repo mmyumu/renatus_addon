@@ -2,12 +2,12 @@
 local ADDON, ns = ...
 
 ns.name = ADDON
-ns.version = "0.4.0"
+ns.version = "0.4.1"
 ns.modules = {}
 ns.moduleOrder = {}
 
 local function printf(fmt, ...)
-    print("|cffd4a017Guild Chronicle|r " .. string.format(fmt, ...))
+    print("|cffd4a017Renatus|r " .. string.format(fmt, ...))
 end
 ns.Print = printf
 
@@ -76,4 +76,4 @@ eventFrame:RegisterEvent("ADDON_LOADED")
 eventFrame:RegisterEvent("PLAYER_LOGIN")
 
 -- Seule globale exposee : l'API publique (abonnement au journal, etc.).
-GuildChronicle = { ns = ns }
+Renatus = { ns = ns }

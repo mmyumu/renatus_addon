@@ -1,17 +1,17 @@
-# Compagnon Guild Chronicle
+# Compagnon Renatus
 
 Petit programme Python **facultatif**, pour le seul **rédacteur** de la gazette, sur **son** PC.
 Les autres membres n'en ont pas besoin : ils reçoivent ce que le rédacteur publie par la
 synchronisation de l'addon.
 
 Il ne touche pas au jeu : il **lit des fichiers** que le jeu écrit (SavedVariables, journaux de
-combat) et **écrit un seul fichier**, `Interface/AddOns/GuildChronicle_Press/Press.lua`, que le
+combat) et **écrit un seul fichier**, `Interface/AddOns/Renatus_Press/Press.lua`, que le
 jeu relit au `/reload`. Rien n'est publié tant que tu ne l'as pas validé en jeu.
 
 ## Installation (une fois)
 
 1. Python 3.11 ou plus récent (aucune bibliothèque à installer).
-2. Copier le dossier `GuildChronicle_Press` dans `_forever_/Interface/AddOns/`, puis **redémarrer le
+2. Copier le dossier `Renatus_Press` dans `_forever_/Interface/AddOns/`, puis **redémarrer le
    jeu** une fois (un nouvel addon n'est détecté qu'au démarrage ; ensuite `/reload` suffit).
 3. Copier `companion/config.example.toml` en `companion/config.toml` et y mettre le chemin de `_forever_`.
 

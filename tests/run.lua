@@ -3,7 +3,7 @@ package.path = "./tests/?.lua;" .. package.path
 local Stub = require("wow_stub")
 local print = print -- le stub remplace la globale print
 
-local ROOT, NAME = "GuildChronicle", "GuildChronicle"
+local ROOT, NAME = "Renatus", "Renatus"
 local passed, failed = 0, 0
 
 local function test(name, fn)
@@ -167,20 +167,20 @@ test("reglages conserves entre deux sessions", function()
     local ns = boot({ specIndex = 1 })
     ns.char.voice.enabled = true
     ns.char.voice.probability = 0.2
-    local saved = GuildChronicleCharDB
+    local saved = RenatusCharDB
     local ns2 = boot({ specIndex = 1, savedChar = saved })
     eq(ns2.char.voice.enabled, true)
     eq(ns2.char.voice.probability, 0.2)
     eq(ns2.char.voice.interval, 3, "valeur par defaut completee")
 end)
 
-test("/renacoach on et /chronicle voice off", function()
+test("/renacoach on et /renatus voice off", function()
     local ns = boot({ specIndex = 1 })
     SlashCmdList.RENACOACH("on")
     eq(ns.char.voice.enabled, true)
-    SlashCmdList.GUILDCHRONICLE("voice off")
+    SlashCmdList.RENATUS("voice off")
     eq(ns.char.voice.enabled, false)
-    SlashCmdList.GUILDCHRONICLE("voice prob 0.3")
+    SlashCmdList.RENATUS("voice prob 0.3")
     eq(ns.char.voice.probability, 0.3)
 end)
 
@@ -189,8 +189,8 @@ print("Core")
 test("EventBus : un abonne qui plante n'empeche pas les autres", function()
     local ns = boot({ specIndex = 1 })
     local got = 0
-    GuildChronicle.Subscribe("X", function() error("boom") end)
-    GuildChronicle.Subscribe("X", function(v) got = v end)
+    Renatus.Subscribe("X", function() error("boom") end)
+    Renatus.Subscribe("X", function(v) got = v end)
     eq(ns.EventBus.Publish("X", 42), 2)
     eq(got, 42)
 end)
@@ -201,7 +201,7 @@ test("une seule globale exposee en dehors des commandes slash", function()
         "RestoreCombatSounds", "GetSpecInfos", "ConcatenateLists", "GetCharacterType", "playerClassID" }) do
         eq(rawget(_G, name), nil, "globale " .. name)
     end
-    assert(type(GuildChronicle) == "table")
+    assert(type(Renatus) == "table")
 end)
 
 
@@ -248,7 +248,7 @@ end)
 test("evenements persistants apres rechargement, sans doublon", function()
     local ns = boot({ specIndex = 1 })
     Stub.fire("PLAYER_LEVEL_UP", 21)
-    local savedA, savedC = GuildChronicleDB, GuildChronicleCharDB
+    local savedA, savedC = RenatusDB, RenatusCharDB
     local ns2 = boot({ specIndex = 1, savedAccount = savedA, savedChar = savedC })
     eq(#eventsOf(ns2, "LEVEL_UP"), 1)
     Stub.fire("PLAYER_LEVEL_UP", 22)
@@ -373,17 +373,17 @@ end
 
 test("tous les onglets s'ouvrent (donnees reelles vides)", function()
     local ns = boot({ specIndex = 1 })
-    SlashCmdList.GUILDCHRONICLE("")
-    assert(GuildChronicleMainFrame:IsShown(), "fenetre ouverte")
+    SlashCmdList.RENATUS("")
+    assert(RenatusMainFrame:IsShown(), "fenetre ouverte")
     openAllTabs(ns)
     eq(#ns.UI.tabs, 8)
 end)
 
 test("tous les onglets s'ouvrent (demo) et se remplissent", function()
     local ns = boot({ specIndex = 1 })
-    SlashCmdList.GUILDCHRONICLE("demo")
+    SlashCmdList.RENATUS("demo")
     openAllTabs(ns)
-    local f = GuildChronicleMainFrame
+    local f = RenatusMainFrame
     assert(#f.containers.journal.list.items > 5, "journal rempli")
     assert(#f.containers.guild.list.items > 20, "guilde remplie")
     assert(#f.containers.members.list.items >= 9, "membres")
@@ -391,9 +391,9 @@ end)
 
 test("filtres du journal de guilde", function()
     local ns = boot({ specIndex = 1 })
-    SlashCmdList.GUILDCHRONICLE("demo")
+    SlashCmdList.RENATUS("demo")
     ns.UI.Open("guild")
-    local c = GuildChronicleMainFrame.containers.guild
+    local c = RenatusMainFrame.containers.guild
     local all = #c.list.items
     c.state.category = "pvp"; c:Refresh()
     local pvp = #c.list.items
@@ -406,9 +406,9 @@ end)
 
 test("tableau de chasse : affiches, registre, fiche", function()
     local ns = boot({ specIndex = 1 })
-    SlashCmdList.GUILDCHRONICLE("demo")
+    SlashCmdList.RENATUS("demo")
     ns.UI.Open("wanted")
-    local c = GuildChronicleMainFrame.containers.wanted
+    local c = RenatusMainFrame.containers.wanted
     eq(c.posters.items[1].poster ~= nil, true)
     c.posters.items[1]:Click()
     assert(c.detailFrame:IsShown(), "fiche affichee")
@@ -418,9 +418,9 @@ end)
 
 test("gazette : article et sources", function()
     local ns = boot({ specIndex = 1 })
-    SlashCmdList.GUILDCHRONICLE("demo")
+    SlashCmdList.RENATUS("demo")
     ns.UI.Open("gazette")
-    local c = GuildChronicleMainFrame.containers.gazette
+    local c = RenatusMainFrame.containers.gazette
     assert(c.current, "article selectionne")
     c.paper.sources:Click()
     assert(c.showSources, "sources affichees")
@@ -428,18 +428,18 @@ end)
 
 test("album : ouvrir un booster en demo", function()
     local ns = boot({ specIndex = 1 })
-    SlashCmdList.GUILDCHRONICLE("demo")
+    SlashCmdList.RENATUS("demo")
     ns.UI.Open("album")
     local ds = ns.Store.Dataset()
     local before = ds.boosters
-    GuildChronicleMainFrame.containers.album.booster:Click()
+    RenatusMainFrame.containers.album.booster:Click()
     eq(ds.boosters, before - 1)
 end)
 
 test("voix : la case active le module", function()
     local ns = boot({ specIndex = 1 })
     ns.UI.Open("voice")
-    local c = GuildChronicleMainFrame.containers.voice
+    local c = RenatusMainFrame.containers.voice
     c.enabled:Click()
     eq(ns.char.voice.enabled, true)
 end)
@@ -540,7 +540,7 @@ test("evenement public diffuse, evenement prive jamais", function()
     eq(es[1].e.k, "DEATH")
     eq(es[1].e.vis, "G")
     for _, m in ipairs(S.sent) do
-        eq(m.channel, "GUILD"); eq(m.prefix, "GChron")
+        eq(m.channel, "GUILD"); eq(m.prefix, "Renatus")
         assert(not m.msg:find("LEVEL_UP"), "evenement prive envoye !")
     end
 end)
@@ -577,7 +577,7 @@ test("trou dans la sequence : demande ciblee, l'auteur repond", function()
     nsA.char.privacy.combat = "G"
     Stub.fire("PLAYER_DEAD"); Stub.fire("PLAYER_DEAD")
     Stub.advance(5)
-    local savedA, savedAC = GuildChronicleDB, GuildChronicleCharDB
+    local savedA, savedAC = RenatusDB, RenatusCharDB
     -- regroupe les morceaux de chaque message, garde ceux de l'evenement n°2
     local onlySecond, current = {}, {}
     for _, m in ipairs(SA.sent) do
@@ -596,7 +596,7 @@ test("trou dans la sequence : demande ciblee, l'auteur repond", function()
     Stub.advance(2)
     local rs = ops(nsB, SB.sent, "R")
     eq(#rs, 1); eq(rs[1].a, ALICE.guid); eq(rs[1].f, 1); eq(rs[1].t, 1)
-    local savedB, savedBC, requestMsgs = GuildChronicleDB, GuildChronicleCharDB, SB.sent
+    local savedB, savedBC, requestMsgs = RenatusDB, RenatusCharDB, SB.sent
     -- Alice recoit la demande et renvoie le n°1
     local nsA2, SA2 = boot({ specIndex = 1, me = ALICE, savedAccount = savedA, savedChar = savedAC })
     Stub.deliver(requestMsgs, "Bob-Forever")
@@ -618,12 +618,12 @@ test("vecteurs : un nouveau venu rattrape l'historique via un relais", function(
     local fromAlice = SA.sent
     local nsB = boot({ specIndex = 1, me = BOB })
     Stub.deliver(fromAlice, "Alice-Forever")
-    local savedB, savedBC = GuildChronicleDB, GuildChronicleCharDB
+    local savedB, savedBC = RenatusDB, RenatusCharDB
     -- Carol se connecte et annonce son vecteur (vide)
     local nsC, SC = boot({ specIndex = 1, me = CAROL })
     Stub.advance(31)
     eq(#ops(nsC, SC.sent, "V"), 1)
-    local savedC, savedCC, carolV = GuildChronicleDB, GuildChronicleCharDB, SC.sent
+    local savedC, savedCC, carolV = RenatusDB, RenatusCharDB, SC.sent
     -- Bob voit que Carol est en retard : il annonce le sien
     local nsB2, SB2 = boot({ specIndex = 1, me = BOB, savedAccount = savedB, savedChar = savedBC })
     Stub.deliver(carolV, "Carol-Forever")
@@ -638,7 +638,7 @@ test("vecteurs : un nouveau venu rattrape l'historique via un relais", function(
     Stub.advance(2)
     local rs = ops(nsC2, SC2.sent, "R")
     eq(#rs, 1); eq(rs[1].f, 1); eq(rs[1].t, 2)
-    local carolR, savedC2, savedCC2 = SC2.sent, GuildChronicleDB, GuildChronicleCharDB
+    local carolR, savedC2, savedCC2 = SC2.sent, RenatusDB, RenatusCharDB
     local nsB3, SB3 = boot({ specIndex = 1, me = BOB, savedAccount = savedB, savedChar = savedBC })
     Stub.deliver(carolR, "Carol-Forever")
     Stub.advance(10)
@@ -655,7 +655,7 @@ test("rejets : autre guilde, prive, identifiant falsifie", function()
     local ns = boot({ specIndex = 1, me = BOB })
     local function deliverEvent(e)
         local text = ns.Serialize.Encode({ o = "E", g = "Les Testeurs-Forever", e = e })
-        Stub.deliver({ { prefix = "GChron", channel = "GUILD", msg = "S" .. text } }, "Mallory-Forever")
+        Stub.deliver({ { prefix = "Renatus", channel = "GUILD", msg = "S" .. text } }, "Mallory-Forever")
     end
     local base = { v = 1, id = "Player-1-AAA:1", a = "Player-1-AAA", n = "Alice", s = 1, t = 1, k = "DEATH",
         g = "Les Testeurs-Forever", vis = "G", p = {}, prov = "OBS" }
@@ -776,7 +776,7 @@ test("deconnexion pendant une expedition : fin estimee a la connexion suivante",
     Stub.advance(1000)
     Stub.fire("PLAYER_DEAD")
     Stub.fire("PLAYER_LOGOUT")
-    local savedA, savedC = GuildChronicleDB, GuildChronicleCharDB
+    local savedA, savedC = RenatusDB, RenatusCharDB
     local ns2, S2 = boot({ specIndex = 1, savedAccount = savedA, savedChar = savedC })
     -- reconnexion "plus tard", hors instance : le stub repart de t=0, on simule l'ecart
     S2.now = 5000
@@ -843,7 +843,7 @@ end)
 print("Presse (compagnon)")
 
 local function withPress(items)
-    GuildChroniclePress = { version = 1, items = items }
+    RenatusPress = { version = 1, items = items }
 end
 
 test("elements du compagnon : en attente, publies signes LOG / GEN, jamais automatiques", function()
@@ -866,7 +866,7 @@ test("elements du compagnon : en attente, publies signes LOG / GEN, jamais autom
     eq(ds.causes[death.id], cause)
     eq(#ns.Views.Filter(ds.events, {}), 1, "DEATH_CAUSE masque de la chronologie (affiche sur la mort)")
     ns.UI.Open("journal")
-    local row = GuildChronicleMainFrame.containers.journal.list.rows[1]
+    local row = RenatusMainFrame.containers.journal.list.rows[1]
     assert(row.line2:GetText():find("Hogger"), "cause affichee sur la ligne de la mort")
     ns.Press.Ignore(ns.Press.Pending()[1])
     eq(#ns.Press.Pending(), 0)
@@ -874,10 +874,10 @@ test("elements du compagnon : en attente, publies signes LOG / GEN, jamais autom
     eq(ns.Types.Describe(clash, true), "Testeur rapporte : Bob tombe face à Gorbash")
     local e = ns.Views.Enemies(ns.Store.Dataset())[1]
     eq(e.losses.LOG, 1); eq(e.memberList[1], "Bob")
-    local savedA, savedC = GuildChronicleDB, GuildChronicleCharDB
+    local savedA, savedC = RenatusDB, RenatusCharDB
     local ns2 = boot({ specIndex = 1, savedAccount = savedA, savedChar = savedC })
     eq(#ns2.Press.Pending(), 0, "decisions memorisees")
-    GuildChroniclePress = nil
+    RenatusPress = nil
 end)
 
 test("gazette reelle : article publie, vote une fois par semaine", function()
@@ -886,7 +886,7 @@ test("gazette reelle : article publie, vote une fois par semaine", function()
     local art = ns.Press.Publish(ns.Press.Pending()[1])
     eq(art.prov, "GEN")
     ns.UI.Open("gazette")
-    local c = GuildChronicleMainFrame.containers.gazette
+    local c = RenatusMainFrame.containers.gazette
     eq(c.current.id, art.id)
     eq(c.current.author, "Testeur")
     c.paper.vote:Click()
@@ -894,14 +894,14 @@ test("gazette reelle : article publie, vote une fois par semaine", function()
     c.paper.vote:Click()
     eq(c.current.votes, 1, "pas de double vote")
     c.press:Click()
-    GuildChroniclePress = nil
+    RenatusPress = nil
 end)
 
 test("consentement gazette IA : publie et partage, le dernier choix compte", function()
     local ns = boot({ specIndex = 1 })
     eq(#eventsOf(ns, "AI_CONSENT"), 0, "rien coche : rien a annoncer")
     ns.UI.Open("settings")
-    local c = GuildChronicleMainFrame.containers.settings
+    local c = RenatusMainFrame.containers.settings
     c.export:Click()
     local ev = eventsOf(ns, "AI_CONSENT")[1]
     eq(ev.vis, "G", "partage meme si la categorie est privee"); eq(ev.p.ok, true)
@@ -919,11 +919,11 @@ print("Interface (v0.3)")
 test("parametres : etat de la synchronisation ; voix : reglages manuels", function()
     local ns = boot({ specIndex = 1 })
     ns.UI.Open("settings")
-    local c = GuildChronicleMainFrame.containers.settings
+    local c = RenatusMainFrame.containers.settings
     assert(c.syncInfo:GetText():find("Membres"), "etat de synchro")
     c.syncNow:Click()
     ns.UI.Open("voice")
-    local v = GuildChronicleMainFrame.containers.voice
+    local v = RenatusMainFrame.containers.voice
     assert(v.status:GetText():find("Rôle"), "statut voix")
 end)
 

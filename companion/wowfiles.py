@@ -1,10 +1,10 @@
-"""Localisation des fichiers du jeu (lecture seule, sauf GuildChronicle_Press/Press.lua)."""
+"""Localisation des fichiers du jeu (lecture seule, sauf Renatus_Press/Press.lua)."""
 from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
 
-SV_NAME = "GuildChronicle.lua"
+SV_NAME = "Renatus.lua"
 
 
 @dataclass
@@ -23,7 +23,7 @@ class WowPaths:
 
     @property
     def press(self) -> Path:
-        return self.root / "Interface" / "AddOns" / "GuildChronicle_Press" / "Press.lua"
+        return self.root / "Interface" / "AddOns" / "Renatus_Press" / "Press.lua"
 
     def accounts_with_data(self) -> list[str]:
         base = self.root / "WTF" / "Account"
