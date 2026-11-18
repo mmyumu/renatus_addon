@@ -6,7 +6,7 @@
 --   /gcprobe            resume dans le chat
 --   /gcprobe comm       envoie un message addon de test (GUILD, PARTY/RAID, WHISPER a soi-meme)
 --   /gcprobe burst      envoie 30 messages a soi-meme pour mesurer le throttling
---   /gcprobe sound      joue un son de Renacoach sur le canal Ambience
+--   /gcprobe sound      joue un son de GuildChronicle (module Voice) sur le canal Ambience
 --   /gcprobe reset      efface les donnees collectees
 -- Les resultats complets sont dans WTF/Account/<COMPTE>/SavedVariables/ChronicleProbe.lua
 -- (ecrit a la deconnexion ou au /reload).
@@ -81,6 +81,9 @@ local API_NAMES = {
     "PlaySoundFile", "StopSound", "GetCVar", "SetCVar", "C_CVar.GetCVar",
     "UnitClassification", "C_Item.GetItemInfo", "GetItemInfo", "C_GameRules", "WOW_PROJECT_ID", "WOW_PROJECT_CAMELOT",
     "WOW_PROJECT_MAINLINE", "WOW_PROJECT_CLASSIC", "LOOT_ITEM_SELF", "ERR_ZONE_EXPLORED",
+    -- PvP / Wanted Board / narration
+    "LoggingCombat", "C_Map.GetPlayerMapPosition", "GetPVPLifetimeStats", "GetPVPSessionStats",
+    "UnitIsPVP", "UnitIsEnemy", "UnitRace", "C_PvP", "COMBATLOG_HONORGAIN", "COMBATLOG_HONORAWARD",
 }
 
 -- Evenements a tester (inscription) puis a journaliser (payload reel)
@@ -93,11 +96,45 @@ local EVENTS = {
     "PLAYER_GUILD_UPDATE", "GUILD_ROSTER_UPDATE", "GROUP_ROSTER_UPDATE", "GROUP_JOINED", "GROUP_LEFT",
     "PLAYER_SPECIALIZATION_CHANGED", "ACTIVE_TALENT_GROUP_CHANGED", "CHARACTER_POINTS_CHANGED",
     "CHAT_MSG_ADDON", "CHAT_MSG_ADDON_LOGGED", "ADDON_RESTRICTION_STATE_CHANGED",
+    "CHAT_MSG_COMBAT_HONOR_GAIN", "PLAYER_PVP_KILLS_CHANGED", "DUEL_FINISHED",
+    "PLAYER_TARGET_CHANGED", "UPDATE_MOUSEOVER_UNIT", "NAME_PLATE_UNIT_ADDED",
 }
 -- Inscription testee puis immediatement annulee (trop volumineux a journaliser)
 local TEST_ONLY_EVENTS = { "COMBAT_LOG_EVENT_UNFILTERED", "COMBAT_LOG_EVENT" }
 -- Evenements frequents : on n'en garde que quelques occurrences
-local NOISY = { GUILD_ROSTER_UPDATE = 3, GROUP_ROSTER_UPDATE = 5, CHAT_MSG_SYSTEM = 10, ZONE_CHANGED = 10 }
+local NOISY = { GUILD_ROSTER_UPDATE = 3, GROUP_ROSTER_UPDATE = 5, CHAT_MSG_SYSTEM = 10, ZONE_CHANGED = 10,
+    PLAYER_TARGET_CHANGED = 5, UPDATE_MOUSEOVER_UNIT = 5, NAME_PLATE_UNIT_ADDED = 5 }
+
+-- Pour le Wanted Board : que peut-on lire d'un joueur ennemi vu en cible, survol ou barre de nom ?
+local ENEMY_SIGHTING_MAX = 40
+local function unitCall(fn, unit)
+    if type(fn) ~= "function" then return "absent" end
+    local res = { pcall(fn, unit) }
+    if not table.remove(res, 1) then return "ERROR: " .. safe(res[1]) end
+    return table.concat(packSafe(unpack(res)), " | ")
+end
+
+local function logEnemySighting(event, unit)
+    if not unit or isSecret(unit) then return end
+    local okP, isPlayer = pcall(UnitIsPlayer, unit)
+    if not okP or isSecret(isPlayer) or not isPlayer then return end
+    local okE, isEnemy = pcall(UnitIsEnemy, "player", unit)
+    if not okE or isSecret(isEnemy) or not isEnemy then return end
+    DB.enemySightings = DB.enemySightings or {}
+    if #DB.enemySightings >= ENEMY_SIGHTING_MAX then return end
+    local entry = context()
+    entry.event = event
+    entry.unit = unit
+    entry.name = unitCall(UnitName, unit)
+    entry.guild = unitCall(GetGuildInfo, unit)
+    entry.level = unitCall(UnitLevel, unit)
+    entry.race = unitCall(UnitRace, unit)
+    entry.class = unitCall(UnitClass, unit)
+    entry.guid = unitCall(UnitGUID, unit)
+    entry.pvp = unitCall(UnitIsPVP, unit)
+    entry.dead = unitCall(UnitIsDead, unit)
+    table.insert(DB.enemySightings, entry)
+end
 
 local frame = CreateFrame("Frame")
 
@@ -208,7 +245,7 @@ local function burstTest()
 end
 
 local function soundTest()
-    local path = "Interface\\AddOns\\Renacoach\\Resources\\cest_bien.ogg"
+    local path = "Interface\\AddOns\\GuildChronicle\\Voice\\Sounds\\cest_bien.ogg"
     local res = { pcall(PlaySoundFile, path, "Ambience") }
     local ok = table.remove(res, 1)
     local out = ok and packSafe(unpack(res)) or { "ERROR: " .. safe(res[1]) }
@@ -228,7 +265,8 @@ local function summary()
     for name, t in pairs(DB.apis or {}) do if t == "nil" then table.insert(missing, name) end end
     table.sort(missing)
     print("  API absentes : " .. (#missing > 0 and table.concat(missing, ", ") or "aucune"))
-    print("  evenements journalises : " .. #DB.log .. " (detail dans SavedVariables apres /reload)")
+    print("  evenements journalises : " .. #DB.log .. ", joueurs ennemis observes : " .. #(DB.enemySightings or {}))
+    print("  (detail dans SavedVariables apres /reload)")
 end
 
 frame:SetScript("OnEvent", function(self, event, ...)
@@ -267,6 +305,10 @@ frame:SetScript("OnEvent", function(self, event, ...)
         print("|cff88ccffChronicleProbe|r recu : " .. table.concat(packSafe(...), " | "))
         return
     end
+
+    if event == "PLAYER_TARGET_CHANGED" then logEnemySighting(event, "target")
+    elseif event == "UPDATE_MOUSEOVER_UNIT" then logEnemySighting(event, "mouseover")
+    elseif event == "NAME_PLATE_UNIT_ADDED" then logEnemySighting(event, (...)) end
 
     local limit = NOISY[event] or MAX_PER_EVENT
     DB.counts[event] = (DB.counts[event] or 0) + 1

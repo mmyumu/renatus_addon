@@ -1,0 +1,13 @@
+## Interface: 16001, 120005
+## Title: Guild Chronicle
+## Notes: Memoire vivante de la guilde : journal, chroniques et (en option) les repliques de Renacoach.
+## Author: Dakey
+## Version: 0.1.0
+## SavedVariables: GuildChronicleDB
+## SavedVariablesPerCharacter: GuildChronicleCharDB
+
+Core\Init.lua
+Core\EventBus.lua
+Core\Settings.lua
+Voice\Voice.lua
+Core\Slash.lua

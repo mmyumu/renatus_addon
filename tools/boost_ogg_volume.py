@@ -5,7 +5,7 @@ import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
-RESOURCES = ROOT / "Resources"
+RESOURCES = ROOT.parent / "GuildChronicle" / "Voice" / "Sounds"
 DEFAULT_INPUT = RESOURCES
 DEFAULT_OUTPUT = RESOURCES / "boosted"
 
@@ -176,7 +176,7 @@ def main():
             output_file = output_dir / ogg_file.name
             process_file(ogg_file, output_file, audio_filter)
         print(f"Traitement terminé. Fichiers boostés dans: {output_dir}")
-        print("Note: l'addon joue Resources/*.ogg. Utilise --overwrite pour remplacer les fichiers joués.")
+        print("Note: l'addon joue GuildChronicle/Voice/Sounds/*.ogg. Utilise --overwrite pour remplacer les fichiers joués.")
 
 
 if __name__ == "__main__":
