@@ -224,12 +224,82 @@ function Stub.reset(opts)
         return S.randomValue
     end
 
+    Settings, AddonCompartmentFrame, SettingsPanel = nil, nil, nil
+    CreateSettingsListSectionHeaderInitializer, CreateSettingsButtonInitializer = nil, nil
+    InterfaceOptions_AddCategory = nil
+    if opts.settingsApi then Stub.installSettingsApi(S) end
+    if opts.compartment then
+        S.compartment = {}
+        AddonCompartmentFrame = { RegisterAddon = function(_, info) table.insert(S.compartment, info) end }
+    end
+
     SlashCmdList = {}
     RenatusDB = opts.savedAccount
     RenatusCharDB = opts.savedChar
     Renatus = nil
     RenatusMainFrame = nil
     return S
+end
+
+-- Simplified Settings API (Retail 11.0+ signatures). S.settings records what the
+-- addon registered: categories, settings (by variable), controls and buttons.
+function Stub.installSettingsApi(S)
+    local reg = { categories = {}, byVar = {}, controls = {}, buttons = {}, headers = {}, opened = nil }
+    S.settings = reg
+    local function newCategory(name, frame)
+        local cat = { name = name, frame = frame, id = #reg.categories + 1 }
+        function cat:GetID() return self.id end
+        return cat
+    end
+    local function newLayout(cat)
+        return { AddInitializer = function(_, init)
+            if init.kind == "button" then table.insert(reg.buttons, init) else table.insert(reg.headers, init.text) end
+        end }
+    end
+    local function control(kind)
+        return function(category, setting, options, tooltip)
+            table.insert(reg.controls, { kind = kind, setting = setting, options = options, category = category })
+        end
+    end
+    Settings = {
+        VarType = { Boolean = "boolean", Number = "number", String = "string" },
+        RegisterVerticalLayoutCategory = function(name)
+            local cat = newCategory(name)
+            return cat, newLayout(cat)
+        end,
+        RegisterCanvasLayoutCategory = function(frame, name) return newCategory(name, frame) end,
+        RegisterAddOnCategory = function(cat) table.insert(reg.categories, cat) end,
+        RegisterAddOnSetting = function(category, variable, key, tbl, varType, name, default)
+            assert(not reg.byVar[variable], "variable deja enregistree : " .. variable)
+            if tbl[key] == nil then tbl[key] = default end
+            assert(type(tbl[key]) == varType, variable .. " : type " .. type(tbl[key]) .. " au lieu de " .. varType)
+            local s = { variable = variable, name = name, default = default }
+            function s:GetValue() return tbl[key] end
+            function s:SetValue(v)
+                tbl[key] = v
+                if self.callback then self.callback(self, v) end
+            end
+            function s:SetValueChangedCallback(fn) self.callback = fn end
+            reg.byVar[variable] = s
+            return s
+        end,
+        CreateCheckbox = control("checkbox"),
+        CreateDropdown = control("dropdown"),
+        CreateControlTextContainer = function()
+            local data = {}
+            return {
+                Add = function(_, value, label) table.insert(data, { value = value, label = label }) end,
+                GetData = function() return data end,
+            }
+        end,
+        OpenToCategory = function(id) reg.opened = id end,
+    }
+    function CreateSettingsListSectionHeaderInitializer(text) return { kind = "header", text = text } end
+    function CreateSettingsButtonInitializer(name, text, onClick)
+        return { kind = "button", name = name, text = text, onClick = onClick }
+    end
+    SettingsPanel = newWidget("Frame")
+    SettingsPanel.shown = false
 end
 
 function Stub.fire(event, ...)

@@ -20,6 +20,12 @@
 
 ## 1. État actuel du dépôt
 
+### Avancement v0.4.2 (19/11/2026)
+
+- **Accès à l'addon** : le bouton de minicarte se place sur le **bord** de la minicarte, quelle que soit sa taille (il était posé à l'intérieur de la minicarte Retail, plus grande). Il y a aussi une entrée « Renatus » dans le **menu des addons de la minicarte** (Retail) et une icône dans la liste des addons.
+- **Options > AddOns > Renatus** (`UI/Options.lua`, `/renatus options`) : réglages natifs (bouton de minicarte, mode démo, confidentialité par catégorie, consentement IA, album, voix), reliés aux mêmes données que l'onglet Paramètres. Des boutons ouvrent la fenêtre pour le reste. Si l'API Settings diffère sur le client, un panneau minimal avec un bouton la remplace.
+- 72 tests Lua.
+
 ### Avancement v0.4.0 (18/11/2026)
 
 - **Gazette rédigée par IA** (`companion/gazette.py`, `companion/llm.py`) : le compagnon du rédacteur construit une liste de faits numérotés à partir des événements **partagés** de la semaine, l'envoie à une commande externe (par défaut Claude Code en mode `-p`, sans outils, éventuellement sur une autre machine via SSH), puis vérifie la réponse avant de la proposer dans **Gazette > Rédaction**.

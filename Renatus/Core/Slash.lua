@@ -77,8 +77,11 @@ SlashCmdList.RENATUS = function(msg)
         ns.Print("mode démo %s", onOff(ns.char.ui.demo))
         ns.UI.Open()
         ns.UI.Refresh()
+    elseif cmd == "options" then
+        ns.UI.Options.Open()
     elseif cmd == "help" then
         ns.Print("/renatus : ouvrir la fenêtre")
+        ns.Print("/renatus options : réglages dans le menu Options du jeu")
         ns.Print("/renatus demo : afficher des données fictives (rien n'est sauvegardé)")
         ns.Print("/renatus voice ... : réglages de Renacoach (aussi /renacoach)")
     elseif cmd == "" then

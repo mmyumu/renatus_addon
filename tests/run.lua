@@ -927,5 +927,88 @@ test("parametres : etat de la synchronisation ; voix : reglages manuels", functi
     assert(v.status:GetText():find("Rôle"), "statut voix")
 end)
 
+print("Acces a l'addon (v0.4.2)")
+
+test("bouton de minicarte : sur le bord, quelle que soit la taille de la minicarte", function()
+    Stub.reset({ specIndex = 1 })
+    local mapWidth = 198 -- Retail-based clients (Forever)
+    Minimap.width = mapWidth
+    local ns = Stub.loadAddon(ROOT, NAME)
+    local b = ns.UI.Minimap.button
+    assert(b and b:IsShown(), "bouton affiche")
+    local x, y
+    b.SetPoint = function(_, _, _, _, px, py) x, y = px, py end
+    ns.char.ui.minimapAngle = 0
+    ns.UI.Minimap:Update()
+    assert(x > mapWidth / 2 and x < mapWidth / 2 + 16 and math.abs(y) < 1e-6, "sur le bord : x=" .. tostring(x))
+    eq(ns.UI.Minimap.compartment, nil, "pas de menu des addons sur ce client")
+    b.scripts.OnClick(b, "LeftButton")
+    assert(RenatusMainFrame:IsShown(), "clic gauche : ouvre")
+    b.scripts.OnClick(b, "LeftButton")
+    eq(RenatusMainFrame:IsShown(), false, "clic gauche : ferme")
+    ns.char.ui.showMinimap = false
+    ns.UI.Minimap:Update()
+    eq(b:IsShown(), false, "masquable")
+end)
+
+test("menu des addons de la minicarte (Retail) : ouvre la fenetre ou les parametres", function()
+    local ns, S = boot({ specIndex = 1, compartment = true })
+    eq(#S.compartment, 1)
+    local entry = S.compartment[1]
+    eq(entry.text, "Renatus")
+    entry.func(nil, { buttonName = "LeftButton" })          -- 11.0+ menus
+    assert(RenatusMainFrame:IsShown(), "ouvre")
+    entry.func(nil, nil, nil, nil, "LeftButton")             -- 10.x menus
+    eq(RenatusMainFrame:IsShown(), false, "ferme")
+    entry.func(nil, { buttonName = "RightButton" })
+    eq(ns.UI.current, "settings", "clic droit : parametres")
+end)
+
+test("menu Options du jeu : reglages natifs relies aux memes donnees que la fenetre", function()
+    local ns, S = boot({ specIndex = 1, settingsApi = true })
+    local reg = S.settings
+    eq(ns.UI.Options.native, true, ns.UI.Options.error)
+    eq(#reg.categories, 1); eq(reg.categories[1].name, "Renatus")
+    eq(#reg.controls, 5 + #ns.Types.CATEGORIES, "minicarte, demo, consentement, album, voix + confidentialite")
+    -- privacy: same table as the window
+    reg.byVar.Renatus_privacy_combat:SetValue("G")
+    eq(ns.char.privacy.combat, "G")
+    ns.char.privacy.pvp = "OFF"
+    eq(reg.byVar.Renatus_privacy_pvp:GetValue(), "OFF", "lit la valeur courante")
+    -- minimap button follows the checkbox
+    reg.byVar.Renatus_showMinimap:SetValue(false)
+    eq(ns.UI.Minimap.button:IsShown(), false)
+    -- consent goes through Press: published and shared
+    reg.byVar.Renatus_exportConsent:SetValue(true)
+    eq(ns.Press.LastConsent().p.ok, true)
+    -- voice
+    reg.byVar.Renatus_voice:SetValue(true)
+    eq(ns.char.voice.enabled, true)
+    -- buttons open the window, closing the options panel
+    SettingsPanel:Show()
+    reg.buttons[#reg.buttons].onClick()
+    eq(SettingsPanel:IsShown(), false, "panneau Options ferme")
+    eq(ns.UI.current, "voice")
+    -- /renatus options
+    SlashCmdList.RENATUS("options")
+    eq(reg.opened, reg.categories[1]:GetID())
+end)
+
+test("menu Options du jeu : API differente, repli sur un panneau avec un bouton", function()
+    local S = Stub.reset({ specIndex = 1, settingsApi = true })
+    Settings.RegisterAddOnSetting = function() error("old signature") end
+    local ns = Stub.loadAddon(ROOT, NAME)
+    eq(ns.UI.Options.native, nil)
+    assert(ns.UI.Options.fallbackPanel, "panneau de repli")
+    eq(#S.settings.categories, 1, "une seule entree, malgre l'echec du panneau natif")
+    eq(S.settings.categories[1].frame, ns.UI.Options.fallbackPanel)
+end)
+
+test("menu Options du jeu : client sans API Settings, /renatus options ouvre la fenetre", function()
+    local ns = boot({ specIndex = 1 })
+    SlashCmdList.RENATUS("options")
+    eq(ns.UI.current, "settings")
+end)
+
 print(string.format("\n%d ok, %d echec(s)", passed, failed))
 os.exit(failed == 0 and 0 or 1)
