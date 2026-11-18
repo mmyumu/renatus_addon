@@ -1,0 +1,8 @@
+## Interface: 16001, 120005
+## Title: Chronicle Probe (diagnostic)
+## Notes: Phase 0 - verifie les API reellement disponibles sur WoW Forever. A desinstaller apres usage.
+## Author: Dakey
+## Version: 0.1.0
+## SavedVariables: ChronicleProbeDB
+
+ChronicleProbe.lua
