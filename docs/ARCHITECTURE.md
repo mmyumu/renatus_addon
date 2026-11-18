@@ -20,6 +20,18 @@
 
 ## 1. État actuel du dépôt
 
+### Avancement v0.2.0 (18/11/2026)
+
+- **Interface complète** (`/chronicle`, bouton de minicarte) : Mon journal, Guilde, Membres, Tableau de chasse, Gazette, Album, Voix, Paramètres. Tout est construit sans templates FrameXML : de simples frames et textures, pour limiter la dépendance à des globales qui pourraient manquer sur Forever.
+- **Mode démo** (`/chronicle demo`) : données fictives en mémoire, jamais sauvegardées, pour voir chaque écran rempli.
+- **Données réelles** : stockage (`Core/Store.lua`), vues calculées (`Core/Views.lua`), catalogue et boosters déterministes (`Core/Album.lua`).
+- **Premiers collecteurs** (`Collectors/Basic.lua`) : niveau, mort (sans cause), quête, boss (`ENCOUNTER_END`), première visite de zone, entrée en guilde. Ils restent à confirmer par la sonde.
+- **Saisies manuelles** (marquées « déclaré ») : anecdote, fiche ennemie, affrontement, avis de recherche, courrier des lecteurs.
+- **Pas encore faits** : synchronisation (l'onglet Guilde n'affiche que tes événements), détecteur d'expéditions, observation automatique des ennemis, compagnon et gazette réelle, obtention réelle de boosters.
+- 40 tests hors client (`lua tests/run.lua`) : Voice, Core, collecteurs, vues et construction de tous les onglets.
+
+### Arborescence initiale (v0.1.0)
+
 ```text
 GuildChronicle/                 l'addon unique
   GuildChronicle.toc            Interface 16001, 120005 ; SavedVariables GuildChronicleDB (compte), GuildChronicleCharDB (perso)
@@ -363,9 +375,9 @@ Points nouveaux :
 | 0 | Analyse, architecture, sonde | ✅ |
 | 0.1 | **Sonde en jeu (toi)** : V1–V11 | ⏳ bloquant pour les collecteurs |
 | 1-V | Addon unique ; Renacoach → module Voice ; tests | ✅ (à valider en jeu) |
-| 1a | Core : Ids, Store (dédup, requêtes), Provenance | — |
-| 1b | Collecteurs fiables (niveau, mort, boss, quêtes, zones, guilde) + **détecteur d'expéditions** | après 0.1 |
-| 1c | Interface : fenêtre `/chronicle`, timeline personnelle, filtres | — |
+| 1a | Core : Ids, Store (dédup, requêtes), Provenance | ✅ v0.2.0 |
+| 1b | Collecteurs fiables (niveau, mort, boss, quêtes, zones, guilde) + **détecteur d'expéditions** | collecteurs de base ✅ ; expéditions après 0.1 |
+| 1c | Interface : **tous les onglets** (journal, guilde, membres, chasse, gazette, album, voix, paramètres), mode démo | ✅ v0.2.0 (à valider en jeu) |
 | 2 | Synchro (bibliothèques, protocole, confidentialité), timeline de guilde, vue collective | — |
 | 3 | **Wanted Board v1** : observations, déclarations manuelles, avis de recherche, fiches | après 2 |
 | 4 | **Compagnon v1, sans LLM** : lecture des SavedVariables et des journaux de combat, résumés factuels d'expédition, écriture de `GuildChronicle_Press` | après 1b |

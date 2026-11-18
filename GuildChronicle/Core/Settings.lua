@@ -11,6 +11,10 @@ Settings.SCHEMA = 1
 local ACCOUNT_DEFAULTS = {
     schema = 1,
     voiceDuck = {},   -- volume SFX a restaurer si le jeu a quitte pendant un ducking
+    events = {},      -- [id] = evenement (tous personnages du compte + recus plus tard par la synchro)
+    seq = {},         -- [guid] = { public = n, private = n }
+    articles = {},    -- gazette (importee par le compagnon, plus tard)
+    collection = {},  -- album : [cardId] = nombre d'exemplaires
 }
 
 local CHAR_DEFAULTS = {
@@ -28,6 +32,21 @@ local CHAR_DEFAULTS = {
             fightGeneric = true, fightTank = true, fightHealer = true, fightDPS = true,
             fightMelee = true, fightCaster = true, fightRanged = true,
         },
+    },
+    -- Confidentialite par categorie : "OFF" (non enregistre), "P" (prive), "G" (guilde).
+    -- "G" ne prendra effet qu'avec la synchronisation.
+    privacy = {
+        progression = "P", combat = "P", exploration = "P", social = "P", pvp = "P", anecdote = "P",
+    },
+    exportConsent = false,   -- export hors jeu (compagnon / LLM), consentement distinct
+    rivalGuild = "",         -- nom de la guilde rivale (Wanted Board)
+    albumOptOut = false,     -- ne pas apparaitre dans l'album des autres
+    visitedMaps = {},        -- zones deja visitees (pour "premiere visite")
+    ui = {
+        tab = "journal",
+        showMinimap = true,
+        minimapAngle = 200,
+        demo = false,
     },
 }
 

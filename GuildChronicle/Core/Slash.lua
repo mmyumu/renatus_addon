@@ -72,9 +72,20 @@ SlashCmdList.GUILDCHRONICLE = function(msg)
     cmd = (cmd or ""):lower()
     if cmd == "voice" then
         voiceCommand(rest)
+    elseif cmd == "demo" then
+        ns.char.ui.demo = not ns.char.ui.demo
+        ns.Print("mode démo %s", onOff(ns.char.ui.demo))
+        ns.UI.Open()
+        ns.UI.Refresh()
+    elseif cmd == "help" then
+        ns.Print("/chronicle : ouvrir la fenêtre")
+        ns.Print("/chronicle demo : afficher des données fictives (rien n'est sauvegardé)")
+        ns.Print("/chronicle voice ... : réglages de Renacoach (aussi /renacoach)")
+    elseif cmd == "" then
+        ns.UI.Toggle()
     else
-        ns.Print("v%s - le journal arrive bientot.", ns.version)
-        ns.Print("/chronicle voice : repliques de Renacoach (%s)", onOff(ns.char.voice.enabled))
+        local keys = { journal = true, guild = true, members = true, wanted = true, gazette = true, album = true, settings = true }
+        if keys[cmd] then ns.UI.Open(cmd) else ns.Print("commande inconnue, tape /chronicle help") end
     end
 end
 

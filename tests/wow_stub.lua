@@ -1,37 +1,112 @@
 -- tests/wow_stub.lua : simulation minimale de l'API WoW pour les tests hors client.
--- Compatible Lua 5.1 a 5.4.
+-- Compatible Lua 5.1 a 5.4. Les widgets acceptent n'importe quelle methode (no-op par defaut)
+-- et simulent celles dont le comportement compte (scripts, textes, valeurs, visibilite).
 local Stub = {}
 
 unpack = unpack or table.unpack
 
+local function noop() end
+
+local Widget = {}
+-- Methodes (Majuscule) inconnues : no-op. Champs (minuscule) inconnus : nil, comme en jeu.
+local WidgetMeta = { __index = function(_, k)
+    if Widget[k] then return Widget[k] end
+    if type(k) == "string" and k:match("^%u") then return noop end
+    return nil
+end }
+
+local function newWidget(kind, parent)
+    local w = setmetatable({ kind = kind, parent = parent, events = {}, scripts = {}, shown = true,
+        width = 100, height = 20, text = "", value = 0, checked = false, minV = 0, maxV = 0 }, WidgetMeta)
+    table.insert(Stub.state.frames, w)
+    return w
+end
+Stub.newWidget = newWidget
+
+function Widget:RegisterEvent(e)
+    if Stub.state.unknown[e] then error("Attempt to register unknown event \"" .. e .. "\"") end
+    self.events[e] = true
+end
+function Widget:UnregisterEvent(e) self.events[e] = nil end
+function Widget:SetScript(name, fn) self.scripts[name] = fn end
+function Widget:GetScript(name) return self.scripts[name] end
+function Widget:HookScript(name, fn)
+    local old = self.scripts[name]
+    self.scripts[name] = function(...) if old then old(...) end fn(...) end
+end
+function Widget:Show() self.shown = true end
+function Widget:Hide()
+    local was = self.shown
+    self.shown = false
+    if was and self.scripts.OnHide then self.scripts.OnHide(self) end
+end
+function Widget:IsShown() return self.shown end
+function Widget:IsVisible() return self.shown end
+function Widget:SetShown(v) if v then self:Show() else self:Hide() end end
+function Widget:SetSize(w, h) self.width, self.height = w, h end
+function Widget:SetWidth(w) self.width = w end
+function Widget:SetHeight(h) self.height = h end
+function Widget:GetWidth() return self.width end
+function Widget:GetHeight() return self.height end
+function Widget:CreateTexture() return newWidget("Texture", self) end
+function Widget:CreateFontString() return newWidget("FontString", self) end
+function Widget:SetText(t)
+    self.text = t
+    if self.kind == "EditBox" and self.scripts.OnTextChanged then self.scripts.OnTextChanged(self, false) end
+end
+function Widget:GetText() return self.text end
+function Widget:SetFormattedText(fmt, ...) self.text = string.format(fmt, ...) end
+function Widget:SetChecked(v) self.checked = v and true or false end
+function Widget:GetChecked() return self.checked end
+function Widget:SetMinMaxValues(a, b) self.minV, self.maxV = a, b end
+function Widget:GetMinMaxValues() return self.minV, self.maxV end
+function Widget:SetValue(v)
+    self.value = v
+    if self.scripts.OnValueChanged then self.scripts.OnValueChanged(self, v, false) end
+end
+function Widget:GetValue() return self.value end
+function Widget:GetFont() return "Fonts\\FRIZQT__.TTF", 12, "" end
+function Widget:GetStringHeight() return 14 end
+function Widget:GetStringWidth() return 50 end
+function Widget:GetVerticalScroll() return 0 end
+function Widget:IsMouseOver() return false end
+function Widget:GetPoint() return "CENTER", nil, "CENTER", 0, 0 end
+function Widget:GetCenter() return 0, 0 end
+function Widget:GetEffectiveScale() return 1 end
+function Widget:GetParent() return self.parent end
+function Widget:GetName() return self.name end
+function Widget:Click(button)
+    if self.kind == "CheckButton" then self.checked = not self.checked end
+    if self.scripts.OnClick then self.scripts.OnClick(self, button or "LeftButton") end
+end
+
 -- opts : { class, specIndex (nil = pas de GetSpecialization), specRole, groupRole,
---          unknownEvents = { NAME = true }, cvars = {}, savedAccount, savedChar }
+--          unknownEvents = { NAME = true }, cvars = {}, savedAccount, savedChar, guild, mapID }
 function Stub.reset(opts)
     opts = opts or {}
     local S = {
         frames = {}, timers = {}, now = 0, played = {}, stopped = {},
         cvars = opts.cvars or { Sound_SFXVolume = "1" },
         inCombat = false, dead = false, randomValue = opts.randomValue or 0.99,
-        printed = {},
+        printed = {}, unknown = opts.unknownEvents or {},
+        guild = opts.guild == nil and "Les Testeurs" or opts.guild,
+        mapID = opts.mapID or 1429, zone = "Forêt d'Elwynn", level = 20,
     }
     Stub.state = S
 
-    local unknown = opts.unknownEvents or {}
-
-    function CreateFrame()
-        local f = { events = {}, shown = true, scripts = {} }
-        function f:RegisterEvent(e)
-            if unknown[e] then error("Attempt to register unknown event \"" .. e .. "\"") end
-            self.events[e] = true
-        end
-        function f:UnregisterEvent(e) self.events[e] = nil end
-        function f:SetScript(name, fn) self.scripts[name] = fn end
-        function f:Show() self.shown = true end
-        function f:Hide() self.shown = false end
-        function f:IsShown() return self.shown end
-        table.insert(S.frames, f)
-        return f
+    function CreateFrame(frameType, name, parent)
+        local w = newWidget(frameType, parent)
+        if name then w.name = name; _G[name] = w end
+        return w
     end
+    UIParent = newWidget("Frame")
+    Minimap = newWidget("Frame")
+    GameTooltip = newWidget("GameTooltip")
+    UISpecialFrames = {}
+    function GetCursorPosition() return 0, 0 end
+    function IsMouseButtonDown() return false end
+    PlaySound, SOUNDKIT = nil, nil
+    RAID_CLASS_COLORS, CLASS_ICON_TCOORDS = nil, nil
 
     C_Timer = {
         After = function(delay, fn) table.insert(S.timers, { at = S.now + delay, fn = fn }) end,
@@ -45,7 +120,10 @@ function Stub.reset(opts)
     function StopSound(handle) table.insert(S.stopped, handle) end
     function InCombatLockdown() return S.inCombat end
     function UnitIsDeadOrGhost() return S.dead end
-    function UnitClass() return opts.class or "Warrior", opts.class or "WARRIOR", 1 end
+    function UnitClass() return "Guerrier", opts.class or "WARRIOR", 1 end
+    function UnitGUID(unit) if unit == "player" then return "Player-1-ABC" end end
+    function UnitName(unit) if unit == "player" then return "Testeur" end end
+    function UnitLevel() return S.level end
     if opts.specIndex ~= nil then
         function GetSpecialization()
             if opts.specIndex == "error" then error("no specs here") end
@@ -56,6 +134,25 @@ function Stub.reset(opts)
         GetSpecialization, GetSpecializationInfo = nil, nil
     end
     function UnitGroupRolesAssigned() return opts.groupRole or "NONE" end
+    function IsInGuild() return S.guild ~= false end
+    function GetGuildInfo() if S.guild then return S.guild, "Membre", 3 end end
+    function GetNormalizedRealmName() return "Forever" end
+    function GetRealZoneText() return S.zone end
+    function GetSubZoneText() return "" end
+    function IsInInstance() return false, "none" end
+    function IsInRaid() return false end
+    function IsInGroup() return false end
+    function GetNumGroupMembers() return 0 end
+    function GetNumGuildMembers() return 0 end
+    C_Map = {
+        GetBestMapForUnit = function() return S.mapID end,
+        GetPlayerMapPosition = function() return { GetXY = function() return 0.5, 0.25 end } end,
+    }
+    C_QuestLog = { GetTitleForQuestID = function(id) return "Quête " .. id end }
+    issecretvalue = function(v) return type(v) == "table" and v.secret == true end
+    function GetServerTime() return 1795000000 + math.floor(S.now) end
+    time = os.time
+    date = os.date
     function print(...)
         local parts = {}
         for i = 1, select("#", ...) do parts[i] = tostring((select(i, ...))) end
@@ -70,12 +167,15 @@ function Stub.reset(opts)
     GuildChronicleDB = opts.savedAccount
     GuildChronicleCharDB = opts.savedChar
     GuildChronicle = nil
+    GuildChronicleMainFrame = nil
     return S
 end
 
 function Stub.fire(event, ...)
-    for _, f in ipairs(Stub.state.frames) do
-        if (f.events[event]) and f.scripts.OnEvent then
+    local frames = {}
+    for _, f in ipairs(Stub.state.frames) do frames[#frames + 1] = f end
+    for _, f in ipairs(frames) do
+        if f.events[event] and f.scripts.OnEvent then
             f.scripts.OnEvent(f, event, ...)
         end
     end
@@ -89,7 +189,7 @@ function Stub.advance(seconds)
         local step = math.min(0.1, target - S.now)
         S.now = S.now + step
         for _, f in ipairs(S.frames) do
-            if f.shown and f.scripts.OnUpdate then f.scripts.OnUpdate(f, step) end
+            if f.shown and f.scripts.OnUpdate and f.kind ~= "Texture" then f.scripts.OnUpdate(f, step) end
         end
         local due = {}
         for i = #S.timers, 1, -1 do

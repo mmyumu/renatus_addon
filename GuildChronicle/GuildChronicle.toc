@@ -1,13 +1,30 @@
 ## Interface: 16001, 120005
 ## Title: Guild Chronicle
-## Notes: Memoire vivante de la guilde : journal, chroniques et (en option) les repliques de Renacoach.
+## Notes: Memoire vivante de la guilde : journal, tableau de chasse, gazette, album et (en option) les repliques de Renacoach.
 ## Author: Dakey
-## Version: 0.1.0
+## Version: 0.2.0
 ## SavedVariables: GuildChronicleDB
 ## SavedVariablesPerCharacter: GuildChronicleCharDB
 
 Core\Init.lua
 Core\EventBus.lua
 Core\Settings.lua
+Core\Types.lua
+Core\Store.lua
+Core\Views.lua
+Core\Album.lua
+Core\Demo.lua
+Collectors\Basic.lua
 Voice\Voice.lua
+UI\Widgets.lua
+UI\MainWindow.lua
+UI\Timeline.lua
+UI\TabMembers.lua
+UI\TabWanted.lua
+UI\TabGazette.lua
+UI\TabAlbum.lua
+UI\TabVoice.lua
+UI\TabSettings.lua
+UI\Dialogs.lua
+UI\Minimap.lua
 Core\Slash.lua
