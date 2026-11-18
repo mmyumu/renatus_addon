@@ -20,6 +20,11 @@
 
 ## 1. État actuel du dépôt
 
+### Avancement v0.5.0 (19/11/2026)
+
+- **Habillage médiéval** (`UI.Skin` dans `UI/Widgets.lua`) : textures du client (bordure dorée des boîtes de dialogue, fond de pierre, parchemin des hauts faits, boutons rouges, croix de fermeture, halo doré du journal de quêtes), police gothique (Morpheus) pour les onglets. Chaque texture est vérifiée (`GetFileIDFromPath`) ; si elle manque, ou si l'API des backdrops manque, on revient à l'aspect plat d'avant.
+- Fenêtre agrandie à 912 × 594 pour laisser la place à la bordure ; la zone utile des onglets ne change pas (698 × 494).
+
 ### Avancement v0.4.2 (19/11/2026)
 
 - **Accès à l'addon** : le bouton de minicarte se place sur le **bord** de la minicarte, quelle que soit sa taille (il était posé à l'intérieur de la minicarte Retail, plus grande). Il y a aussi une entrée « Renatus » dans le **menu des addons de la minicarte** (Retail) et une icône dans la liste des addons.

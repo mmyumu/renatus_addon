@@ -1010,5 +1010,25 @@ test("menu Options du jeu : client sans API Settings, /renatus options ouvre la 
     eq(ns.UI.current, "settings")
 end)
 
+print("Habillage (v0.5.0)")
+
+test("habillage medieval : textures du jeu si presentes, sinon aspect plat", function()
+    local ns = boot({ specIndex = 1 })
+    ns.UI.Open("gazette")
+    eq(RenatusMainFrame.gcSkin, "window", "bordure doree")
+    eq(RenatusMainFrame.containers.gazette.paper.gcSkin, "parchment")
+    assert(RenatusMainFrame.close, "bouton de fermeture")
+
+    -- Client without these files: flat look, every tab still builds.
+    Stub.reset({ specIndex = 1 })
+    function GetFileIDFromPath() return nil end
+    ns = Stub.loadAddon(ROOT, NAME)
+    for _, tab in ipairs(ns.UI.tabs) do ns.UI.Open(tab.key) end
+    eq(RenatusMainFrame.gcSkin, nil)
+    assert(RenatusMainFrame.gcBg, "fond plat")
+    eq(RenatusMainFrame.containers.gazette.paper.gcSkin, nil)
+    GetFileIDFromPath = nil
+end)
+
 print(string.format("\n%d ok, %d echec(s)", passed, failed))
 os.exit(failed == 0 and 0 or 1)

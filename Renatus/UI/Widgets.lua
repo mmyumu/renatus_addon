@@ -94,6 +94,91 @@ function UI.Box(frame, bg, border, thickness)
     return frame
 end
 
+------------------------------------------------------------------------
+-- Medieval skin: textures shipped with the game client (dialog borders, stone,
+-- parchment, red panel buttons). Each one is checked before use; when a texture
+-- or the backdrop API is missing, the flat UI.Box look above is used instead.
+------------------------------------------------------------------------
+UI.TEX = {
+    white = "Interface\\Buttons\\WHITE8X8",
+    rock = "Interface\\FrameGeneral\\UI-Background-Rock",
+    dark = "Interface\\DialogFrame\\UI-DialogBox-Background-Dark",
+    parchment = "Interface\\AchievementFrame\\UI-Achievement-Parchment-Horizontal",
+    goldBorder = "Interface\\DialogFrame\\UI-DialogBox-Gold-Border",
+    thinBorder = "Interface\\Tooltips\\UI-Tooltip-Border",
+    buttonUp = "Interface\\Buttons\\UI-Panel-Button-Up",
+    buttonDown = "Interface\\Buttons\\UI-Panel-Button-Down",
+    buttonHighlight = "Interface\\Buttons\\UI-Panel-Button-Highlight",
+    closeUp = "Interface\\Buttons\\UI-Panel-MinimizeButton-Up",
+    closeDown = "Interface\\Buttons\\UI-Panel-MinimizeButton-Down",
+    closeHighlight = "Interface\\Buttons\\UI-Panel-MinimizeButton-Highlight",
+    glow = "Interface\\QuestFrame\\UI-QuestTitleHighlight",
+}
+
+-- True if the client has this texture file (unknown = assumed present).
+function UI.HasFile(path)
+    if not path then return false end
+    if GetFileIDFromPath then
+        local ok, id = pcall(GetFileIDFromPath, path)
+        if ok then return id ~= nil end
+    end
+    return true
+end
+
+local STYLES = {
+    -- Main window and dialogs: stone background, gold dialog border.
+    window = { bg = UI.TEX.rock, bgColor = { 0.4, 0.34, 0.28, 1 }, tile = 256,
+        edge = UI.TEX.goldBorder, edgeSize = 32, inset = 11,
+        flatBg = UI.C.bg, flatBorder = { 0.75, 0.58, 0.25, 1 }, flatSize = 2 },
+    -- Panels inside the window: dark leather, thin bronze border.
+    panel = { bg = UI.TEX.dark, bgColor = { 1, 1, 1, 0.85 }, tile = 64,
+        edge = UI.TEX.thinBorder, edgeSize = 16, inset = 4, edgeColor = { 0.72, 0.56, 0.3, 1 },
+        flatBg = UI.C.panel, flatBorder = { 0.4, 0.3, 0.16, 1 } },
+    -- Parchment: gazette pages, wanted posters.
+    parchment = { bg = UI.TEX.parchment, bgColor = { 1, 0.96, 0.86, 1 },
+        edge = UI.TEX.thinBorder, edgeSize = 16, inset = 3, edgeColor = { 0.36, 0.22, 0.1, 1 },
+        flatBg = UI.C.parchment, flatBorder = { 0.3, 0.18, 0.08, 1 }, flatSize = 2 },
+    -- Input fields and dropdowns: almost black, thin bronze border.
+    field = { bg = UI.TEX.white, bgColor = { 0.03, 0.025, 0.02, 0.9 },
+        edge = UI.TEX.thinBorder, edgeSize = 12, inset = 3, edgeColor = { 0.6, 0.47, 0.25, 1 },
+        flatBg = { 0.03, 0.025, 0.02, 1 }, flatBorder = UI.C.border },
+}
+UI.STYLES = STYLES
+
+local function backdrop(frame, st)
+    if not (UI.HasFile(st.bg) and UI.HasFile(st.edge)) then return false end
+    if not frame.SetBackdrop and BackdropTemplateMixin and Mixin then
+        -- What the BackdropTemplate XML template does, without needing the template.
+        Mixin(frame, BackdropTemplateMixin)
+        if frame.OnBackdropSizeChanged then frame:HookScript("OnSizeChanged", frame.OnBackdropSizeChanged) end
+    end
+    if not frame.SetBackdrop then return false end
+    local i = st.inset
+    local ok = pcall(frame.SetBackdrop, frame, {
+        bgFile = st.bg, edgeFile = st.edge, edgeSize = st.edgeSize,
+        tile = st.tile ~= nil, tileSize = st.tile or 0, tileEdge = true,
+        insets = { left = i, right = i, top = i, bottom = i },
+    })
+    if not ok then return false end
+    local c = st.bgColor
+    if frame.SetBackdropColor then frame:SetBackdropColor(c[1], c[2], c[3], c[4]) end
+    local e = st.edgeColor
+    if e and frame.SetBackdropBorderColor then frame:SetBackdropBorderColor(e[1], e[2], e[3], e[4]) end
+    return true
+end
+
+-- Dresses a frame in one of the STYLES; falls back to the flat look.
+function UI.Skin(frame, style)
+    local st = STYLES[style] or STYLES.panel
+    if backdrop(frame, st) then
+        frame.gcSkin = style
+    else
+        frame.gcSkin = nil
+        UI.Box(frame, st.flatBg, st.flatBorder, st.flatSize)
+    end
+    return frame
+end
+
 function UI.Text(parent, size, color, font, layer)
     local fs = parent:CreateFontString(nil, layer or "OVERLAY")
     fs:SetFont(font or UI.FONT_BODY, size or 12, "")
@@ -145,13 +230,43 @@ end
 ------------------------------------------------------------------------
 -- Button
 ------------------------------------------------------------------------
-function UI.Button(parent, label, width, height, onClick)
-    local b = CreateFrame("Button", nil, parent)
-    b:SetSize(width or 110, height or 22)
-    UI.Box(b, { 0.32, 0.08, 0.05, 1 }, { 0.75, 0.58, 0.25, 1 })
+local BUTTON_COORDS = { 0, 0.625, 0, 0.6875 } -- useful part of UI-Panel-Button-*
+
+local function textured(b)
+    local T = UI.TEX
+    if not (UI.HasFile(T.buttonUp) and UI.HasFile(T.buttonDown)) then return false end
+    local c = BUTTON_COORDS
+    b.face = b:CreateTexture(nil, "BACKGROUND")
+    b.face:SetAllPoints()
+    b.face:SetTexture(T.buttonUp)
+    b.face:SetTexCoord(c[1], c[2], c[3], c[4])
+    b:HookScript("OnMouseDown", function(self)
+        if self.gcDisabled then return end
+        self.face:SetTexture(T.buttonDown)
+        self.label:SetPoint("CENTER", 1, -1)
+    end)
+    b:HookScript("OnMouseUp", function(self)
+        self.face:SetTexture(T.buttonUp)
+        self.label:SetPoint("CENTER", 0, 0)
+    end)
     local hl = b:CreateTexture(nil, "HIGHLIGHT")
     hl:SetAllPoints()
-    hl:SetColorTexture(1, 0.85, 0.4, 0.15)
+    hl:SetTexture(T.buttonHighlight)
+    hl:SetTexCoord(c[1], c[2], c[3], c[4])
+    hl:SetBlendMode("ADD")
+    return true
+end
+
+-- flat = true: no red button texture (dropdowns, which get the "field" skin).
+function UI.Button(parent, label, width, height, onClick, flat)
+    local b = CreateFrame("Button", nil, parent)
+    b:SetSize(width or 110, height or 22)
+    if flat or not textured(b) then
+        UI.Box(b, { 0.32, 0.08, 0.05, 1 }, { 0.75, 0.58, 0.25, 1 })
+        local hl = b:CreateTexture(nil, "HIGHLIGHT")
+        hl:SetAllPoints()
+        hl:SetColorTexture(1, 0.85, 0.4, 0.15)
+    end
     b.label = UI.Text(b, 12, UI.C.gold)
     b.label:SetPoint("CENTER")
     b.label:SetJustifyH("CENTER")
@@ -176,6 +291,14 @@ function UI.ToggleButton(parent, label, width, height, onClick)
     local b = UI.Button(parent, label, width, height, onClick)
     function b:SetSelected(selected)
         self.selected = selected
+        if self.face then
+            -- Textured: the selected button stays lit, the others are dimmed.
+            local v = selected and 1 or 0.55
+            self.face:SetVertexColor(v, v, v)
+            if selected then self.label:SetTextColor(1, 1, 1)
+            else self.label:SetTextColor(UI.C.gold[1], UI.C.gold[2], UI.C.gold[3]) end
+            return
+        end
         if selected then
             UI.Box(self, { 0.55, 0.38, 0.12, 1 }, { 1, 0.82, 0.3, 1 })
             self.label:SetTextColor(1, 1, 1)
@@ -250,7 +373,7 @@ end
 function UI.EditBox(parent, width, height, multiline, maxLetters)
     local box = CreateFrame("Frame", nil, parent)
     box:SetSize(width, height or 24)
-    UI.Box(box, { 0.03, 0.025, 0.02, 1 }, UI.C.border)
+    UI.Skin(box, "field")
     local e = CreateFrame("EditBox", nil, box)
     e:SetPoint("TOPLEFT", 6, -4)
     e:SetPoint("BOTTOMRIGHT", -6, 4)
@@ -276,7 +399,7 @@ local function getMenu()
     if menu then return menu end
     menu = CreateFrame("Frame", nil, UIParent)
     menu:SetFrameStrata("FULLSCREEN_DIALOG")
-    UI.Box(menu, { 0.06, 0.045, 0.03, 0.98 }, { 0.75, 0.58, 0.25, 1 })
+    UI.Skin(menu, "field")
     menu.buttons = {}
     menu:Hide()
     menu:SetScript("OnUpdate", function(self)
@@ -292,7 +415,8 @@ function UI.CloseMenus() if menu then menu:Hide() end end
 
 -- options: list of { value=, label= } or a function returning it
 function UI.Dropdown(parent, width, options, onSelect)
-    local d = UI.Button(parent, "", width or 140, 22)
+    local d = UI.Button(parent, "", width or 140, 22, nil, true)
+    UI.Skin(d, "field")
     d.label:ClearAllPoints()
     d.label:SetPoint("LEFT", 8, 0)
     d.label:SetPoint("RIGHT", -18, 0)
@@ -331,8 +455,8 @@ function UI.Dropdown(parent, width, options, onSelect)
                 m.buttons[i] = b
             end
             b:ClearAllPoints()
-            b:SetPoint("TOPLEFT", 3, -3 - (i - 1) * 20)
-            b:SetPoint("RIGHT", -3, 0)
+            b:SetPoint("TOPLEFT", 4, -3 - (i - 1) * 20)
+            b:SetPoint("RIGHT", -4, 0)
             b.text:SetText(o.label)
             if o.value == self.value then b.text:SetTextColor(1, 0.82, 0) else b.text:SetTextColor(0.92, 0.88, 0.78) end
             b:SetScript("OnClick", function()
@@ -474,11 +598,18 @@ end
 function UI.Section(parent, text, width)
     local fs = UI.Title(parent, 15)
     fs:SetText(text)
-    local line = parent:CreateTexture(nil, "ARTWORK")
-    line:SetColorTexture(0.75, 0.58, 0.25, 0.5)
-    line:SetHeight(1)
-    line:SetWidth(width or 300)
-    line:SetPoint("TOPLEFT", fs, "BOTTOMLEFT", 0, -3)
-    fs.line = line
+    -- Gold rule in three segments, fading out to the right.
+    width = width or 300
+    local alphas = { 0.75, 0.45, 0.2 }
+    local prev
+    for i, a in ipairs(alphas) do
+        local seg = parent:CreateTexture(nil, "ARTWORK")
+        seg:SetColorTexture(0.85, 0.66, 0.28, a)
+        seg:SetHeight(1)
+        seg:SetWidth(width / #alphas)
+        if prev then seg:SetPoint("LEFT", prev, "RIGHT") else seg:SetPoint("TOPLEFT", fs, "BOTTOMLEFT", 0, -3) end
+        prev = seg
+        if i == 1 then fs.line = seg end
+    end
     return fs
 end

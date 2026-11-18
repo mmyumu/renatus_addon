@@ -2,10 +2,14 @@
 local _, ns = ...
 local UI = ns.UI
 
-UI.WIDTH, UI.HEIGHT = 900, 580
+-- The gold dialog border is about 12 px wide: the window is a bit larger than
+-- the content so that nothing is drawn over it.
+UI.WIDTH, UI.HEIGHT = 912, 594
 UI.NAV_W = 168
-UI.CONTENT_W = UI.WIDTH - UI.NAV_W - 34      -- 698
-UI.CONTENT_H = UI.HEIGHT - 86                -- 494
+UI.CONTENT_W = 698   -- usable width of a tab
+UI.CONTENT_H = 494   -- usable height of a tab
+local MARGIN = 14    -- inside the gold border
+local TOP = 66       -- below the header
 
 UI.tabs = {}
 
@@ -36,62 +40,97 @@ local function build()
     f:SetScript("OnDragStart", f.StartMoving)
     f:SetScript("OnDragStop", function(self) self:StopMovingOrSizing(); savePosition(self) end)
     f:SetScript("OnHide", function() UI.CloseMenus() end)
-    UI.Box(f, UI.C.bg, { 0.75, 0.58, 0.25, 1 }, 2)
+    UI.Skin(f, "window")
     if UISpecialFrames then table.insert(UISpecialFrames, "RenatusMainFrame") end
 
-    -- Header
+    -- Header: dark red banner under the title, gold rule below.
     local header = CreateFrame("Frame", nil, f)
-    header:SetPoint("TOPLEFT", 2, -2)
-    header:SetPoint("TOPRIGHT", -2, -2)
-    header:SetHeight(52)
-    UI.Box(header, { 0.2, 0.06, 0.04, 1 }, { 0.75, 0.58, 0.25, 0.6 })
-    local crest = UI.Icon(header, 38, "Interface\\Icons\\INV_Misc_Book_09")
-    crest:SetPoint("LEFT", 10, 0)
-    local title = UI.Title(header, 24)
-    title:SetPoint("TOPLEFT", crest, "TOPRIGHT", 10, 2)
+    header:SetPoint("TOPLEFT", MARGIN - 2, -MARGIN + 2)
+    header:SetPoint("TOPRIGHT", -MARGIN + 2, -MARGIN + 2)
+    header:SetHeight(TOP - MARGIN - 6)
+    local banner = header:CreateTexture(nil, "BACKGROUND")
+    banner:SetAllPoints()
+    banner:SetColorTexture(0.3, 0.05, 0.03, 0.55)
+    local rule = header:CreateTexture(nil, "BORDER")
+    rule:SetPoint("BOTTOMLEFT")
+    rule:SetPoint("BOTTOMRIGHT")
+    rule:SetHeight(2)
+    rule:SetColorTexture(0.85, 0.66, 0.28, 0.85)
+    local crestFrame = header:CreateTexture(nil, "ARTWORK")
+    crestFrame:SetSize(46, 46)
+    crestFrame:SetPoint("LEFT", 6, 0)
+    crestFrame:SetColorTexture(0.85, 0.66, 0.28, 1)
+    local crest = UI.Icon(header, 42, "Interface\\Icons\\INV_Misc_Book_09")
+    crest:SetDrawLayer("OVERLAY")
+    crest:SetPoint("CENTER", crestFrame, "CENTER")
+    local title = UI.Title(header, 26)
+    title:SetPoint("TOPLEFT", crestFrame, "TOPRIGHT", 12, 0)
     title:SetText("Chronique de la Guilde")
     f.subtitle = UI.Text(header, 12, UI.C.dim)
-    f.subtitle:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -2)
+    f.subtitle:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 2, -3)
     f.demoBadge = UI.Text(header, 13, UI.C.red, UI.FONT_TITLE)
-    f.demoBadge:SetPoint("RIGHT", -48, 0)
+    f.demoBadge:SetPoint("RIGHT", -40, 0)
     f.demoBadge:SetText("MODE DÉMO — données fictives")
 
-    local close = CreateFrame("Button", nil, header)
-    close:SetSize(26, 26)
-    close:SetPoint("RIGHT", -10, 0)
-    UI.Box(close, { 0.32, 0.08, 0.05, 1 }, { 0.75, 0.58, 0.25, 1 })
-    local x = UI.Text(close, 14, UI.C.gold)
-    x:SetPoint("CENTER", 0, 0)
-    x:SetJustifyH("CENTER")
-    x:SetText("X")
+    -- Close button: the game's red cross on the top-right corner, flat box otherwise.
+    local close = CreateFrame("Button", nil, f)
+    local T = UI.TEX
+    if UI.HasFile(T.closeUp) then
+        close:SetSize(32, 32)
+        close:SetPoint("TOPRIGHT", -4, -4)
+        close:SetNormalTexture(T.closeUp)
+        close:SetPushedTexture(T.closeDown)
+        close:SetHighlightTexture(T.closeHighlight, "ADD")
+    else
+        close:SetSize(26, 26)
+        close:SetPoint("TOPRIGHT", -MARGIN - 6, -MARGIN - 8)
+        UI.Box(close, { 0.32, 0.08, 0.05, 1 }, { 0.75, 0.58, 0.25, 1 })
+        local x = UI.Text(close, 14, UI.C.gold)
+        x:SetPoint("CENTER", 0, 0)
+        x:SetJustifyH("CENTER")
+        x:SetText("X")
+    end
+    close:SetFrameLevel((header:GetFrameLevel() or 1) + 5)
     close:SetScript("OnClick", function() f:Hide() end)
+    f.close = close
 
     -- Navigation
     local nav = CreateFrame("Frame", nil, f)
-    nav:SetPoint("TOPLEFT", 8, -62)
-    nav:SetSize(UI.NAV_W - 8, UI.HEIGHT - 72)
-    UI.Box(nav, UI.C.panel, { 0.4, 0.3, 0.16, 1 })
+    nav:SetPoint("TOPLEFT", MARGIN, -TOP)
+    nav:SetSize(UI.NAV_W - 8, UI.HEIGHT - TOP - MARGIN)
+    UI.Skin(nav, "panel")
 
     -- Content
     local content = CreateFrame("Frame", nil, f)
-    content:SetPoint("TOPLEFT", UI.NAV_W + 8, -62)
-    content:SetSize(UI.CONTENT_W + 16, UI.HEIGHT - 72)
-    UI.Box(content, { 0.1, 0.08, 0.06, 0.95 }, { 0.4, 0.3, 0.16, 1 })
+    content:SetPoint("TOPLEFT", MARGIN + UI.NAV_W - 4, -TOP)
+    content:SetSize(UI.CONTENT_W + 16, UI.HEIGHT - TOP - MARGIN)
+    UI.Skin(content, "panel")
 
     f.navButtons, f.containers = {}, {}
     for i, tab in ipairs(UI.tabs) do
         local b = CreateFrame("Button", nil, nav)
-        b:SetSize(UI.NAV_W - 16, 40)
-        b:SetPoint("TOPLEFT", 4, -4 - (i - 1) * 44)
+        b:SetSize(UI.NAV_W - 24, 40)
+        b:SetPoint("TOPLEFT", 8, -8 - (i - 1) * 44)
+        -- Selected tab and hover: the gold glow of the quest log, flat colours otherwise.
+        local glow = UI.HasFile(UI.TEX.glow)
         local hl = b:CreateTexture(nil, "HIGHLIGHT")
         hl:SetAllPoints()
-        hl:SetColorTexture(1, 0.85, 0.4, 0.1)
+        if glow then
+            hl:SetTexture(UI.TEX.glow); hl:SetBlendMode("ADD"); hl:SetAlpha(0.35)
+        else
+            hl:SetColorTexture(1, 0.85, 0.4, 0.1)
+        end
         b.sel = b:CreateTexture(nil, "BACKGROUND")
         b.sel:SetAllPoints()
-        b.sel:SetColorTexture(0.55, 0.38, 0.12, 0.55)
+        if glow then
+            b.sel:SetTexture(UI.TEX.glow); b.sel:SetBlendMode("ADD"); b.sel:SetVertexColor(1, 0.8, 0.4)
+        else
+            b.sel:SetColorTexture(0.55, 0.38, 0.12, 0.55)
+        end
         local icon = UI.Icon(b, 30, tab.icon)
         icon:SetPoint("LEFT", 5, 0)
-        b.text = UI.Text(b, 13, UI.C.gold)
+        b.text = UI.Text(b, 15, UI.C.gold, UI.FONT_TITLE)
+        b.text:SetShadowOffset(1, -1)
         b.text:SetPoint("LEFT", icon, "RIGHT", 8, 0)
         b.text:SetJustifyV("MIDDLE")
         b.text:SetText(tab.label)
@@ -106,7 +145,7 @@ local function build()
     end
 
     local version = UI.Text(nav, 10, UI.C.dim)
-    version:SetPoint("BOTTOMLEFT", 8, 8)
+    version:SetPoint("BOTTOMLEFT", 10, 10)
     version:SetText("v" .. ns.version)
 
     window = f

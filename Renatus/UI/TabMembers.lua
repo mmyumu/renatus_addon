@@ -48,7 +48,7 @@ local function build(c)
     local p = CreateFrame("Frame", nil, c)
     p:SetPoint("TOPLEFT", LIST_W + 12, -36)
     p:SetSize(UI.CONTENT_W - LIST_W - 12, UI.CONTENT_H - 40)
-    UI.Box(p, UI.C.panelLight, { 0.5, 0.38, 0.2, 1 })
+    UI.Skin(p, "panel")
     c.profile = p
     p.portrait = p:CreateTexture(nil, "ARTWORK")
     p.portrait:SetSize(56, 56)
