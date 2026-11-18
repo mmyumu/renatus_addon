@@ -8,7 +8,7 @@
 --   ARTICLE                -> provenance GEN (redaction ; les faits sont dans refs)
 local _, ns = ...
 
-local Press = {}
+local Press = ns:RegisterModule("Press", {})
 ns.Press = Press
 
 local KINDS = {
@@ -39,7 +39,7 @@ end
 function Press.Label(item)
     local k = KINDS[item.kind]
     local p = item.p
-    if item.kind == "ARTICLE" then return k.label .. " : " .. tostring(p.title) end
+    if item.kind == "ARTICLE" then return (p.ia == true and "Article (IA)" or k.label) .. " : " .. tostring(p.title) end
     if item.kind == "DEATH_CAUSE" then return ("Mort de %s : %s"):format(tostring(p.victim), tostring(p.cause)) end
     if item.kind == "PVP_CLASH" then
         return ("%s %s %s"):format(tostring(p.member), p.result == "win" and "a vaincu" or "a été vaincu par", tostring(p.name))
@@ -65,4 +65,41 @@ end
 
 function Press.Ignore(item)
     if valid(item) then ns.db.pressDone[item.id] = "ignored" end
+end
+
+------------------------------------------------------------------------
+-- Consentement a la gazette IA (docs §7, §8.4)
+------------------------------------------------------------------------
+-- Le choix est publie dans le journal partage (evenement AI_CONSENT, toujours "G") pour que
+-- le compagnon du redacteur le connaisse : sans consentement explicite, les evenements de ce
+-- personnage ne sont jamais envoyes a l'IA et son nom est retire des faits des autres.
+-- Le dernier choix (sequence la plus haute) l'emporte. Rien coche = pas de consentement.
+local function lastConsent()
+    local me, best = ns.Context.Me(), nil
+    for _, ev in pairs(ns.db.events) do
+        if ev.k == "AI_CONSENT" and ev.a == me and ev.vis == "G" and (not best or (ev.s or 0) > (best.s or 0)) then
+            best = ev
+        end
+    end
+    return best
+end
+Press.LastConsent = lastConsent
+
+local function publishConsent(value)
+    if not ns.Context.GuildKey() then return nil end
+    local last = lastConsent()
+    if last and (last.p.ok and true or false) == value then return last end
+    if not last and not value then return nil end -- jamais accepte : rien a annoncer
+    return ns.Store.Add("AI_CONSENT", { ok = value }, { vis = "G", prov = "MAN", noExp = true, loc = {} })
+end
+
+function Press.SetConsent(value)
+    value = value and true or false
+    ns.char.exportConsent = value
+    return publishConsent(value)
+end
+
+function Press:OnLogin()
+    -- Choix fait hors guilde, ou avant la v0.4 : on l'annonce maintenant.
+    publishConsent(ns.char.exportConsent and true or false)
 end

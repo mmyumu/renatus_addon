@@ -28,11 +28,14 @@ local function build(c)
         d:SetPoint("TOPLEFT", 180, -108 - (i - 1) * 27)
         c.privacy[cat.key] = d
     end
-    c.export = UI.Checkbox(c, "Autoriser l'export hors jeu (gazette / LLM)", function(v) ns.char.exportConsent = v end)
+    c.export = UI.Checkbox(c, "La gazette rédigée par IA peut parler de moi", function(v) ns.Press.SetConsent(v) end)
     c.export:SetPoint("TOPLEFT", 4, -300)
-    UI.Tooltip(c.export, "Export hors jeu", {
-        "Consentement distinct du partage en guilde.",
-        "Si coché, l'application compagnon du rédacteur pourra utiliser tes événements partagés pour écrire la gazette.",
+    UI.Tooltip(c.export, "Gazette IA", {
+        "Consentement distinct du partage en guilde, pour ce personnage.",
+        "Si coché, tes événements PARTAGÉS (réglés sur Guilde) peuvent être envoyés à une IA (Claude)",
+        "par l'application compagnon du rédacteur, pour écrire la gazette.",
+        "Si décoché : rien de toi n'est envoyé, et ton nom est retiré des faits des autres.",
+        "Ton choix est partagé avec la guilde pour que le compagnon le respecte.",
     })
     local note = UI.Text(c, 10, UI.C.dim)
     note:SetPoint("TOPLEFT", 4, -328)

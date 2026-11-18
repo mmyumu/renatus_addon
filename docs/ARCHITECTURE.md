@@ -20,6 +20,15 @@
 
 ## 1. État actuel du dépôt
 
+### Avancement v0.4.0 (18/11/2026)
+
+- **Gazette rédigée par IA** (`companion/gazette.py`, `companion/llm.py`) : le compagnon du rédacteur construit une liste de faits numérotés à partir des événements **partagés** de la semaine, l'envoie à une commande externe (par défaut Claude Code en mode `-p`, sans outils, éventuellement sur une autre machine via SSH), puis vérifie la réponse avant de la proposer dans **Gazette > Rédaction**.
+- **Consentement synchronisé** (§7, §8.4) : la case « La gazette rédigée par IA peut parler de moi » publie un événement masqué `AI_CONSENT` (toujours partagé, le dernier choix compte). Sans « oui » explicite : événements écartés, nom retiré des faits des autres (fait supprimé si texte libre, « +n autres participants » dans une expédition).
+- **Rivaux pseudonymisés** pour l'IA (« Rival A (voleur Orc) ») ; provenance conservée dans les faits (« selon X (déclaré, non vérifié) », « supposé »).
+- **Vérification de la réponse** : chaque article doit citer des faits fournis, ne nommer aucun membre non consentant ni rival, respecter les longueurs ; sinon il est rejeté (jamais corrigé). Articles marqués `p.ia`, affichés « rédigé par IA, relu par X ».
+- Une édition par semaine via `run` (`[llm] enabled = true`), `gazette --show` affiche la demande exacte sans appeler l'IA.
+- 67 tests Lua, 19 tests Python.
+
 ### Avancement v0.3.0 (18/11/2026)
 
 - **Synchronisation entre membres** (`Sync/`) : protocole par vecteurs (§10), canal GUILD uniquement, envoi seulement hors instance et hors combat, débit limité, validation stricte de ce qui est reçu, distinction « reçu de l'auteur » / « relayé ». Seuls les événements des catégories réglées sur « Guilde » partent ; le reste ne quitte jamais le client.
@@ -29,7 +38,7 @@
 - **Compagnon v1, sans LLM** (`companion/`) : lecture des SavedVariables et des journaux de combat, causes de mort, affrontements PvP contre des rivaux connus, articles écrits à la main, écriture de `GuildChronicle_Press/Press.lua`. En jeu, **Gazette > Rédaction** : rien n'est publié sans validation.
 - **Gazette réelle** : articles (`ARTICLE`, provenance « Rédaction »), votes pour la une (un par membre et par semaine), causes de mort affichées sur les morts (« d'après le journal de combat de X »).
 - 66 tests Lua (`lua tests/run.lua`) et 14 tests Python (`python3 -m unittest discover -s tests/companion -t .`).
-- **Pas encore faits** : LLM de la gazette, obtention réelle de boosters (modèle à choisir, §9.2), réglages de guilde signés par le chef (`GUILD_CONFIG` : rédacteurs, rivale commune), tombstones, rivalités détectées (§6.4).
+- **Pas encore faits** : ~~LLM de la gazette (fait en v0.4.0)~~, obtention réelle de boosters (modèle à choisir, §9.2), réglages de guilde signés par le chef (`GUILD_CONFIG` : rédacteurs, rivale commune), tombstones, rivalités détectées (§6.4).
 
 ### Avancement v0.2.0 (18/11/2026)
 

@@ -172,7 +172,8 @@ local function build(c)
         end
         paper.kind:SetText(string.upper(a.kind or "Article"))
         paper.title:SetText(a.title or "")
-        local meta = UI.Date(a.t) .. (a.author and ("  ·  par " .. a.author) or "") .. "  ·  style : " .. (a.style or "?")
+        local by = a.author and (a.ia and ("  ·  rédigé par IA, relu par " .. a.author) or ("  ·  par " .. a.author)) or ""
+        local meta = UI.Date(a.t) .. by .. "  ·  style : " .. (a.style or "?")
             .. "  ·  " .. #(a.refs or {}) .. " source(s)"
         if a.votes and a.votes > 0 then meta = meta .. "  ·  " .. a.votes .. " vote(s) pour la une" end
         paper.meta:SetText(meta)

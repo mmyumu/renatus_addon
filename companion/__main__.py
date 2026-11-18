@@ -5,7 +5,8 @@ Commandes :
   facts     faits numerotes de la periode (pour ecrire un article a la main)
   deaths    causes de mort et affrontements PvP d'apres les journaux de combat -> Press.lua
   articles  articles .md du dossier articles/ -> Press.lua
-  run       deaths + articles
+  gazette   gazette de la semaine redigee par l'IA (faits partages + consentement) -> Press.lua
+  run       deaths + articles (+ gazette si [llm] enabled = true et pas encore faite cette semaine)
 
 Rien n'est publie automatiquement : apres /reload, le redacteur valide chaque element dans
 l'onglet Gazette > Redaction. Le compagnon ne lit que des fichiers et n'ecrit que Press.lua.
@@ -19,7 +20,7 @@ import tomllib
 from pathlib import Path
 
 from . import articles as articles_mod
-from . import combatlog, luadata, press
+from . import combatlog, gazette, llm, luadata, press
 from .reconcile import Chronicle, propose
 from .wowfiles import WowPaths
 
@@ -144,6 +145,58 @@ def gather_articles(paths: WowPaths, ch: Chronicle, args) -> list:
     return [a.to_item() for a in found]
 
 
+def edition_key(until: float) -> str:
+    year, week, _ = dt.date.fromtimestamp(until).isocalendar()
+    return f"{year}-S{week:02d}"
+
+
+def edition_done(paths: WowPaths, ch: Chronicle, edition: str) -> bool:
+    prefix = f"ia:{edition}:"
+    pending = press.read_items(paths.press)
+    return any(i.startswith(prefix) for i in ch.press_done) or any(i["id"].startswith(prefix) for i in pending)
+
+
+def gather_gazette(paths: WowPaths, ch: Chronicle, args, cfg: dict, auto: bool = False) -> list:
+    until = dt.datetime.now().timestamp()
+    since = until - getattr(args, "days", 7) * 86400
+    edition = edition_key(until)
+    if auto and edition_done(paths, ch, edition):
+        print(f"Gazette IA : édition {edition} déjà rédigée (python -m companion gazette pour en refaire une).")
+        return []
+    brief = gazette.build(ch, since, until)
+    total = len(ch.members())
+    print(f"Gazette IA {edition} : {len(brief.allowed)} membre(s) consentant(s) sur {total} équipé(s) de l'addon ; "
+          f"{len(brief.facts)} fait(s) retenu(s).")
+    for reason, n in brief.excluded.most_common():
+        print(f"  écarté : {n} × {reason}")
+    if not brief.facts:
+        print("  Rien à raconter (ou personne n'a coché « La gazette IA peut parler de moi » en jeu).")
+        return []
+    text = gazette.prompt(brief)
+    if getattr(args, "show", False):
+        print("\n----- demande qui serait envoyée à l'IA -----\n" + text)
+        return []
+    print("  rédaction en cours (cela peut prendre une ou deux minutes)…")
+    try:
+        answer = llm.run(text, cfg.get("llm") or {})
+    except llm.LLMError as exc:
+        print(f"  IA indisponible : {exc}")
+        return []
+    items, notes = gazette.check(brief, answer, edition)
+    for n in notes:
+        print("  " + n)
+    print(f"  {len(items)} article(s) proposé(s).")
+    return items
+
+
+def cmd_gazette(paths, args, cfg) -> int:
+    ch = load_chronicle(paths)
+    items = gather_gazette(paths, ch, args, cfg)
+    if items or not args.show:
+        _publish(paths, ch, items, args.dry_run)
+    return 0
+
+
 def cmd_deaths(paths, args) -> int:
     ch = load_chronicle(paths)
     _publish(paths, ch, gather_deaths(paths, ch, args), args.dry_run)
@@ -156,9 +209,12 @@ def cmd_articles(paths, args) -> int:
     return 0
 
 
-def cmd_run(paths, args) -> int:
+def cmd_run(paths, args, cfg) -> int:
     ch = load_chronicle(paths)
-    _publish(paths, ch, gather_deaths(paths, ch, args) + gather_articles(paths, ch, args), args.dry_run)
+    items = gather_deaths(paths, ch, args) + gather_articles(paths, ch, args)
+    if (cfg.get("llm") or {}).get("enabled"):
+        items += gather_gazette(paths, ch, args, cfg, auto=True)
+    _publish(paths, ch, items, args.dry_run)
     return 0
 
 
@@ -172,6 +228,10 @@ def main(argv=None) -> int:
     sub.add_parser("status")
     f = sub.add_parser("facts")
     f.add_argument("--days", type=int, default=7)
+    g = sub.add_parser("gazette")
+    g.add_argument("--days", type=int, default=7, help="période couverte (défaut : 7 jours)")
+    g.add_argument("--show", action="store_true", help="affiche la demande qui serait envoyée, sans appeler l'IA")
+    g.add_argument("--dry-run", action="store_true", help="appelle l'IA mais n'écrit rien")
     for name in ("deaths", "articles", "run"):
         p = sub.add_parser(name)
         p.add_argument("--dry-run", action="store_true", help="n'écrit rien")
@@ -183,8 +243,10 @@ def main(argv=None) -> int:
     cfg = load_config(args.config)
     paths = build_paths(args, cfg)
     try:
+        if args.cmd in ("gazette", "run"):
+            return {"gazette": cmd_gazette, "run": cmd_run}[args.cmd](paths, args, cfg)
         return {"status": cmd_status, "facts": cmd_facts, "deaths": cmd_deaths,
-                "articles": cmd_articles, "run": cmd_run}[args.cmd](paths, args)
+                "articles": cmd_articles}[args.cmd](paths, args)
     except FileNotFoundError as exc:
         print(exc)
         return 1

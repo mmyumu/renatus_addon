@@ -3,3 +3,17 @@
 wow_path = "C:/Program Files (x86)/World of Warcraft/_forever_"
 # Nom du dossier de compte sous WTF/Account (facultatif s'il n'y en a qu'un).
 # account = "MONCOMPTE"
+
+# Gazette rédigée par IA (python -m companion gazette).
+# La demande (faits de la semaine, déjà filtrés : partagés + consentement) est envoyée sur
+# l'entrée standard de la commande ; la réponse est lue sur sa sortie.
+[llm]
+# true : « run » rédige aussi la gazette, une fois par semaine.
+enabled = false
+# Claude Code sur ton Raspberry Pi, via SSH (il faut une clé SSH sans mot de passe vers le Pi).
+# « pi5 » = nom ou adresse du Pi (ex. "moi@192.168.1.20"). Via SSH, la partie distante est UNE
+# seule chaîne ; l'argument vide de --tools s'y écrit ''.
+command = ["ssh", "pi5", "cd /tmp && ~/.local/bin/claude -p --output-format json --tools '' --no-session-persistence"]
+# Variante : Claude Code installé sur ce PC.
+# command = ["claude", "-p", "--output-format", "json", "--tools", "", "--no-session-persistence"]
+timeout = 600

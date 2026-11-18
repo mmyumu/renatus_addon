@@ -281,7 +281,7 @@ function Views.Articles(events, meGuid)
         if ev.k == "ARTICLE" then
             local p = ev.p or {}
             local a = { id = ev.id, t = ev.t, kind = p.format, title = p.title, body = p.body, style = p.style,
-                refs = ev.refs, author = ev.n, week = Views.WeekKey(ev.t), votes = 0, ev = ev }
+                refs = ev.refs, author = ev.n, ia = (p.ia == true) or nil, week = Views.WeekKey(ev.t), votes = 0, ev = ev }
             byId[ev.id] = a
             table.insert(list, a)
         end

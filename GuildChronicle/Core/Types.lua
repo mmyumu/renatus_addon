@@ -112,6 +112,10 @@ local TYPES = {
         text = function(ev) return "publie dans la gazette : « " .. tostring(ev.p.title) .. " »" end },
     VOTE = { cat = "gazette", icon = "Interface\\Icons\\INV_Misc_Coin_01", importance = 0, hidden = true,
         text = function() return "vote pour la une" end },
+    AI_CONSENT = { cat = "gazette", icon = "Interface\\Icons\\INV_Misc_Note_06", importance = 0, hidden = true,
+        text = function(ev)
+            return ev.p.ok and "accepte que la gazette IA parle de lui/elle" or "refuse que la gazette IA parle de lui/elle"
+        end },
     DEATH_CAUSE = { cat = "combat", icon = "Interface\\Icons\\INV_Misc_Bone_HumanSkull_01", importance = 1, hidden = true,
         text = function(ev)
             return ("rapporte, d'après son journal de combat, la mort de %s : %s"):format(

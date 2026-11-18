@@ -2,7 +2,7 @@
 ## Title: Guild Chronicle
 ## Notes: Memoire vivante de la guilde : journal, tableau de chasse, gazette, album et (en option) les repliques de Renacoach.
 ## Author: Dakey
-## Version: 0.3.0
+## Version: 0.4.0
 ## SavedVariables: GuildChronicleDB
 ## SavedVariablesPerCharacter: GuildChronicleCharDB
 ## OptionalDeps: GuildChronicle_Press

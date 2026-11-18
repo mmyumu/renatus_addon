@@ -897,6 +897,23 @@ test("gazette reelle : article publie, vote une fois par semaine", function()
     GuildChroniclePress = nil
 end)
 
+test("consentement gazette IA : publie et partage, le dernier choix compte", function()
+    local ns = boot({ specIndex = 1 })
+    eq(#eventsOf(ns, "AI_CONSENT"), 0, "rien coche : rien a annoncer")
+    ns.UI.Open("settings")
+    local c = GuildChronicleMainFrame.containers.settings
+    c.export:Click()
+    local ev = eventsOf(ns, "AI_CONSENT")[1]
+    eq(ev.vis, "G", "partage meme si la categorie est privee"); eq(ev.p.ok, true)
+    eq(#ns.Views.Filter(ns.Store.Dataset().events, {}), 0, "masque de la chronologie")
+    ns.Press.SetConsent(true)
+    eq(#eventsOf(ns, "AI_CONSENT"), 1, "pas de doublon")
+    c.export:Click()
+    eq(#eventsOf(ns, "AI_CONSENT"), 2)
+    eq(ns.Press.LastConsent().p.ok, false, "retrait du consentement")
+    eq(ns.char.exportConsent, false)
+end)
+
 print("Interface (v0.3)")
 
 test("parametres : etat de la synchronisation ; voix : reglages manuels", function()
