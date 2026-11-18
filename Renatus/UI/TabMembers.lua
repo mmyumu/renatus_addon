@@ -1,4 +1,4 @@
--- UI/TabMembers.lua : profils des membres, statistiques, titres officieux, aventures partagees.
+-- UI/TabMembers.lua: member profiles, statistics, unofficial titles, shared adventures.
 local _, ns = ...
 local UI = ns.UI
 local Views, Types = ns.Views, ns.Types
@@ -44,7 +44,7 @@ local function build(c)
     end)
     c.list:SetPoint("TOPLEFT", 0, -36)
 
-    -- Profil
+    -- Profile
     local p = CreateFrame("Frame", nil, c)
     p:SetPoint("TOPLEFT", LIST_W + 12, -36)
     p:SetSize(UI.CONTENT_W - LIST_W - 12, UI.CONTENT_H - 40)
@@ -134,7 +134,7 @@ local function build(c)
     end
 end
 
--- Info-bulle des titres : les regles sont publiques et reproductibles.
+-- Title tooltip: the rules are public and reproducible.
 local function titlesHelp()
     local lines = {}
     for _, t in ipairs(Views.TITLES) do table.insert(lines, "« " .. t.title .. " » : " .. t.rule) end

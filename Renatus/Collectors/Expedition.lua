@@ -1,23 +1,23 @@
--- Collectors/Expedition.lua : detecteur d'expeditions (machine a etats locale, docs §5).
+-- Collectors/Expedition.lua: expedition detector (local state machine, docs §5).
 --
--- Debut :  entree dans une instance de groupe (DUNGEON / RAID), un champ de bataille ou
---          une arene (PVP), ou groupe avec au moins un membre de la guilde hors instance (QUESTING).
--- Fin :    sortie d'instance sans y revenir dans les 10 min ; dissolution du groupe ;
---          20 min sans evenement (QUESTING) ; deconnexion -> fin estimee a la connexion suivante.
--- Un evenement EXPEDITION est ecrit a la fin. Les evenements produits pendant portent x = cle.
--- Les membres listes sont ceux reellement vus dans le groupe (jamais inventes), guilde seulement.
+-- Start: entering a group instance (DUNGEON / RAID), a battleground or
+--        an arena (PVP), or grouping with at least one guild member outside instances (QUESTING).
+-- End:   leaving the instance without coming back within 10 min; group disbanded;
+--        20 min without events (QUESTING); logout -> estimated end at next login.
+-- An EXPEDITION event is written at the end. Events produced meanwhile carry x = key.
+-- Listed members are those actually seen in the group (never invented), guild only.
 local _, ns = ...
 
 local Exp = ns:RegisterModule("Expedition", {})
 ns.Expedition = Exp
 local try = ns.Try
 
-Exp.REENTRY = 600        -- tolerance de sortie d'instance (s)
-Exp.IDLE = 1200          -- inactivite d'une expedition QUESTING (s)
-Exp.MIN_DURATION = 120   -- en dessous, et sans rien de notable, l'expedition est oubliee
+Exp.REENTRY = 600        -- instance exit tolerance (s)
+Exp.IDLE = 1200          -- idle timeout of a QUESTING expedition (s)
+Exp.MIN_DURATION = 120   -- below this, with nothing notable, the expedition is dropped
 
 local guildNames = {}
-local idle = false       -- QUESTING cloturee pour inactivite : pas de redemarrage sans nouvelle activite
+local idle = false       -- QUESTING closed for inactivity: no restart without new activity
 
 local function now() return (GetServerTime and GetServerTime()) or time() end
 local function state() return ns.char.expedition end
@@ -49,7 +49,7 @@ local function leaderGuid()
     return nil
 end
 
--- Ce que la situation actuelle demande : { kind, iid, iname } ou nil.
+-- What the current situation calls for: { kind, iid, iname } or nil.
 local function desired()
     local inInstance, itype = try(IsInInstance)
     if inInstance then
@@ -97,11 +97,11 @@ local function hasActivity(st)
     return false
 end
 
--- Cloture : ecrit l'evenement EXPEDITION (sauf passage eclair sans rien de notable).
+-- Close: writes the EXPEDITION event (unless a quick pass with nothing notable).
 local function close(finish, estimated)
     local st = state()
     if not st then return nil end
-    ns.char.expedition = nil -- avant Store.Add : l'expedition ne se reference pas elle-meme
+    ns.char.expedition = nil -- before Store.Add: the expedition must not reference itself
     ns.EventBus.Publish("EXPEDITION_STATE", nil)
     finish = math.max(finish or st.last, st.start)
     local duration = finish - st.start
@@ -134,7 +134,7 @@ function Exp:Evaluate()
                 return
             end
             if d and d.kind ~= "QUESTING" then close(t); start(d); return end
-            -- hors de l'instance : on tolere un retour (reparation, mort, rez...)
+            -- outside the instance: tolerate a return (repair, death, res...)
             st.leftAt = st.leftAt or t
             if t - st.leftAt >= Exp.REENTRY then close(st.leftAt) end
             return
@@ -159,14 +159,14 @@ local function onChronicleEvent(ev)
     if ev.a ~= me then return end
     local st = state()
     if not st then
-        -- reprise apres inactivite : une nouvelle activite en groupe relance une expedition
+        -- resuming after inactivity: new group activity restarts an expedition
         if idle then idle = false; Exp:Evaluate() end
         return
     end
     if ev.x ~= st.key then return end
     st.last = now()
     local counter = SIGNIFICANT[ev.k]
-    -- Confidentialite : si l'expedition est partagee, elle ne compte que des evenements partages.
+    -- Privacy: if expeditions are shared, they only count shared events.
     local shareExp = (ns.char.privacy.social == "G")
     if counter and (ev.vis == "G" or not shareExp) then
         st.counts[counter] = (st.counts[counter] or 0) + 1
@@ -177,7 +177,7 @@ end
 function Exp:OnLogin()
     refreshGuildNames()
     local st = state()
-    -- Session precedente interrompue (deconnexion, crash) : fin estimee si on n'y est plus.
+    -- Previous session interrupted (logout, crash): estimated end if we are no longer there.
     if st then
         local d = desired()
         local same = d and d.kind == st.kind and (st.kind == "QUESTING" or d.iid == st.iid)
@@ -189,7 +189,7 @@ function Exp:OnLogin()
     ns:RegisterGameEvent("GROUP_ROSTER_UPDATE", evaluate)
     ns:RegisterGameEvent("GUILD_ROSTER_UPDATE", refreshGuildNames)
     ns:RegisterGameEvent("PLAYER_LOGOUT", function()
-        -- on garde l'etat : la cloture (estimee) se fera a la prochaine connexion
+        -- keep the state: the (estimated) close happens at next login
         local s = state()
         if s then s.last = math.max(s.last, now() - 1) end
     end)
@@ -200,5 +200,5 @@ function Exp:OnLogin()
     end
 end
 
--- Pour l'interface : expedition en cours (lecture seule).
+-- For the UI: current expedition (read-only).
 function Exp:Current() return state() end

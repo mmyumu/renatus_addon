@@ -1,11 +1,11 @@
--- Core/Press.lua : elements produits hors jeu par l'application compagnon du redacteur.
+-- Core/Press.lua: items produced outside the game by the editor's companion app.
 --
--- Le compagnon ecrit Interface/AddOns/Renatus_Press/Press.lua (une simple table Lua).
--- Le jeu le relit a chaque /reload. Rien n'est publie automatiquement : le redacteur
--- passe en revue chaque element (Publier / Ignorer) dans l'onglet Gazette.
--- Une fois publie, l'element devient un evenement signe par le redacteur :
---   DEATH_CAUSE, PVP_CLASH -> provenance LOG ("d'apres le journal de combat de X")
---   ARTICLE                -> provenance GEN (redaction ; les faits sont dans refs)
+-- The companion writes Interface/AddOns/Renatus_Press/Press.lua (a plain Lua table).
+-- The game reloads it on every /reload. Nothing is published automatically: the editor
+-- reviews each item (Publish / Ignore) in the Gazette tab.
+-- Once published, the item becomes an event signed by the editor:
+--   DEATH_CAUSE, PVP_CLASH -> provenance LOG ("according to X's combat log")
+--   ARTICLE                -> provenance GEN (editorial; facts are in refs)
 local _, ns = ...
 
 local Press = ns:RegisterModule("Press", {})
@@ -68,12 +68,12 @@ function Press.Ignore(item)
 end
 
 ------------------------------------------------------------------------
--- Consentement a la gazette IA (docs §7, §8.4)
+-- Consent to the AI gazette (docs §7, §8.4)
 ------------------------------------------------------------------------
--- Le choix est publie dans le journal partage (evenement AI_CONSENT, toujours "G") pour que
--- le compagnon du redacteur le connaisse : sans consentement explicite, les evenements de ce
--- personnage ne sont jamais envoyes a l'IA et son nom est retire des faits des autres.
--- Le dernier choix (sequence la plus haute) l'emporte. Rien coche = pas de consentement.
+-- The choice is published in the shared journal (AI_CONSENT event, always "G") so that
+-- the editor's companion knows it: without explicit consent, this character's events
+-- are never sent to the AI and their name is removed from other people's facts.
+-- The latest choice (highest sequence) wins. Nothing checked = no consent.
 local function lastConsent()
     local me, best = ns.Context.Me(), nil
     for _, ev in pairs(ns.db.events) do
@@ -89,7 +89,7 @@ local function publishConsent(value)
     if not ns.Context.GuildKey() then return nil end
     local last = lastConsent()
     if last and (last.p.ok and true or false) == value then return last end
-    if not last and not value then return nil end -- jamais accepte : rien a annoncer
+    if not last and not value then return nil end -- never accepted: nothing to announce
     return ns.Store.Add("AI_CONSENT", { ok = value }, { vis = "G", prov = "MAN", noExp = true, loc = {} })
 end
 
@@ -100,6 +100,6 @@ function Press.SetConsent(value)
 end
 
 function Press:OnLogin()
-    -- Choix fait hors guilde, ou avant la v0.4 : on l'annonce maintenant.
+    -- Choice made outside a guild, or before v0.4: announce it now.
     publishConsent(ns.char.exportConsent and true or false)
 end

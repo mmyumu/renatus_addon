@@ -1,4 +1,4 @@
--- UI/Dialogs.lua : formulaires de saisie manuelle. Tout ce qui est saisi est marque "Declare" (MAN).
+-- UI/Dialogs.lua: manual entry forms. Everything entered is flagged "Declared" (MAN).
 local _, ns = ...
 local UI = ns.UI
 

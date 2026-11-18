@@ -1,6 +1,6 @@
--- UI/Widgets.lua : composants d'interface autonomes.
--- On evite volontairement les templates FrameXML (WoW Forever en a retire beaucoup) :
--- tout est construit avec des frames, textures et polices de base.
+-- UI/Widgets.lua: standalone UI components.
+-- FrameXML templates are deliberately avoided (WoW Forever removed many of them):
+-- everything is built from plain frames, textures and fonts.
 local _, ns = ...
 
 local UI = {}
@@ -64,7 +64,7 @@ function UI.SetClassIcon(tex, class)
     end
 end
 
--- CreateFrame avec template optionnel : si le template n'existe pas, on s'en passe.
+-- CreateFrame with an optional template: if the template does not exist, do without.
 function UI.Create(frameType, parent, template, name)
     if template then
         local ok, f = pcall(CreateFrame, frameType, name, parent, template)
@@ -73,7 +73,7 @@ function UI.Create(frameType, parent, template, name)
     return CreateFrame(frameType, name, parent)
 end
 
--- Fond + bordure en textures simples (fonctionne avec ou sans BackdropTemplate).
+-- Background + border with plain textures (works with or without BackdropTemplate).
 function UI.Box(frame, bg, border, thickness)
     thickness = thickness or 1
     if not frame.gcBg then
@@ -143,7 +143,7 @@ function UI.Click()
 end
 
 ------------------------------------------------------------------------
--- Bouton
+-- Button
 ------------------------------------------------------------------------
 function UI.Button(parent, label, width, height, onClick)
     local b = CreateFrame("Button", nil, parent)
@@ -171,7 +171,7 @@ function UI.Button(parent, label, width, height, onClick)
     return b
 end
 
--- Bouton-onglet (selectionnable)
+-- Tab button (selectable)
 function UI.ToggleButton(parent, label, width, height, onClick)
     local b = UI.Button(parent, label, width, height, onClick)
     function b:SetSelected(selected)
@@ -189,7 +189,7 @@ function UI.ToggleButton(parent, label, width, height, onClick)
 end
 
 ------------------------------------------------------------------------
--- Case a cocher
+-- Checkbox
 ------------------------------------------------------------------------
 function UI.Checkbox(parent, label, onChange)
     local cb = CreateFrame("CheckButton", nil, parent)
@@ -210,7 +210,7 @@ function UI.Checkbox(parent, label, onChange)
 end
 
 ------------------------------------------------------------------------
--- Curseur
+-- Slider
 ------------------------------------------------------------------------
 function UI.Slider(parent, label, minV, maxV, step, width, format, onChange)
     local holder = CreateFrame("Frame", nil, parent)
@@ -245,7 +245,7 @@ function UI.Slider(parent, label, minV, maxV, step, width, format, onChange)
 end
 
 ------------------------------------------------------------------------
--- Champ de saisie
+-- Edit box
 ------------------------------------------------------------------------
 function UI.EditBox(parent, width, height, multiline, maxLetters)
     local box = CreateFrame("Frame", nil, parent)
@@ -269,7 +269,7 @@ function UI.EditBox(parent, width, height, multiline, maxLetters)
 end
 
 ------------------------------------------------------------------------
--- Liste deroulante (menu maison, un seul menu ouvert a la fois)
+-- Dropdown (custom menu, only one menu open at a time)
 ------------------------------------------------------------------------
 local menu
 local function getMenu()
@@ -290,7 +290,7 @@ end
 
 function UI.CloseMenus() if menu then menu:Hide() end end
 
--- options : liste { value=, label= } ou fonction qui la renvoie
+-- options: list of { value=, label= } or a function returning it
 function UI.Dropdown(parent, width, options, onSelect)
     local d = UI.Button(parent, "", width or 140, 22)
     d.label:ClearAllPoints()
@@ -349,7 +349,7 @@ function UI.Dropdown(parent, width, options, onSelect)
 end
 
 ------------------------------------------------------------------------
--- Liste virtuelle (lignes recyclees, molette + barre de defilement)
+-- Virtual list (recycled rows, mouse wheel + scrollbar)
 ------------------------------------------------------------------------
 function UI.List(parent, width, height, rowHeight, createRow, updateRow)
     local list = CreateFrame("Frame", nil, parent)
@@ -422,7 +422,7 @@ function UI.List(parent, width, height, rowHeight, createRow, updateRow)
 end
 
 ------------------------------------------------------------------------
--- Zone de texte defilante (lecture d'articles, fiches)
+-- Scrolling text area (reading articles, records)
 ------------------------------------------------------------------------
 function UI.ScrollText(parent, width, height, size, color)
     local sf = CreateFrame("ScrollFrame", nil, parent)
@@ -470,7 +470,7 @@ function UI.Ago(t)
     return days == 1 and "hier" or ("il y a " .. days .. " jours")
 end
 
--- Section titree (sous-titre doré + filet)
+-- Titled section (gold subtitle + rule)
 function UI.Section(parent, text, width)
     local fs = UI.Title(parent, 15)
     fs:SetText(text)

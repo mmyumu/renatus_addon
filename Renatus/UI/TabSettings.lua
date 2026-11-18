@@ -1,4 +1,4 @@
--- UI/TabSettings.lua : confidentialite, guilde rivale, interface, donnees.
+-- UI/TabSettings.lua: privacy, rival guild, interface, data.
 local _, ns = ...
 local UI = ns.UI
 

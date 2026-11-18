@@ -1,4 +1,4 @@
-"""Tests du compagnon : python -m unittest discover -s tests/companion -t ."""
+"""Companion tests: python -m unittest discover -s tests/companion -t ."""
 import datetime as dt
 import io
 import shutil
@@ -42,7 +42,7 @@ LOG_LINES = [
     "ligne illisible\n",
 ]
 
-SKEW = 3  # le serveur a 3 s d'avance sur le PC
+SKEW = 3  # the server is 3 s ahead of the PC
 
 
 def saved_variables():
@@ -103,7 +103,7 @@ class CombatLogTests(unittest.TestCase):
         self.assertTrue(pvp.by_player)
         self.assertEqual(pvp.killer, "Gorbash")
         self.assertEqual(pvp.cause, "Gorbash (Frappe mortelle)")
-        self.assertEqual(deaths[3].cause, "Testeur")  # coup fatal connu, sans sort
+        self.assertEqual(deaths[3].cause, "Testeur")  # known killing blow, no spell
         self.assertEqual(deaths[4].cause, "cause indéterminée")
 
     def test_kills_on_players(self):
@@ -128,7 +128,7 @@ class ReconcileTests(unittest.TestCase):
         causes = [i for i in self.items if i["kind"] == "DEATH_CAUSE"]
         self.assertEqual(sorted(i["refs"][0] for i in causes), sorted([f"{ME}:1", f"{BOB}:1", f"{ME}:3"]))
         self.assertEqual(self.by_id[f"dc:{BOB}:1"]["p"]["cause"], "chute")
-        # la mort de "Inconnu" n'existe pas dans l'addon : rien n'est invente
+        # "Inconnu"'s death does not exist in the addon: nothing is invented
         self.assertFalse(any("Inconnu" in str(i) for i in self.items))
         self.assertTrue(any("Décalage" in n for n in self.notes))
 
@@ -203,7 +203,7 @@ class EndToEndTests(unittest.TestCase):
         self.assertEqual(code, 0, out)
         press_file = self.root / "Interface" / "AddOns" / "Renatus_Press" / "Press.lua"
         items = press.read_items(press_file)
-        self.assertEqual(len(items), 6)  # 3 causes + 1 defaite + 1 victoire + 1 article
+        self.assertEqual(len(items), 6)  # 3 causes + 1 loss + 1 win + 1 article
         self.run_cli("run", "--dir", str(self.articles))
         self.assertEqual(len(press.read_items(press_file)), 6, "pas de doublon")
         code, out = self.run_cli("facts", "--days", "100000")

@@ -1,4 +1,4 @@
--- UI/TabVoice.lua : reglages du module vocal (Renacoach), entierement fonctionnels.
+-- UI/TabVoice.lua: voice module settings (Renacoach), fully functional.
 local _, ns = ...
 local UI = ns.UI
 
@@ -46,7 +46,7 @@ local function build(c)
     general:SetPoint("TOPLEFT", 4, -104)
     c.prob = UI.Slider(c, "Chance de réplique en combat", 0, 1, 0.05, 300, "%.2f", function(v) s().probability = v end)
     c.prob:SetPoint("TOPLEFT", 4, -130)
-    -- affichage en pourcentage
+    -- shown as a percentage
     c.prob.slider:HookScript("OnValueChanged", function(_, v)
         c.prob.label:SetText("Chance de réplique en combat : |cffffffff" .. math.floor(v * 100 + 0.5) .. " %|r")
     end)
@@ -73,7 +73,7 @@ local function build(c)
     end)
     test:SetPoint("TOPLEFT", 4, -350)
 
-    -- Les specialisations de Forever peuvent differer de Retail : reglage manuel possible.
+    -- Forever specializations may differ from Retail: manual override available.
     local roleLabel = UI.Text(c, 12)
     roleLabel:SetPoint("TOPLEFT", 4, -394)
     roleLabel:SetText("Rôle :")

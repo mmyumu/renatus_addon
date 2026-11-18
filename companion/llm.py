@@ -1,13 +1,13 @@
-"""Appel de l'IA par une commande externe (par defaut : Claude Code en mode non interactif).
+"""Calling the AI through an external command (default: Claude Code in non-interactive mode).
 
-La demande est envoyee sur l'entree standard de la commande ; la reponse est lue sur sa sortie.
-Exemples de commande (config.toml, section [llm]) :
-  - Claude Code installe sur ce PC :
+The prompt is written to the command's standard input; the answer is read from its output.
+Command examples (config.toml, [llm] section):
+  - Claude Code installed on this PC:
         command = ["claude", "-p", "--output-format", "json", "--tools", "", "--no-session-persistence"]
-  - Claude Code sur une autre machine (Raspberry Pi) via SSH (cle SSH sans mot de passe) :
+  - Claude Code on another machine (Raspberry Pi) over SSH (passwordless SSH key):
         command = ["ssh", "pi5", "cd /tmp && ~/.local/bin/claude -p --output-format json --tools '' --no-session-persistence"]
-    (via SSH la commande distante est une seule chaine : l'argument vide s'ecrit '' dedans.)
-Aucun outil n'est donne a l'IA (--tools "") : elle ne fait que lire la demande et repondre.
+    (over SSH the remote command is a single string: the empty argument is written '' in it.)
+The AI gets no tools (--tools ""): it only reads the prompt and answers.
 """
 from __future__ import annotations
 
@@ -41,7 +41,7 @@ def run(prompt: str, cfg: dict[str, Any]) -> str:
 
 
 def unwrap(out: str) -> str:
-    """Sortie --output-format json de Claude Code -> texte de la reponse ; sinon texte brut."""
+    """Claude Code --output-format json output -> answer text; otherwise raw text."""
     text = out.strip()
     try:
         data = json.loads(text)
@@ -51,4 +51,4 @@ def unwrap(out: str) -> str:
         if data.get("is_error"):
             raise LLMError(f"erreur de l'IA : {str(data.get('result'))[:500]}")
         return str(data["result"])
-    return text  # la commande a directement renvoye le JSON des articles
+    return text  # the command returned the articles JSON directly

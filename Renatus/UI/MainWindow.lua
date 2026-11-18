@@ -1,4 +1,4 @@
--- UI/MainWindow.lua : fenetre principale (/renatus), navigation par onglets a gauche.
+-- UI/MainWindow.lua: main window (/renatus), tab navigation on the left.
 local _, ns = ...
 local UI = ns.UI
 
@@ -39,7 +39,7 @@ local function build()
     UI.Box(f, UI.C.bg, { 0.75, 0.58, 0.25, 1 }, 2)
     if UISpecialFrames then table.insert(UISpecialFrames, "RenatusMainFrame") end
 
-    -- En-tete
+    -- Header
     local header = CreateFrame("Frame", nil, f)
     header:SetPoint("TOPLEFT", 2, -2)
     header:SetPoint("TOPRIGHT", -2, -2)
@@ -72,7 +72,7 @@ local function build()
     nav:SetSize(UI.NAV_W - 8, UI.HEIGHT - 72)
     UI.Box(nav, UI.C.panel, { 0.4, 0.3, 0.16, 1 })
 
-    -- Contenu
+    -- Content
     local content = CreateFrame("Frame", nil, f)
     content:SetPoint("TOPLEFT", UI.NAV_W + 8, -62)
     content:SetSize(UI.CONTENT_W + 16, UI.HEIGHT - 72)
@@ -165,7 +165,7 @@ function UI.Toggle()
     if f:IsShown() then f:Hide() else UI.Open() end
 end
 
--- Les nouveaux evenements rafraichissent la fenetre si elle est ouverte (au plus 1 fois/s).
+-- New events refresh the window if it is open (at most once per second).
 local pending = false
 ns.EventBus.Subscribe("CHRONICLE_EVENT", function()
     if pending or not window or not window:IsShown() then return end

@@ -1,4 +1,4 @@
--- Core/Views.lua : vues calculees a partir des evenements (rien n'est stocke ici).
+-- Core/Views.lua: views computed from events (nothing is stored here).
 local _, ns = ...
 
 local Views = {}
@@ -12,7 +12,7 @@ local function lower(s) return s and string.lower(s) or "" end
 function Views.Now() return (GetServerTime and GetServerTime()) or time() end
 
 ------------------------------------------------------------------------
--- Filtres : { author, category, kind, since, search, guild }
+-- Filters: { author, category, kind, since, search, guild }
 ------------------------------------------------------------------------
 function Views.Filter(events, f)
     f = f or {}
@@ -50,8 +50,8 @@ function Views.PeriodStart(key)
 end
 
 ------------------------------------------------------------------------
--- Agregation a l'affichage : meme cle d'occurrence a moins de 15 min = une seule ligne.
--- Les participants affiches sont ceux qui ont reellement emis l'evenement.
+-- Display aggregation: same occurrence key within 15 min = a single row.
+-- Displayed participants are those who actually emitted the event.
 ------------------------------------------------------------------------
 function Views.Aggregate(events)
     local items, byOcc = {}, {}
@@ -73,14 +73,14 @@ function Views.Aggregate(events)
 end
 
 ------------------------------------------------------------------------
--- Membres et statistiques
+-- Members and statistics
 ------------------------------------------------------------------------
 local STAT_OF = {
     DEATH = "deaths", BOSS_KILL = "bosses", EXPEDITION = "expeditions", ZONE_FIRST_VISIT = "zones",
     QUEST_DONE = "quests", ANECDOTE = "anecdotes", LEVEL_UP = "levels", PVP_CLASH = "pvp",
 }
 
--- Titres officieux : conditions explicites et reproductibles.
+-- Unofficial titles: explicit and reproducible conditions.
 Views.TITLES = {
     { title = "Habitué du cimetière", rule = "10 morts ou plus", test = function(s) return s.deaths >= 10 end },
     { title = "Explorateur infatigable", rule = "15 zones découvertes ou plus", test = function(s) return s.zones >= 15 end },
@@ -117,7 +117,7 @@ function Views.Members(ds)
             byName[ev.n or ""] = m
             table.insert(list, m)
         end
-        table.insert(m.events, ev) -- deja tries du plus recent au plus ancien
+        table.insert(m.events, ev) -- already sorted from most recent to oldest
         local stat = STAT_OF[ev.k]
         if stat then m.stats[stat] = m.stats[stat] + 1 end
         if ev.k == "LEVEL_UP" and (ev.p.lvl or 0) > (m.level or 0) then m.level = ev.p.lvl end
@@ -145,8 +145,8 @@ function Views.Members(ds)
     return list, byGuid
 end
 
--- Aventures partagees : groupes agreges ou les deux ont emis l'evenement,
--- plus les evenements de l'un qui citent l'autre comme participant observe.
+-- Shared adventures: aggregated groups where both emitted the event,
+-- plus events of one that list the other as an observed participant.
 function Views.Shared(ds, guidA, guidB)
     if not guidA or not guidB or guidA == guidB then return nil end
     local shared = { expeditions = 0, bosses = 0 }
@@ -171,7 +171,7 @@ function Views.Shared(ds, guidA, guidB)
 end
 
 ------------------------------------------------------------------------
--- Wanted Board : fiches ennemies calculees
+-- Wanted Board: computed enemy records
 ------------------------------------------------------------------------
 local function enemyKey(name) return lower(name) end
 Views.EnemyKey = enemyKey
@@ -197,7 +197,7 @@ function Views.Enemies(ds)
             e[field], e[field .. "At"] = value, t
         end
     end
-    -- Du plus ancien au plus recent pour que les dernieres observations l'emportent.
+    -- Oldest to newest so that the latest observations win.
     for i = #ds.events, 1, -1 do
         local ev = ds.events[i]
         local p = ev.p or {}
@@ -238,7 +238,7 @@ function Views.Enemies(ds)
         for _ in pairs(e.swornVotes) do votes = votes + 1 end
         for _ in pairs(e.killedMembers) do killed = killed + 1 end
         local verifiedLosses = e.losses.OBS + e.losses.LOG
-        -- Regle explicite (docs/ARCHITECTURE.md §6.2)
+        -- Explicit rule (docs/ARCHITECTURE.md §6.2)
         e.sworn = votes >= 2 or verifiedLosses >= 5 or killed >= 3
         e.swornReason = (votes >= 2 and (votes .. " membres l'ont désigné"))
             or (verifiedLosses >= 5 and (verifiedLosses .. " défaites vérifiées"))
@@ -271,7 +271,7 @@ function Views.Wanted(ds)
 end
 
 ------------------------------------------------------------------------
--- Gazette : articles (evenements ARTICLE) et votes (VOTE, un par membre et par semaine)
+-- Gazette: articles (ARTICLE events) and votes (VOTE, one per member per week)
 ------------------------------------------------------------------------
 function Views.WeekKey(t) return date("%Y-%W", t) end
 
@@ -286,7 +286,7 @@ function Views.Articles(events, meGuid)
             table.insert(list, a)
         end
     end
-    -- Le dernier vote de chaque membre pour une semaine donnee l'emporte (events : recent d'abord).
+    -- Each member's latest vote for a given week wins (events: most recent first).
     local counted = {}
     for _, ev in ipairs(events) do
         if ev.k == "VOTE" and ev.refs and ev.refs[1] then
@@ -304,7 +304,7 @@ function Views.Articles(events, meGuid)
     return list
 end
 
--- Causes de mort issues des journaux de combat : [id de la mort] = evenement DEATH_CAUSE.
+-- Death causes from combat logs: [death id] = DEATH_CAUSE event.
 function Views.DeathCauses(events)
     local causes = {}
     for _, ev in ipairs(events) do

@@ -1,5 +1,5 @@
--- Core/Types.lua : registre des types d'evenements, categories et provenances.
--- Ajouter un type = ajouter une entree dans TYPES.
+-- Core/Types.lua: registry of event types, categories and provenances.
+-- Adding a type = adding an entry to TYPES.
 local _, ns = ...
 
 local Types = {}
@@ -15,7 +15,7 @@ Types.CATEGORIES = {
     { key = "gazette", label = "Gazette (votes, courrier)" },
 }
 
--- Provenance : jamais confondue (voir docs/ARCHITECTURE.md §4.2).
+-- Provenance: never conflated (see docs/ARCHITECTURE.md §4.2).
 Types.PROVENANCE = {
     OBS = { label = "Observé", color = { 0.55, 0.85, 0.55 }, help = "Détecté automatiquement par l'addon." },
     LOG = { label = "Journal de combat", color = { 0.45, 0.7, 1 }, help = "Issu d'un fichier de journal de combat (application compagnon)." },
@@ -24,7 +24,7 @@ Types.PROVENANCE = {
     GEN = { label = "Rédaction", color = { 0.85, 0.6, 0.85 }, help = "Texte écrit par la rédaction de la gazette ; seuls les faits cités en sources font foi." },
 }
 
--- Libelles des champs deduits (ev.ded) et manquants (ev.miss).
+-- Labels for deduced (ev.ded) and missing (ev.miss) fields.
 Types.DEDUCED = {
     enemies = "Les « ennemis présents » sont ceux aperçus dans les 30 secondes avant la mort, pas forcément les tueurs.",
     finish = "Fin estimée : la session s'est terminée pendant l'expédition.",
@@ -93,7 +93,7 @@ local TYPES = {
         end },
     PVP_CLASH = { cat = "pvp", icon = "Interface\\Icons\\Ability_DualWield", importance = 3,
         text = function(ev)
-            -- publie par le redacteur pour un autre membre (journal de combat)
+            -- published by the editor on behalf of another member (combat log)
             if ev.p.member and ev.p.member ~= ev.n then
                 return "rapporte : " .. ev.p.member .. " " .. resultText(ev.p)
             end
@@ -136,7 +136,7 @@ function Types.CategoryLabel(key)
     return key
 end
 
--- Texte brut, sans sujet : "atteint le niveau 20".
+-- Raw text, without subject: "atteint le niveau 20".
 function Types.Raw(ev)
     local def = Types.Get(ev.k)
     local ok, text = pcall(def.text, ev)
@@ -144,7 +144,7 @@ function Types.Raw(ev)
     return text
 end
 
--- Phrase descriptive. withName : "Brisépée atteint le niveau 20" ; sinon "Atteint le niveau 20".
+-- Descriptive sentence. withName: "Brisépée atteint le niveau 20"; otherwise "Atteint le niveau 20".
 function Types.Describe(ev, withName)
     local text = Types.Raw(ev)
     if withName then return (ev.n or "?") .. " " .. text end

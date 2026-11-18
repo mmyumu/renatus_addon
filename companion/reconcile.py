@@ -1,13 +1,13 @@
-"""Fusion des sources : evenements de l'addon (SavedVariables) + journaux de combat.
+"""Merging sources: addon events (SavedVariables) + combat logs.
 
-Regles (docs/ARCHITECTURE.md §8.2) :
-  - une mort du journal de combat ENRICHIT la mort enregistree par l'addon (meme personnage,
-    meme instant a quelques secondes pres) : on ne cree jamais de mort qui n'existe pas ;
-  - l'ecart d'horloge entre le PC et le serveur est estime sur les morts presentes des deux
-    cotes (mediane), puis la correspondance se fait a +/- 5 s ;
-  - affrontements PvP : seulement contre des personnages deja connus du registre
-    (ENEMY_SEEN de la guilde rivale) et impliquant des membres connus de la guilde.
-Tout ce qui sort d'ici est une PROPOSITION : le redacteur la valide en jeu.
+Rules (docs/ARCHITECTURE.md §8.2):
+  - a combat log death ENRICHES the death recorded by the addon (same character, same
+    moment within a few seconds): a death that does not exist is never created;
+  - the clock offset between the PC and the server is estimated from deaths present on both
+    sides (median), then matching is done within +/- 5 s;
+  - PvP clashes: only against characters already known to the registry (rival guild
+    ENEMY_SEEN) and involving known guild members.
+Everything produced here is a PROPOSAL: the editor approves it in game.
 """
 from __future__ import annotations
 
@@ -17,13 +17,13 @@ from typing import Any
 
 from .combatlog import Analysis, Death
 
-ANCHOR_WINDOW = 300.0   # recherche des paires pour estimer le decalage
+ANCHOR_WINDOW = 300.0   # pairing window used to estimate the offset
 MATCH_WINDOW = 5.0
 
 
 @dataclass
 class Chronicle:
-    """Vue minimale des SavedVariables de Renatus."""
+    """Minimal view of the Renatus SavedVariables."""
     events: dict[str, dict[str, Any]]
     press_done: dict[str, str]
 
@@ -31,7 +31,7 @@ class Chronicle:
     def from_saved(cls, saved: dict[str, Any]) -> "Chronicle":
         db = saved.get("RenatusDB") or {}
         events = db.get("events") or {}
-        if isinstance(events, list):  # ne devrait pas arriver (cles = identifiants)
+        if isinstance(events, list):  # should not happen (keys = ids)
             events = {e.get("id"): e for e in events if isinstance(e, dict)}
         return cls(events=events, press_done=db.get("pressDone") or {})
 
@@ -39,7 +39,7 @@ class Chronicle:
         return [e for e in self.events.values() if isinstance(e, dict) and e.get("k") == kind]
 
     def members(self) -> dict[str, str]:
-        """GUID -> nom des auteurs connus (membres equipes de l'addon)."""
+        """GUID -> name of known authors (members who have the addon)."""
         return {e["a"]: e.get("n", "?") for e in self.events.values() if isinstance(e, dict) and "a" in e}
 
     def known_enemies(self) -> set[str]:
@@ -56,7 +56,7 @@ class Chronicle:
 
 
 def estimate_offset(deaths: list[Death], chronicle: Chronicle) -> float | None:
-    """Decalage (serveur - PC) en secondes, d'apres les morts presentes des deux cotes."""
+    """Offset (server - PC) in seconds, from deaths present on both sides."""
     by_author: dict[str, list[float]] = {}
     for e in chronicle.of_kind("DEATH"):
         by_author.setdefault(e.get("a", ""), []).append(float(e.get("t", 0)))
@@ -72,7 +72,7 @@ def estimate_offset(deaths: list[Death], chronicle: Chronicle) -> float | None:
 
 
 def propose(analysis: Analysis, chronicle: Chronicle) -> tuple[list[dict[str, Any]], list[str]]:
-    """Renvoie (elements pour Press.lua, avertissements)."""
+    """Returns (items for Press.lua, warnings)."""
     items: list[dict[str, Any]] = []
     notes: list[str] = []
     offset = estimate_offset(analysis.deaths, chronicle)
@@ -95,7 +95,7 @@ def propose(analysis: Analysis, chronicle: Chronicle) -> tuple[list[dict[str, An
         candidates = [e for e in deaths_by_author.get(d.guid, []) if abs(float(e.get("t", 0)) - t) <= MATCH_WINDOW]
         match = min(candidates, key=lambda e: abs(float(e["t"]) - t), default=None)
         if match is None:
-            continue  # mort inconnue de l'addon (privee, ou membre sans addon) : on n'invente rien
+            continue  # death unknown to the addon (private, or member without the addon): invent nothing
         if match["id"] in already or match["id"] in used:
             continue
         used.add(match["id"])

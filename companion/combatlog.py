@@ -1,11 +1,11 @@
-"""Lecture des journaux de combat (Logs/WoWCombatLog*.txt) ecrits par le client avec /combatlog.
+"""Reading combat logs (Logs/WoWCombatLog*.txt) written by the client with /combatlog.
 
-Le fichier n'est lu qu'APRES coup, depuis le disque : aucun lien avec le processus du jeu.
-On n'extrait que le strict necessaire :
-  - morts de joueurs (UNIT_DIED) avec le dernier coup recu (cause) ;
-  - coups fatals (PARTY_KILL) : qui a acheve qui.
-Les horodatages du fichier sont en heure locale (avec, sur les clients recents, le decalage
-UTC en heures en suffixe : "-5", "+1"...).
+The file is only read AFTERWARDS, from disk: no link with the game process.
+Only the bare minimum is extracted:
+  - player deaths (UNIT_DIED) with the last hit taken (cause);
+  - killing blows (PARTY_KILL): who finished whom.
+Timestamps in the file are in local time (recent clients append the UTC offset in hours:
+"-5", "+1"...).
 """
 from __future__ import annotations
 
@@ -29,8 +29,8 @@ ENVIRONMENT = {
     "Falling": "chute", "Drowning": "noyade", "Fatigue": "épuisement",
     "Fire": "feu", "Lava": "lave", "Slime": "vase",
 }
-CAUSE_WINDOW = 10.0     # le dernier coup doit dater de moins de 10 s avant la mort
-KILL_WINDOW = 1.5       # PARTY_KILL et UNIT_DIED quasi simultanes
+CAUSE_WINDOW = 10.0     # the last hit must be less than 10 s before the death
+KILL_WINDOW = 1.5       # PARTY_KILL and UNIT_DIED almost simultaneous
 
 
 @dataclass
@@ -48,11 +48,11 @@ class Death:
     ts: float
     guid: str
     name: str
-    source: str | None = None          # dernier attaquant (nom sans royaume)
+    source: str | None = None          # last attacker (name without realm)
     source_guid: str | None = None
     spell: str | None = None
-    environment: str | None = None     # libelle francais (chute, noyade...)
-    killer: str | None = None          # coup fatal (PARTY_KILL), si connu
+    environment: str | None = None     # French label (falling, drowning...)
+    killer: str | None = None          # killing blow (PARTY_KILL), if known
     killer_guid: str | None = None
 
     @property
@@ -90,7 +90,7 @@ class Analysis:
 
 
 def split_fields(rest: str) -> list[str]:
-    """Decoupe sur les virgules en respectant guillemets, crochets et parentheses."""
+    """Splits on commas, honouring quotes, brackets and parentheses."""
     out, cur, depth, quoted = [], [], 0, False
     for ch in rest:
         if quoted:
@@ -125,7 +125,7 @@ def parse_timestamp(m: re.Match, default_year: int) -> float:
     tz = m.group("tz")
     if tz is not None:
         return naive.replace(tzinfo=_dt.timezone(_dt.timedelta(hours=int(tz)))).timestamp()
-    return naive.timestamp()  # heure locale du PC (celui qui a ecrit le fichier)
+    return naive.timestamp()  # local time of the PC (the one that wrote the file)
 
 
 def parse_line(line: str, default_year: int) -> LogEvent | None:
@@ -153,20 +153,20 @@ def iter_events(lines: Iterable[str], default_year: int | None = None) -> Iterat
 
 
 def analyse(events: Iterable[LogEvent]) -> Analysis:
-    """Morts de joueurs avec cause, et coups fatals sur des joueurs."""
+    """Player deaths with cause, and killing blows on players."""
     result = Analysis()
     last_hit: dict[str, tuple[float, str | None, str | None, str | None, str | None]] = {}
     last_kill: dict[str, Kill] = {}
     for ev in events:
         result.lines += 1
         e, f = ev.event, ev.fields
-        # f : 0 srcGUID, 1 srcName, 2 srcFlags, 3 srcRaidFlags, 4 dstGUID, 5 dstName, 6 dstFlags, 7 dstRaidFlags, 8.. suite
+        # f: 0 srcGUID, 1 srcName, 2 srcFlags, 3 srcRaidFlags, 4 dstGUID, 5 dstName, 6 dstFlags, 7 dstRaidFlags, 8.. rest
         if len(f) < 8:
             result.skipped += 1
             continue
         dst_guid = f[4]
         if not dst_guid.startswith("Player-"):
-            continue  # seules les morts de joueurs nous interessent
+            continue  # only player deaths matter
         if e in DAMAGE_EVENTS:
             spell = env = None
             if e == "ENVIRONMENTAL_DAMAGE":

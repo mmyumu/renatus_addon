@@ -1,11 +1,11 @@
--- UI/TabGazette.lua : lecture de la gazette satirique (articles produits hors jeu par le compagnon).
+-- UI/TabGazette.lua: reading the satirical gazette (articles produced off-game by the companion).
 local _, ns = ...
 local UI = ns.UI
 local Types = ns.Types
 
 local LIST_W = 220
 
--- Fenetre de redaction : elements du compagnon a publier ou ignorer (un par un).
+-- Editorial window: companion items to publish or ignore (one by one).
 local review
 local function openReview(onDone)
     if review then review:Hide() end
@@ -95,7 +95,7 @@ local function build(c)
     end)
     c.list:SetPoint("TOPLEFT", 0, -46)
 
-    -- Page de journal (parchemin)
+    -- Newspaper page (parchment)
     local paper = CreateFrame("Frame", nil, c)
     paper:SetPoint("TOPLEFT", LIST_W + 12, -46)
     paper:SetSize(UI.CONTENT_W - LIST_W - 12, UI.CONTENT_H - 50)
@@ -136,7 +136,7 @@ local function build(c)
         if ds.isDemo then
             a.votes = (a.votes or 0) + 1; a.voted = true
         else
-            -- Un vote par membre et par semaine : le dernier compte (calcule dans Views.Articles).
+            -- One vote per member per week: the latest counts (computed in Views.Articles).
             ns.Store.Add("VOTE", { week = ns.Views.WeekKey(ns.Views.Now()) },
                 { refs = { a.id }, vis = "G", prov = "MAN", noExp = true, loc = {} })
         end

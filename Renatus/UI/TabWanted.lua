@@ -1,4 +1,4 @@
--- UI/TabWanted.lua : tableau de chasse PvP (avis de recherche, registre des ennemis, fiches).
+-- UI/TabWanted.lua: PvP Wanted Board (wanted posters, enemy registry, records).
 local _, ns = ...
 local UI = ns.UI
 local Views, Types = ns.Views, ns.Types
@@ -19,7 +19,7 @@ local function provSummary(record)
 end
 
 ------------------------------------------------------------------------
--- Affiche (poster)
+-- Poster
 ------------------------------------------------------------------------
 local function createPoster(parent)
     local f = CreateFrame("Button", nil, parent)
@@ -70,7 +70,7 @@ local function fillPoster(f, poster)
 end
 
 ------------------------------------------------------------------------
--- Onglet
+-- Tab
 ------------------------------------------------------------------------
 local function build(c)
     c.view = "posters"
@@ -96,7 +96,7 @@ local function build(c)
 
     local bodyTop, bodyH = -80, UI.CONTENT_H - 104
 
-    -- Vue affiches
+    -- Posters view
     local posters = CreateFrame("Frame", nil, c)
     posters:SetPoint("TOPLEFT", 0, bodyTop)
     posters:SetSize(UI.CONTENT_W, bodyH)
@@ -123,7 +123,7 @@ local function build(c)
     posters.pageText:SetJustifyH("CENTER")
     posters.pageText:SetJustifyV("MIDDLE")
 
-    -- Vue registre
+    -- Registry view
     c.registry = UI.List(c, UI.CONTENT_W, bodyH, 40, function(row)
         row.icon = row:CreateTexture(nil, "ARTWORK")
         row.icon:SetSize(28, 28)
@@ -150,7 +150,7 @@ local function build(c)
     end)
     c.registry:SetPoint("TOPLEFT", 0, bodyTop)
 
-    -- Vue fiche
+    -- Record view
     local d = CreateFrame("Frame", nil, c)
     d:SetPoint("TOPLEFT", 0, bodyTop)
     d:SetSize(UI.CONTENT_W, bodyH + 20)

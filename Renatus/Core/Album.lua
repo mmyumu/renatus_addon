@@ -1,5 +1,5 @@
--- Core/Album.lua : catalogue de cartes (genere a partir des evenements) et boosters deterministes.
--- Aucun combat de cartes : collection et echanges uniquement.
+-- Core/Album.lua: card catalogue (generated from events) and deterministic boosters.
+-- No card battles: collection and trading only.
 local _, ns = ...
 
 local Album = {}
@@ -29,14 +29,14 @@ Album.SERIES = {
 
 Album.BOOSTER_SIZE = 5
 
--- Hash djb2 sur 32 bits, sans operations binaires (Lua 5.1 portable).
+-- 32-bit djb2 hash, without bitwise operators (portable Lua 5.1).
 function Album.Hash(str)
     local h = 5381
     for i = 1, #str do h = (h * 33 + string.byte(str, i)) % 4294967296 end
     return h
 end
 
--- Generateur Park-Miller : meme graine -> meme suite, partout.
+-- Park-Miller generator: same seed -> same sequence, everywhere.
 local function rng(seed)
     local state = seed % 2147483646 + 1
     return function()
@@ -45,7 +45,7 @@ local function rng(seed)
     end
 end
 
--- Variante de carte "Membre" : la rarete est celle de la variante, pas de la personne.
+-- "Member" card variant: rarity belongs to the variant, not to the person.
 local MEMBER_VARIANTS = {
     { rarity = "common", flavor = function(m) return "Membre de la guilde." end },
     { rarity = "rare", flavor = function(m) return ("%d expéditions, %d boss vaincus."):format(m.stats.expeditions, m.stats.bosses) end },
@@ -116,7 +116,7 @@ function Album.Catalogue(ds)
     return cards
 end
 
--- Contenu d'un booster : derive uniquement de son identifiant et de la version du catalogue.
+-- Booster contents: derived only from its id and the catalogue version.
 function Album.BoosterContents(cards, boosterId)
     if #cards == 0 then return {} end
     local byRarity = {}

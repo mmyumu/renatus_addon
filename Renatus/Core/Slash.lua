@@ -1,4 +1,4 @@
--- Core/Slash.lua : /renatus (et /renacoach comme raccourci vers les reglages vocaux).
+-- Core/Slash.lua: /renatus (and /renacoach as a shortcut to the voice settings).
 local _, ns = ...
 
 local function onOff(v) return v and "|cff40ff40on|r" or "|cffff4040off|r" end

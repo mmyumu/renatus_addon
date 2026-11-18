@@ -1,4 +1,4 @@
--- UI/TabAlbum.lua : album de cartes de guilde (collection, series, boosters).
+-- UI/TabAlbum.lua: guild card album (collection, sets, boosters).
 local _, ns = ...
 local UI = ns.UI
 local Album = ns.Album
@@ -8,7 +8,7 @@ local COLS, ROWS = 5, 2
 local PER_PAGE = COLS * ROWS
 
 ------------------------------------------------------------------------
--- Rendu d'une carte (reutilise par la grille et l'ouverture de booster)
+-- Card rendering (shared by the grid and booster opening)
 ------------------------------------------------------------------------
 function UI.CreateCard(parent)
     local f = CreateFrame("Button", nil, parent)
@@ -85,7 +85,7 @@ function UI.SeriesLabel(key)
 end
 
 ------------------------------------------------------------------------
--- Ouverture de booster
+-- Booster opening
 ------------------------------------------------------------------------
 local reveal
 local function showReveal(cards, collection)
@@ -125,7 +125,7 @@ local function showReveal(cards, collection)
 end
 
 ------------------------------------------------------------------------
--- Onglet
+-- Tab
 ------------------------------------------------------------------------
 local function build(c)
     c.series = "all"

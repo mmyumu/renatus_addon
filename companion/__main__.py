@@ -1,4 +1,7 @@
-"""Compagnon Renatus : python -m companion <commande> [options]
+"""Renatus companion CLI (python -m companion <command>). See HELP for the user-facing text."""
+from __future__ import annotations
+
+HELP = """Compagnon Renatus : python -m companion <commande> [options]
 
 Commandes :
   status    ce que le compagnon voit (journal de l'addon, journaux de combat, presse en attente)
@@ -11,7 +14,6 @@ Commandes :
 Rien n'est publie automatiquement : apres /reload, le redacteur valide chaque element dans
 l'onglet Gazette > Redaction. Le compagnon ne lit que des fichiers et n'ecrit que Press.lua.
 """
-from __future__ import annotations
 
 import argparse
 import datetime as dt
@@ -219,7 +221,7 @@ def cmd_run(paths, args, cfg) -> int:
 
 
 def main(argv=None) -> int:
-    parser = argparse.ArgumentParser(prog="python -m companion", description=__doc__,
+    parser = argparse.ArgumentParser(prog="python -m companion", description=HELP,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--wow", help="dossier _forever_ du jeu")
     parser.add_argument("--account", help="nom du dossier de compte sous WTF/Account")

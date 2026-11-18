@@ -1,15 +1,15 @@
--- ChronicleProbe : addon de diagnostic (Phase 0).
--- N'ecrit rien d'autre que ChronicleProbeDB. Toutes les sorties sont protegees
--- (pcall + issecretvalue) pour ne jamais casser sur une "secret value" Midnight.
+-- ChronicleProbe: diagnostic addon (Phase 0).
+-- Writes nothing but ChronicleProbeDB. All outputs are protected
+-- (pcall + issecretvalue) so they never break on a Midnight "secret value".
 --
--- Commandes :
---   /gcprobe            resume dans le chat
---   /gcprobe comm       envoie un message addon de test (GUILD, PARTY/RAID, WHISPER a soi-meme)
---   /gcprobe burst      envoie 30 messages a soi-meme pour mesurer le throttling
---   /gcprobe sound      joue un son de Renatus (module Voice) sur le canal Ambience
---   /gcprobe reset      efface les donnees collectees
--- Les resultats complets sont dans WTF/Account/<COMPTE>/SavedVariables/ChronicleProbe.lua
--- (ecrit a la deconnexion ou au /reload).
+-- Commands:
+--   /gcprobe            summary in chat
+--   /gcprobe comm       sends a test addon message (GUILD, PARTY/RAID, WHISPER to self)
+--   /gcprobe burst      sends 30 messages to self to measure throttling
+--   /gcprobe sound      plays a Renatus sound (Voice module) on the Ambience channel
+--   /gcprobe reset      clears collected data
+-- Full results are in WTF/Account/<ACCOUNT>/SavedVariables/ChronicleProbe.lua
+-- (written on logout or /reload).
 
 local PREFIX = "GCProbe"
 local MAX_PER_EVENT = 15
@@ -64,7 +64,7 @@ local function log(kind, data)
     while #DB.log > MAX_LOG do table.remove(DB.log, 1) end
 end
 
--- API dont on veut connaitre l'existence (type de la valeur globale)
+-- APIs whose existence we want to know (type of the global value)
 local API_NAMES = {
     "GetBuildInfo", "GetServerTime", "C_Timer.After", "C_Timer.NewTicker", "issecretvalue",
     "C_ChatInfo.SendAddonMessage", "C_ChatInfo.RegisterAddonMessagePrefix", "SendAddonMessage",
@@ -86,7 +86,7 @@ local API_NAMES = {
     "UnitIsPVP", "UnitIsEnemy", "UnitRace", "C_PvP", "COMBATLOG_HONORGAIN", "COMBATLOG_HONORAWARD",
 }
 
--- Evenements a tester (inscription) puis a journaliser (payload reel)
+-- Events to test (registration) then log (actual payload)
 local EVENTS = {
     "PLAYER_LOGIN", "PLAYER_ENTERING_WORLD", "PLAYER_LEVEL_UP", "PLAYER_DEAD", "PLAYER_ALIVE", "PLAYER_UNGHOST",
     "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED", "QUEST_TURNED_IN", "QUEST_ACCEPTED",
@@ -99,13 +99,13 @@ local EVENTS = {
     "CHAT_MSG_COMBAT_HONOR_GAIN", "PLAYER_PVP_KILLS_CHANGED", "DUEL_FINISHED",
     "PLAYER_TARGET_CHANGED", "UPDATE_MOUSEOVER_UNIT", "NAME_PLATE_UNIT_ADDED",
 }
--- Inscription testee puis immediatement annulee (trop volumineux a journaliser)
+-- Registration tested then immediately cancelled (too large to log)
 local TEST_ONLY_EVENTS = { "COMBAT_LOG_EVENT_UNFILTERED", "COMBAT_LOG_EVENT" }
--- Evenements frequents : on n'en garde que quelques occurrences
+-- Frequent events: keep only a few occurrences
 local NOISY = { GUILD_ROSTER_UPDATE = 3, GROUP_ROSTER_UPDATE = 5, CHAT_MSG_SYSTEM = 10, ZONE_CHANGED = 10,
     PLAYER_TARGET_CHANGED = 5, UPDATE_MOUSEOVER_UNIT = 5, NAME_PLATE_UNIT_ADDED = 5 }
 
--- Pour le Wanted Board : que peut-on lire d'un joueur ennemi vu en cible, survol ou barre de nom ?
+-- For the Wanted Board: what can be read from an enemy player seen as target, mouseover or nameplate?
 local ENEMY_SIGHTING_MAX = 40
 local function unitCall(fn, unit)
     if type(fn) ~= "function" then return "absent" end
@@ -316,7 +316,7 @@ frame:SetScript("OnEvent", function(self, event, ...)
         log(event, packSafe(...))
     end
     if event == "PLAYER_DEAD" or event == "ENCOUNTER_END" or event == "BOSS_KILL" or event == "PLAYER_LEVEL_UP" then
-        snapshotState() -- capture le contexte (instance, carte) au moment de l'evenement
+        snapshotState() -- captures the context (instance, map) at the time of the event
         log(event .. "_STATE", DB.calls)
     end
 end)

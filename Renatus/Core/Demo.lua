@@ -1,6 +1,6 @@
--- Core/Demo.lua : jeu de donnees fictif pour visualiser l'interface (/renatus demo).
--- Rien n'est sauvegarde : tout vit en memoire et disparait au /reload.
--- Les noms sont inventes (sauf le tien, pour peupler "Mon journal").
+-- Core/Demo.lua: fictional dataset to preview the UI (/renatus demo).
+-- Nothing is saved: everything lives in memory and disappears on /reload.
+-- Names are made up (except yours, to fill "Mon journal").
 local _, ns = ...
 
 local Demo = {}
@@ -62,7 +62,7 @@ local function build()
     end
     local dm = { z = "Marche de l'Ouest", i = "Les Mortemines", it = "party" }
 
-    -- Mon journal
+    -- My journal
     for i, lvl in ipairs({ 18, 19, 20, 21, 22 }) do E("me", "LEVEL_UP", 22 - i * 4, 21, { lvl = lvl }, { zone = "Marche de l'Ouest" }) end
     E("me", "ZONE_FIRST_VISIT", 21, 19, {}, { zone = "Marche de l'Ouest" })
     E("me", "ZONE_FIRST_VISIT", 14, 20, {}, { zone = "Les Carmines" })
@@ -83,12 +83,12 @@ local function build()
     local d3 = E("me", "DEATH", 3, 20, { lvl = 22, enemies = { "Gorbash" } }, { zone = "Vallée de Strangleronce", min = 5, miss = { "killer" }, ded = { "enemies" } })
     E("me", "PVP_CLASH", 2, 21, { name = "Sombrelame", enemy = "Sombrelame", result = "win" }, { zone = "Bois de la Pénombre", prov = "MAN" })
 
-    -- Les autres
+    -- The others
     E("bri", "BOSS_KILL", 9, 21, { enc = 1, name = "Edwin VanCleef" }, { loc = dm, min = 21, occ = occ })
     E("mel", "BOSS_KILL", 9, 21, { enc = 1, name = "Edwin VanCleef" }, { loc = dm, min = 20, occ = occ })
     E("bri", "EXPEDITION", 9, 20, expP(5300, 0), { loc = dm, pt = P("mel", "tob", "pis"), occ = expOcc, min = 1 })
     E("pis", "EXPEDITION", 9, 20, expP(5400, 1), { loc = dm, pt = P("bri", "mel", "tob"), occ = expOcc, min = 2 })
-    -- Cause de mort issue du journal de combat de Pistache (compagnon), publiee par elle.
+    -- Death cause from Pistache's combat log (companion), published by her.
     E("pis", "DEATH_CAUSE", 9, 20, { victim = meName, cause = "Ronfleur le Maladroit (Coup de pioche)", killer = "Ronfleur le Maladroit" },
         { loc = {}, prov = "LOG", refs = { d1.id }, min = 31 })
     E("bri", "LEVEL_UP", 4, 22, { lvl = 23 }, { zone = "Les Carmines" })
@@ -169,7 +169,7 @@ local function build()
         },
         roster = {},
     }
-    -- Collection de depart : un sous-ensemble deterministe du catalogue.
+    -- Starting collection: a deterministic subset of the catalogue.
     for _, card in ipairs(ns.Album.Catalogue(dataset)) do
         local h = ns.Album.Hash(card.id)
         if card.rarity ~= "legendary" and h % 3 == 0 then dataset.collection[card.id] = (h % 7 == 0) and 2 or 1 end

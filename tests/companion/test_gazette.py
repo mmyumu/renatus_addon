@@ -1,4 +1,4 @@
-"""Gazette IA : consentement, alias des rivaux, verification des reponses (sans vraie IA)."""
+"""AI gazette: consent, rival aliases, answer checks (no real AI)."""
 import io
 import json
 import shutil
@@ -30,7 +30,7 @@ def saved(consent_bob=False):
     events = [
         ev(ME, "Testeur", 1, "AI_CONSENT", 100, {"ok": True}, prov="MAN"),
         ev(ZOE, "Zoe", 1, "AI_CONSENT", 100, {"ok": True}, prov="MAN"),
-        ev(ZOE, "Zoe", 2, "AI_CONSENT", 90, {"ok": False}, prov="MAN"),   # retrait : le dernier compte
+        ev(ZOE, "Zoe", 2, "AI_CONSENT", 90, {"ok": False}, prov="MAN"),   # withdrawal: the latest counts
         ev(ME, "Testeur", 2, "ENEMY_SEEN", 50, {"name": "Gorbash", "guild": "Les Crocs", "class": "ROGUE", "race": "Orc"}),
         ev(ME, "Testeur", 3, "DEATH", 49, {"enemies": ["Gorbash"]}, ded=["enemies"]),
         ev(ME, "Testeur", 4, "EXPEDITION", 30, {"type": "DUNGEON", "inst": "Les Mortemines", "duration": 3600,
@@ -38,10 +38,10 @@ def saved(consent_bob=False):
            pt=[{"g": ME, "n": "Testeur"}, {"g": BOB, "n": "Bob"}]),
         ev(ME, "Testeur", 5, "ANECDOTE", 20, {"title": "Le pont", "desc": "Bob a sauté du pont"}, prov="MAN"),
         ev(ME, "Testeur", 6, "PVP_CLASH", 10, {"name": "Gorbash", "result": "win", "member": "Testeur"}, prov="MAN"),
-        ev(ME, "Testeur", 7, "LEVEL_UP", 5, {"lvl": 42}, vis="P", id=f"{ME}:p1"),  # prive : jamais envoye
+        ev(ME, "Testeur", 7, "LEVEL_UP", 5, {"lvl": 42}, vis="P", id=f"{ME}:p1"),  # private: never sent
         ev(BOB, "Bob", 1, "LEVEL_UP", 4, {"lvl": 30}),
         ev(ZOE, "Zoe", 3, "BOSS_KILL", 3, {"name": "VanCleef"}),
-        ev(ME, "Testeur", 8, "LEVEL_UP", 400, {"lvl": 41}),  # hors periode
+        ev(ME, "Testeur", 8, "LEVEL_UP", 400, {"lvl": 41}),  # outside the period
     ]
     if consent_bob:
         events.append(ev(BOB, "Bob", 2, "AI_CONSENT", 100, {"ok": True}, prov="MAN"))

@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Deploie l'addon dans le client WoW Forever (depuis WSL).
-#   tools/deploy.sh            copie Renatus (miroir exact) + installe Renatus_Press s'il manque
-#   WOW=/mnt/c/.../_forever_ tools/deploy.sh   autre installation
-# Press.lua n'est jamais ecrase : c'est le compagnon qui l'ecrit.
-# Apres un deploiement : /reload en jeu (redemarrer le jeu seulement la premiere fois).
+# Deploys the addon into the WoW Forever client (from WSL).
+#   tools/deploy.sh            copies Renatus (exact mirror) + installs Renatus_Press if missing
+#   WOW=/mnt/c/.../_forever_ tools/deploy.sh   other installation
+# Press.lua is never overwritten: the companion writes it.
+# After deploying: /reload in game (restart the game only the first time).
 set -euo pipefail
 
 WOW="${WOW:-/mnt/c/MyGames/World of Warcraft/_forever_}"
@@ -12,7 +12,7 @@ ADDONS="$WOW/Interface/AddOns"
 
 [ -d "$ADDONS" ] || { echo "Dossier introuvable : $ADDONS" >&2; exit 1; }
 
-# Ancien nom de l'addon (avant v0.4.1) : deux copies chargees en meme temps se marcheraient dessus.
+# Former addon name (before v0.4.1): two copies loaded at once would step on each other.
 for old in GuildChronicle GuildChronicle_Press; do
     if [ -f "$ADDONS/$old/$old.toc" ]; then rm -rf "${ADDONS:?}/$old"; echo "Ancien dossier $old retire"; fi
 done

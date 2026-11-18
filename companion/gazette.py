@@ -1,15 +1,15 @@
-"""Gazette redigee par IA : faits verifies -> demande -> articles proposes au redacteur.
+"""AI-written gazette: verified facts -> prompt -> articles proposed to the editor.
 
-Garde-fous (docs/ARCHITECTURE.md §7, §8.4) :
-  - seuls les evenements PARTAGES (vis G) de la guilde sont lus ;
-  - consentement : un personnage n'apparait que s'il a coche « La gazette IA peut parler de moi »
-    (evenement AI_CONSENT, le dernier choix compte). Sinon ses evenements ne sont pas envoyes,
-    et un fait d'un autre membre qui le nomme est retire (ou son nom remplace par « un membre ») ;
-  - les rivaux ne sont jamais nommes aupres de l'IA : alias « Rival A (voleur gnome) » ;
-  - provenance conservee : declare a la main (« selon X »), deduit (« suppose »), journal de combat ;
-  - la reponse est verifiee : sources existantes, aucun nom non autorise, longueur bornee.
-    Un article qui echoue est rejete, pas corrige ;
-  - rien n'est publie : les articles vont dans Press.lua, le redacteur valide en jeu.
+Safeguards (docs/ARCHITECTURE.md §7, §8.4):
+  - only the guild's SHARED events (vis G) are read;
+  - consent: a character only appears if they ticked "La gazette IA peut parler de moi"
+    (AI_CONSENT event, latest choice wins). Otherwise their events are not sent, and another
+    member's fact naming them is dropped (or the name replaced by an anonymous count);
+  - rivals are never named to the AI: alias "Rival A (voleur gnome)";
+  - provenance kept: declared by hand ("selon X"), deduced ("supposé"), combat log;
+  - the answer is checked: existing sources, no unauthorised name, bounded length.
+    A failing article is rejected, never fixed;
+  - nothing is published: articles go to Press.lua, the editor approves them in game.
 """
 from __future__ import annotations
 
@@ -24,10 +24,10 @@ from typing import Any
 from .reconcile import Chronicle
 
 MAX_FACTS = 150
-MAX_BODY = 3500       # octets (meme limite que les articles ecrits a la main)
+MAX_BODY = 3500       # bytes (same limit as hand-written articles)
 MAX_TITLE = 90
 MAX_ARTICLES = 5
-HIDDEN = {"VOTE", "AI_CONSENT", "ARTICLE", "LETTER"}  # pas des faits (ou deja de la redaction)
+HIDDEN = {"VOTE", "AI_CONSENT", "ARTICLE", "LETTER"}  # not facts (or already editorial content)
 
 CLASSES = {
     "WARRIOR": "guerrier", "PALADIN": "paladin", "HUNTER": "chasseur", "ROGUE": "voleur", "PRIEST": "prêtre",
@@ -43,17 +43,17 @@ class Fact:
     when: float
     text: str
     refs: list[str]
-    names: set[str] = field(default_factory=set)   # membres nommes dans le fait
+    names: set[str] = field(default_factory=set)   # members named in the fact
 
 
 @dataclass
 class Brief:
-    """Tout ce qui sera envoye a l'IA, et ce qu'il faut pour verifier la reponse."""
+    """Everything sent to the AI, plus what is needed to check the answer."""
     facts: list[Fact]
-    allowed: set[str]          # membres consentants
-    forbidden: set[str]        # noms qui ne doivent jamais sortir (non consentants, rivaux)
+    allowed: set[str]          # consenting members
+    forbidden: set[str]        # names that must never go out (non-consenting, rivals)
     rival_guild: str | None
-    excluded: collections.Counter  # raisons d'exclusion (pour l'affichage)
+    excluded: collections.Counter  # exclusion reasons (for display)
     since: float
     until: float
 
@@ -71,7 +71,7 @@ def _word_re(names: set[str]) -> re.Pattern | None:
 
 
 def consent(ch: Chronicle) -> dict[str, bool]:
-    """GUID d'auteur -> dernier choix publie (sequence la plus haute)."""
+    """Author GUID -> latest published choice (highest sequence)."""
     best: dict[str, tuple[int, bool]] = {}
     for e in ch.of_kind("AI_CONSENT"):
         if e.get("vis") != "G":
@@ -89,7 +89,7 @@ def main_guild(ch: Chronicle) -> str | None:
 
 
 class _Rivals:
-    """Alias stables pour les personnages de la guilde rivale."""
+    """Stable aliases for rival guild characters."""
 
     def __init__(self, ch: Chronicle):
         self.info: dict[str, dict[str, Any]] = {}
@@ -136,7 +136,7 @@ def build(ch: Chronicle, since: float, until: float) -> Brief:
     authors = ch.members()
     allowed = {authors[a] for a, ok in choice.items() if ok and a in authors}
     allowed_guids = {a for a, ok in choice.items() if ok}
-    # Membres connus sans consentement : auteurs sans « oui » + membres vus dans les expeditions.
+    # Known members without consent: authors without a "yes" + members seen in expeditions.
     members = set(authors.values())
     for e in ch.of_kind("EXPEDITION"):
         members.update(p.get("n") for p in (e.get("pt") or []) if isinstance(p, dict) and p.get("n"))
@@ -149,7 +149,7 @@ def build(ch: Chronicle, since: float, until: float) -> Brief:
     excluded: collections.Counter = collections.Counter()
 
     def scrub(text: str) -> str | None:
-        """Rivaux -> alias ; un membre non consentant dans le texte -> fait retire."""
+        """Rivals -> aliases; a non-consenting member in the text -> fact dropped."""
         if rival_re:
             text = rival_re.sub(lambda m: rivals(m.group(1)), text)
         if member_re and member_re.search(text):
@@ -334,7 +334,7 @@ def _extract_json(text: str) -> Any:
 
 
 def check(brief: Brief, answer: str, edition: str) -> tuple[list[dict[str, Any]], list[str]]:
-    """Reponse de l'IA -> (elements Press.lua, problemes). Un article douteux est rejete."""
+    """AI answer -> (Press.lua items, problems). A dubious article is rejected."""
     try:
         data = _extract_json(answer)
     except (ValueError, json.JSONDecodeError) as exc:

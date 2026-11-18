@@ -1,15 +1,15 @@
--- Sync/Sync.lua : synchronisation des journaux entre membres de la guilde (sans serveur).
+-- Sync/Sync.lua: journal synchronization between guild members (serverless).
 --
--- Principe (docs/ARCHITECTURE.md §10) :
---   - chaque auteur possede un journal public en ajout seul, numerote 1, 2, 3...
---   - chaque client connait, par auteur, la plus grande sequence contigue qu'il possede
---     (son "vecteur") ;
---   - V : "voici mon vecteur" ; R : "il me manque les evenements f..t de l'auteur a" ;
---     E : "voici un evenement" (diffuse a toute la guilde, donc profite a tous).
---   - l'auteur repond vite a une demande, les relais attendent un peu et se taisent
---     si quelqu'un a deja repondu.
--- Seuls les evenements de visibilite "G" (categorie reglee sur Guilde) sont envoyes.
--- Les evenements prives ne quittent jamais le client.
+-- Principle (docs/ARCHITECTURE.md §10):
+--   - each author owns an append-only public log, numbered 1, 2, 3...
+--   - each client knows, per author, the highest contiguous sequence it holds
+--     (its "vector");
+--   - V: "here is my vector"; R: "I am missing events f..t of author a";
+--     E: "here is an event" (broadcast to the whole guild, so everyone benefits).
+--   - the author answers a request quickly, relays wait a bit and stay silent
+--     if someone already answered.
+-- Only events with visibility "G" (category set to Guild) are sent.
+-- Private events never leave the client.
 local _, ns = ...
 
 local Sync = ns:RegisterModule("Sync", {})
@@ -19,16 +19,16 @@ local Transport, Ser = ns.Transport, ns.Serialize
 local P = Transport.PRIORITY
 
 Sync.PROTO = 1
-Sync.MAX_RANGE = 25            -- evenements par demande
-Sync.VECTOR_EVERY = 15 * 60    -- annonce periodique du vecteur
+Sync.MAX_RANGE = 25            -- events per request
+Sync.VECTOR_EVERY = 15 * 60    -- periodic vector announcement
 Sync.MAX_EVENT_BYTES = 6000
 
 local vectorCache
-local seenOnWire = {}     -- [id] = instant ou l'evenement est passe sur le canal (par nous ou un autre)
-local requested = {}      -- [auteur:debut] = instant de la derniere demande
-local scheduled = {}      -- [id] = true : reponse deja programmee
+local seenOnWire = {}     -- [id] = time the event went over the wire (sent by us or someone else)
+local requested = {}      -- [author:from] = time of the last request
+local scheduled = {}      -- [id] = true: reply already scheduled
 local lastVectorSent = -math.huge
-Sync.peers = {}           -- [nom] = { seen = instant, proto = n }
+Sync.peers = {}           -- [name] = { seen = time, proto = n }
 
 local function now() return (GetServerTime and GetServerTime()) or time() end
 local function clock() return (GetTime and GetTime()) or now() end
@@ -39,9 +39,9 @@ local ALLOWED = { v = true, id = true, a = true, n = true, c = true, s = true, t
 local PROVS = { OBS = true, LOG = true, MAN = true, DED = true, GEN = true }
 
 ------------------------------------------------------------------------
--- Vecteur et trous
+-- Vector and gaps
 ------------------------------------------------------------------------
--- { [auteur] = { max = plus grande sequence contigue, top = plus grande sequence connue } }
+-- { [author] = { max = highest contiguous sequence, top = highest known sequence } }
 local function computeVector()
     if vectorCache then return vectorCache end
     local guildKey = ns.Context.GuildKey()
@@ -69,7 +69,7 @@ function Sync.Invalidate() vectorCache = nil end
 local function hasEvent(author, s) return ns.db.events[author .. ":" .. s] ~= nil end
 
 ------------------------------------------------------------------------
--- Validation des evenements recus
+-- Validation of received events
 ------------------------------------------------------------------------
 local function isInt(x) return type(x) == "number" and x == math.floor(x) end
 
@@ -90,8 +90,8 @@ function Sync.Validate(ev, guildKey)
     return clean
 end
 
--- Copie envoyable : uniquement les champs du schema (pas les annotations locales).
--- La cle de guilde voyage une seule fois, dans l'enveloppe du message.
+-- Wire copy: schema fields only (no local annotations).
+-- The guild key travels once, in the message envelope.
 local function wireCopy(ev)
     local out = {}
     for k, v in pairs(ev) do if ALLOWED[k] and k ~= "g" then out[k] = v end end
@@ -99,7 +99,7 @@ local function wireCopy(ev)
 end
 
 ------------------------------------------------------------------------
--- Emission
+-- Sending
 ------------------------------------------------------------------------
 local function encode(msg)
     msg.g = ns.Context.GuildKey()
@@ -117,7 +117,7 @@ function Sync.SendVector(force)
     return true
 end
 
--- Programme l'envoi d'un evenement ; annule si quelqu'un l'a diffuse entre-temps.
+-- Schedules sending an event; cancelled if someone broadcast it meanwhile.
 local function sendEvent(id, delay)
     if scheduled[id] then return end
     scheduled[id] = true
@@ -146,7 +146,7 @@ local function request(author, from, to)
     Transport.Send(encode({ o = "R", a = author, f = from, t = to }), P.CONTROL)
 end
 
--- Demande ce qui manque pour un auteur, d'apres ce qu'on sait exister.
+-- Requests what is missing for an author, based on what we know exists.
 local function requestMissing(author, knownTop)
     local info = computeVector()[author] or { max = 0, top = 0 }
     local top = math.max(knownTop or 0, info.top)
@@ -158,7 +158,7 @@ local function requestMissing(author, knownTop)
 end
 
 ------------------------------------------------------------------------
--- Reception
+-- Receiving
 ------------------------------------------------------------------------
 local handlers = {}
 
@@ -176,7 +176,7 @@ function handlers.V(sender, msg)
         local theirs = msg.v[author]
         if info.max > 0 and (not isInt(theirs) or theirs < info.max) then peerBehind = true end
     end
-    -- Il lui manque des choses : on annonce notre vecteur pour qu'il puisse demander.
+    -- They are missing things: announce our vector so they can request.
     if peerBehind and C_Timer then
         C_Timer.After(2 + math.random() * 6, function() Sync.SendVector(false) end)
     end
@@ -204,7 +204,7 @@ function handlers.E(sender, msg)
     seenOnWire[ev.id] = clock()
     if ns.db.events[ev.id] then return end
     local from = Transport.ShortName(sender)
-    -- "verifie" : recu de l'auteur lui-meme ; sinon relaye par un autre membre.
+    -- "verified": received from the author themselves; otherwise relayed by another member.
     ev.rx = { by = from, direct = (from == ev.n) or nil, at = now() }
     if ns.Store.Insert(ev) then
         Sync.received = (Sync.received or 0) + 1
@@ -226,14 +226,14 @@ end
 Sync.OnMessage = onMessage
 
 ------------------------------------------------------------------------
--- Cycle de vie
+-- Lifecycle
 ------------------------------------------------------------------------
 function Sync:OnLogin()
     Transport.Init()
     Transport.SetHandler(onMessage)
     ns.EventBus.Subscribe("CHRONICLE_EVENT", function(ev)
         vectorCache = nil
-        -- Nouvel evenement public cree ici : diffuse tout de suite (la file attend si besoin).
+        -- New public event created here: broadcast right away (the queue waits if needed).
         local me = ns.Context.Me()
         if ev.a == me and ev.vis == "G" and not ev.rx then sendEvent(ev.id, 0) end
     end)

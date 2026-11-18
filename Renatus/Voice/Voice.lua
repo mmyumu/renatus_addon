@@ -1,17 +1,17 @@
--- Voice/Voice.lua : module "Renacoach" (repliques vocales), porte depuis Renacoach v1.0.0.
+-- Voice/Voice.lua: "Renacoach" module (voice lines), ported from Renacoach v1.0.0.
 --
--- Comportement conserve (valeurs par defaut identiques a l'original) :
---   entree en combat -> startFight ; sortie -> endFight ; mort -> death ;
---   en combat, toutes les 3 s, 50 % de chances de jouer une replique de combat
---   (generique + role + type) ; une seule replique a la fois ; ducking du volume SFX.
--- Differences volontaires (voir docs/ARCHITECTURE.md) :
---   - module optionnel, desactive par defaut, reglable (/renatus voice) ;
---   - plus aucune fonction globale ;
---   - specialisations reconnues par identifiant (et non par index), repli sur la classe
---     puis reglage manuel du role et du type (les specialisations de Forever peuvent differer) ;
---   - correction de la table du chasseur (Precision etait classe "melee") ;
---   - le volume SFX est restaure au chargement suivant si le jeu a quitte pendant un ducking ;
---   - la replique de mort n'est pas coupee par celle de fin de combat.
+-- Preserved behaviour (defaults identical to the original):
+--   entering combat -> startFight; leaving -> endFight; death -> death;
+--   in combat, every 3 s, 50 % chance to play a combat line
+--   (generic + role + type); only one line at a time; SFX volume ducking.
+-- Deliberate differences (see docs/ARCHITECTURE.md):
+--   - optional module, disabled by default, configurable (/renatus voice);
+--   - no more global functions;
+--   - specializations recognised by id (not by index), falling back to the class
+--     then to a manual role/type setting (Forever specializations may differ);
+--   - hunter table fixed (Marksmanship was classified as "melee");
+--   - SFX volume is restored on the next load if the game exited during ducking;
+--   - the death line is not cut off by the end-of-combat line.
 local ADDON, ns = ...
 
 local Voice = ns:RegisterModule("Voice", {})
@@ -19,35 +19,35 @@ ns.Voice = Voice
 
 local SOUND_DIR = "Interface\\AddOns\\" .. ADDON .. "\\Voice\\Sounds\\"
 
--- Type de personnage par IDENTIFIANT de specialisation Retail (stable, contrairement a l'index).
--- Si Forever a d'autres specialisations, leurs identifiants ne sont pas dans la table :
--- on retombe alors sur la classe, puis sur le reglage manuel (onglet Voix).
+-- Character type by Retail specialization ID (stable, unlike the index).
+-- If Forever has other specializations, their ids are not in the table:
+-- we then fall back to the class, then to the manual setting (Voice tab).
 local specIdToType = {
-    [250] = "melee", [251] = "melee", [252] = "melee",                    -- chevalier de la mort
-    [577] = "melee", [581] = "melee",                                     -- chasseur de demons
-    [102] = "caster", [103] = "melee", [104] = "melee", [105] = "caster", -- druide
-    [1467] = "caster", [1468] = "caster", [1473] = "caster",              -- evocateur
-    [253] = "ranged", [254] = "ranged", [255] = "melee",                  -- chasseur (Survie = melee)
+    [250] = "melee", [251] = "melee", [252] = "melee",                    -- death knight
+    [577] = "melee", [581] = "melee",                                     -- demon hunter
+    [102] = "caster", [103] = "melee", [104] = "melee", [105] = "caster", -- druid
+    [1467] = "caster", [1468] = "caster", [1473] = "caster",              -- evoker
+    [253] = "ranged", [254] = "ranged", [255] = "melee",                  -- hunter (Survival = melee)
     [62] = "caster", [63] = "caster", [64] = "caster",                    -- mage
-    [268] = "melee", [269] = "melee", [270] = "melee",                    -- moine
+    [268] = "melee", [269] = "melee", [270] = "melee",                    -- monk
     [65] = "melee", [66] = "melee", [70] = "melee",                       -- paladin
-    [256] = "caster", [257] = "caster", [258] = "caster",                 -- pretre
-    [259] = "melee", [260] = "melee", [261] = "melee",                    -- voleur
-    [262] = "caster", [263] = "melee", [264] = "caster",                  -- chaman
-    [265] = "caster", [266] = "caster", [267] = "caster",                 -- demoniste
-    [71] = "melee", [72] = "melee", [73] = "melee",                       -- guerrier
+    [256] = "caster", [257] = "caster", [258] = "caster",                 -- priest
+    [259] = "melee", [260] = "melee", [261] = "melee",                    -- rogue
+    [262] = "caster", [263] = "melee", [264] = "caster",                  -- shaman
+    [265] = "caster", [266] = "caster", [267] = "caster",                 -- warlock
+    [71] = "melee", [72] = "melee", [73] = "melee",                       -- warrior
 }
 Voice.SPEC_TYPES = specIdToType
 
--- Repli sans specialisation reconnue : seulement les classes sans ambiguite.
--- (druide, chaman : impossible a deviner -> reglage manuel dans l'onglet Voix)
+-- Fallback without a recognised specialization: only unambiguous classes.
+-- (druid, shaman: impossible to guess -> manual setting in the Voice tab)
 local classOnlyType = {
     HUNTER = "ranged", MAGE = "caster", PRIEST = "caster", WARLOCK = "caster",
     ROGUE = "melee", WARRIOR = "melee", PALADIN = "melee", DEATHKNIGHT = "melee",
     DEMONHUNTER = "melee", MONK = "melee", EVOKER = "caster",
 }
 
--- Familles de repliques : contenu identique a Renacoach v1.0.0.
+-- Voice line families: content identical to Renacoach v1.0.0.
 local FAMILIES = {
     fightGeneric = {
         "allez_on_se_concentre", "concentre_toi", "on_reste_souple_sur_les_appuis", "cest_bien",
@@ -74,15 +74,15 @@ local TYPE_FAMILY = { melee = "fightMelee", caster = "fightCaster", ranged = "fi
 
 local lastSoundHandle
 local duckToken = 0
-local combatFamilies = {}   -- familles jouees en combat, selon role et type
+local combatFamilies = {}   -- families played in combat, by role and type
 local elapsedSinceTick = 0
 local ticker = CreateFrame("Frame")
 ticker:Hide()
 
 local function settings() return ns.char.voice end
 
--- Role : reglage manuel, sinon specialisation, sinon role de groupe, sinon inconnu.
--- Renvoie aussi l'identifiant de specialisation (pour le type).
+-- Role: manual setting, else specialization, else group role, else unknown.
+-- Also returns the specialization id (for the type).
 function Voice.ResolveRole()
     local override = settings().roleOverride
     local specID
@@ -128,7 +128,7 @@ end
 
 function Voice:GetCombatFamilies() return combatFamilies end
 
--- Liste des fichiers jouables pour un ensemble de familles (familles desactivees exclues).
+-- Playable files for a set of families (disabled families excluded).
 function Voice:CollectSounds(families)
     local enabledFamilies = settings().families
     local result = {}
@@ -143,7 +143,7 @@ function Voice:CollectSounds(families)
 end
 
 ------------------------------------------------------------------------
--- Ducking du volume SFX (persistant en cas de crash)
+-- SFX volume ducking (persisted in case of a crash)
 ------------------------------------------------------------------------
 local FADE_DURATION, FADE_STEPS, DUCK_DURATION = 1.2, 8, 2.8
 
@@ -187,7 +187,7 @@ local function duck()
 end
 
 ------------------------------------------------------------------------
--- Lecture
+-- Playback
 ------------------------------------------------------------------------
 function Voice:PlayFile(name)
     local path = SOUND_DIR .. name .. ".ogg"
@@ -201,7 +201,7 @@ function Voice:PlayFile(name)
     return willPlay, name
 end
 
--- Joue une replique au hasard parmi des familles. Ne fait rien si le module est desactive.
+-- Plays a random line from the given families. Does nothing if the module is disabled.
 function Voice:PlayFamilies(families)
     if not settings().enabled then return false end
     local sounds = self:CollectSounds(families)
@@ -212,7 +212,7 @@ end
 function Voice:Play(family) return self:PlayFamilies({ family }) end
 
 ------------------------------------------------------------------------
--- Declencheurs (identiques a Renacoach, sauf priorite de la mort)
+-- Triggers (identical to Renacoach, except death priority)
 ------------------------------------------------------------------------
 ticker:SetScript("OnUpdate", function(_, elapsed)
     elapsedSinceTick = elapsedSinceTick + elapsed
@@ -232,7 +232,7 @@ end
 
 local function onCombatEnd()
     ticker:Hide()
-    -- A la mort, la sortie de combat arrive en meme temps : on laisse la replique de mort.
+    -- On death, leaving combat happens at the same time: keep the death line.
     if UnitIsDeadOrGhost and UnitIsDeadOrGhost("player") then return end
     Voice:Play("endFight")
 end
@@ -242,7 +242,7 @@ local function onDeath()
 end
 
 function Voice:OnInitialize()
-    -- Le jeu a quitte (crash, deconnexion) pendant un ducking : on rend son volume au joueur.
+    -- The game exited (crash, disconnect) during ducking: give the player their volume back.
     if ns.db.voiceDuck.previous then restore(true) end
 end
 
@@ -252,7 +252,7 @@ function Voice:OnLogin()
     ns:RegisterGameEvent("PLAYER_REGEN_ENABLED", onCombatEnd)
     ns:RegisterGameEvent("PLAYER_DEAD", onDeath)
     ns:RegisterGameEvent("PLAYER_LOGOUT", function() restore(true) end)
-    -- Ces evenements peuvent ne pas exister sur Forever : RegisterGameEvent l'absorbe.
+    -- These events may not exist on Forever: RegisterGameEvent absorbs that.
     local rebuild = function() Voice:RebuildPools() end
     ns:RegisterGameEvent("PLAYER_SPECIALIZATION_CHANGED", rebuild)
     ns:RegisterGameEvent("ACTIVE_TALENT_GROUP_CHANGED", rebuild)

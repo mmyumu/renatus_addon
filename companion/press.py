@@ -1,8 +1,8 @@
-"""Ecriture de Renatus_Press/Press.lua, lu par l'addon a chaque /reload.
+"""Writing Renatus_Press/Press.lua, read by the addon on every /reload.
 
-Le fichier est fusionne avec l'existant (identifiants deterministes : pas de doublon) et
-debarrasse des elements deja publies ou ignores en jeu (pressDone dans les SavedVariables).
-Ecriture atomique : fichier temporaire puis remplacement.
+The file is merged with the existing one (deterministic ids: no duplicates) and cleared of
+items already published or ignored in game (pressDone in the SavedVariables).
+Atomic write: temporary file then replace.
 """
 from __future__ import annotations
 
@@ -13,8 +13,8 @@ from typing import Any
 
 from . import luadata
 
-HEADER = ("-- Fichier ecrit par l'application compagnon (companion/). Ne pas modifier a la main :\n"
-          "-- il est remplace a chaque passage du compagnon.\n")
+HEADER = ("-- File written by the companion app (companion/). Do not edit by hand:\n"
+          "-- it is replaced on every companion run.\n")
 
 
 def read_items(path: Path) -> list[dict[str, Any]]:
@@ -31,7 +31,7 @@ def read_items(path: Path) -> list[dict[str, Any]]:
 def merge(existing: list[dict[str, Any]], new: list[dict[str, Any]], done: dict[str, str]) -> list[dict[str, Any]]:
     by_id: dict[str, dict[str, Any]] = {}
     for item in existing + new:
-        by_id[item["id"]] = item  # le plus recent l'emporte (texte corrige, par exemple)
+        by_id[item["id"]] = item  # the most recent wins (corrected text, for instance)
     kept = [i for i in by_id.values() if i["id"] not in done]
     kept.sort(key=lambda i: (i.get("t") or 0, i["id"]))
     return kept

@@ -1,4 +1,4 @@
--- UI/Timeline.lua : chronologie reutilisee par "Mon journal" et "Guilde".
+-- UI/Timeline.lua: timeline shared by "Mon journal" and "Guilde".
 local _, ns = ...
 local UI = ns.UI
 local Types, Views = ns.Types, ns.Views
@@ -23,7 +23,7 @@ local IMPORTANCE = {
     { value = 3, label = "Grandes étapes" },
 }
 
-local causes = {}   -- causes de mort (journal de combat) du jeu de donnees affiche
+local causes = {}   -- death causes (combat log) of the displayed dataset
 
 local function hasMissing(ev, what)
     for _, m in ipairs(ev.miss or {}) do if m == what then return true end end
@@ -136,7 +136,7 @@ local function updateRow(row, item, mode)
     row.date:SetText(UI.Ago(ev.t))
 end
 
--- mode : "personal" ou "guild"
+-- mode: "personal" or "guild"
 function UI.BuildTimeline(c, mode)
     local state = { category = "all", period = "all", member = "all", importance = 0, search = "" }
     c.state = state

@@ -1,4 +1,4 @@
-"""Localisation des fichiers du jeu (lecture seule, sauf Renatus_Press/Press.lua)."""
+"""Locating game files (read-only, except Renatus_Press/Press.lua)."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -9,7 +9,7 @@ SV_NAME = "Renatus.lua"
 
 @dataclass
 class WowPaths:
-    root: Path                 # dossier _forever_ (ou _retail_)
+    root: Path                 # _forever_ folder (or _retail_)
     account: str | None = None
 
     @property

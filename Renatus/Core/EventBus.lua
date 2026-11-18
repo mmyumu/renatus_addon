@@ -1,5 +1,5 @@
--- Core/EventBus.lua : publication / abonnement interne entre modules.
--- Un abonne qui plante n'empeche pas les autres de recevoir l'evenement.
+-- Core/EventBus.lua: internal publish/subscribe between modules.
+-- A failing subscriber does not prevent the others from receiving the event.
 local _, ns = ...
 
 local EventBus = {}
@@ -25,7 +25,7 @@ end
 function EventBus.Publish(topic, ...)
     local list = subscribers[topic]
     if not list then return 0 end
-    -- copie : un abonne peut se desabonner pendant la diffusion
+    -- copy: a subscriber may unsubscribe during dispatch
     local snapshot = { unpack(list) }
     for i = 1, #snapshot do
         local ok, err = pcall(snapshot[i], ...)

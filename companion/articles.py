@@ -1,6 +1,6 @@
-"""Articles ecrits a la main par le redacteur (dossier articles/, un fichier .md par article).
+"""Articles written by hand by the editor (articles/ folder, one .md file per article).
 
-Format :
+Format:
     ---
     title: Une expédition réussie
     format: Édition spéciale
@@ -9,8 +9,8 @@ Format :
     ---
     Corps de l'article...
 
-Les `refs` sont les identifiants des evenements cites (commande `facts`). Elles sont verifiees :
-un article qui cite un evenement inconnu est signale. Le texte n'est jamais modifie.
+`refs` are the ids of the cited events (`facts` command). They are checked: an article
+citing an unknown event is reported. The text is never modified.
 """
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-MAX_BODY = 3500  # octets : environ 15 messages d'addon
+MAX_BODY = 3500  # bytes: about 15 addon messages
 
 
 @dataclass

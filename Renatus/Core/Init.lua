@@ -1,4 +1,4 @@
--- Core/Init.lua : namespace, cycle de vie des modules, inscription prudente aux evenements WoW.
+-- Core/Init.lua: namespace, module lifecycle, cautious registration to WoW events.
 local ADDON, ns = ...
 
 ns.name = ADDON
@@ -11,8 +11,8 @@ local function printf(fmt, ...)
 end
 ns.Print = printf
 
--- Un module = table avec OnInitialize(ns) (apres chargement des SavedVariables)
--- et OnLogin(ns) (PLAYER_LOGIN, API du personnage disponibles).
+-- A module = table with OnInitialize(ns) (after SavedVariables are loaded)
+-- and OnLogin(ns) (PLAYER_LOGIN, character APIs available).
 function ns:RegisterModule(name, module)
     assert(not self.modules[name], "module deja enregistre : " .. name)
     module.name = name
@@ -33,8 +33,8 @@ local function callModules(method)
     end
 end
 
--- Dispatcher d'evenements WoW. L'inscription passe par pcall : sur WoW Forever,
--- un evenement absent ou interdit ne doit jamais empecher l'addon de charger.
+-- WoW event dispatcher. Registration goes through pcall: on WoW Forever,
+-- a missing or forbidden event must never prevent the addon from loading.
 local eventFrame = CreateFrame("Frame")
 local handlers = {}
 ns.unsupportedEvents = {}
@@ -75,5 +75,5 @@ end)
 eventFrame:RegisterEvent("ADDON_LOADED")
 eventFrame:RegisterEvent("PLAYER_LOGIN")
 
--- Seule globale exposee : l'API publique (abonnement au journal, etc.).
+-- Only exposed global: the public API (journal subscription, etc.).
 Renatus = { ns = ns }

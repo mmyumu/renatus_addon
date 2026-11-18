@@ -1,6 +1,6 @@
--- tests/wow_stub.lua : simulation minimale de l'API WoW pour les tests hors client.
--- Compatible Lua 5.1 a 5.4. Les widgets acceptent n'importe quelle methode (no-op par defaut)
--- et simulent celles dont le comportement compte (scripts, textes, valeurs, visibilite).
+-- tests/wow_stub.lua: minimal WoW API simulation for out-of-client tests.
+-- Compatible with Lua 5.1 to 5.4. Widgets accept any method (no-op by default)
+-- and simulate the ones whose behaviour matters (scripts, texts, values, visibility).
 local Stub = {}
 
 unpack = unpack or table.unpack
@@ -8,7 +8,7 @@ unpack = unpack or table.unpack
 local function noop() end
 
 local Widget = {}
--- Methodes (Majuscule) inconnues : no-op. Champs (minuscule) inconnus : nil, comme en jeu.
+-- Unknown (Capitalized) methods: no-op. Unknown (lowercase) fields: nil, as in game.
 local WidgetMeta = { __index = function(_, k)
     if Widget[k] then return Widget[k] end
     if type(k) == "string" and k:match("^%u") then return noop end
@@ -80,7 +80,7 @@ function Widget:Click(button)
     if self.scripts.OnClick then self.scripts.OnClick(self, button or "LeftButton") end
 end
 
--- opts : { class, specIndex (nil = pas de GetSpecialization), specRole, groupRole,
+-- opts: { class, specIndex (nil = no GetSpecialization), specRole, groupRole,
 --          unknownEvents = { NAME = true }, cvars = {}, savedAccount, savedChar, guild, mapID }
 function Stub.reset(opts)
     opts = opts or {}
@@ -242,7 +242,7 @@ function Stub.fire(event, ...)
     end
 end
 
--- Avance le temps : timers C_Timer et OnUpdate des frames visibles (pas de 0,1 s).
+-- Advances time: C_Timer timers and OnUpdate of visible frames (0.1 s steps).
 function Stub.advance(seconds)
     local S = Stub.state
     local target = S.now + seconds
@@ -264,14 +264,14 @@ function Stub.advance(seconds)
     end
 end
 
--- Rejoue les messages d'addon emis par un autre client (sender = "Nom-Royaume").
+-- Replays addon messages sent by another client (sender = "Name-Realm").
 function Stub.deliver(messages, sender)
     for _, m in ipairs(messages) do
         Stub.fire("CHAT_MSG_ADDON", m.prefix, m.msg, m.channel, sender)
     end
 end
 
--- Charge l'addon dans l'ordre du TOC, puis ADDON_LOADED et PLAYER_LOGIN.
+-- Loads the addon in TOC order, then ADDON_LOADED and PLAYER_LOGIN.
 function Stub.loadAddon(root, name)
     local ns = {}
     local toc = assert(io.open(root .. "/" .. name .. ".toc"))

@@ -1,4 +1,4 @@
--- UI/Minimap.lua : bouton de minicarte (clic : ouvrir/fermer ; glisser : deplacer).
+-- UI/Minimap.lua: minimap button (click: open/close; drag: move).
 local _, ns = ...
 local UI = ns.UI
 

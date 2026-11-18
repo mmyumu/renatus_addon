@@ -1,8 +1,8 @@
-"""Lecture et ecriture de litteraux Lua (fichiers SavedVariables de WoW, Press.lua).
+"""Reading and writing Lua literals (WoW SavedVariables files, Press.lua).
 
-Seul le sous-ensemble utilise par WoW est gere : affectations globales `Nom = valeur`,
-tables, chaines, nombres, booleens, nil et commentaires. Aucun code Lua n'est execute.
-Les tables dont les cles sont exactement 1..n deviennent des listes Python.
+Only the subset used by WoW is supported: global assignments `Name = value`, tables,
+strings, numbers, booleans, nil and comments. No Lua code is ever executed.
+Tables whose keys are exactly 1..n become Python lists.
 """
 from __future__ import annotations
 
@@ -141,7 +141,7 @@ class _Parser:
                     result[n] = self.value()
             if self.peek() in ",;":
                 self.i += 1
-        # nil dans une table = absence de cle
+        # nil in a table = missing key
         result = {k: v for k, v in result.items() if v is not None}
         keys = list(result.keys())
         if keys and all(isinstance(k, int) and not isinstance(k, bool) for k in keys) \
@@ -164,7 +164,7 @@ class _Parser:
 
 
 def loads(text: str) -> dict[str, Any]:
-    """Analyse un fichier de SavedVariables : {nom_global: valeur}."""
+    """Parses a SavedVariables file: {global_name: value}."""
     if text.startswith("﻿"):
         text = text[1:]
     return _Parser(text).assignments()

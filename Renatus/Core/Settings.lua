@@ -1,6 +1,6 @@
--- Core/Settings.lua : SavedVariables, valeurs par defaut, version de schema.
---   RenatusDB      (compte)      : donnees partagees entre personnages
---   RenatusCharDB  (personnage)  : reglages du personnage
+-- Core/Settings.lua: SavedVariables, defaults, schema version.
+--   RenatusDB      (account)    : data shared between characters
+--   RenatusCharDB  (character)  : character settings
 local _, ns = ...
 
 local Settings = {}
@@ -10,20 +10,20 @@ Settings.SCHEMA = 1
 
 local ACCOUNT_DEFAULTS = {
     schema = 1,
-    voiceDuck = {},   -- volume SFX a restaurer si le jeu a quitte pendant un ducking
-    events = {},      -- [id] = evenement (tous personnages du compte + recus plus tard par la synchro)
+    voiceDuck = {},   -- SFX volume to restore if the game exited during ducking
+    events = {},      -- [id] = event (all characters of the account + received later through sync)
     seq = {},         -- [guid] = { public = n, private = n }
-    articles = {},    -- (obsolete : les articles sont des evenements ARTICLE)
-    pressDone = {},   -- [id] = "published" | "ignored" : elements du compagnon deja traites
-    collection = {},  -- album : [cardId] = nombre d'exemplaires
+    articles = {},    -- (obsolete: articles are ARTICLE events)
+    pressDone = {},   -- [id] = "published" | "ignored": companion items already handled
+    collection = {},  -- album: [cardId] = number of copies
 }
 
 local CHAR_DEFAULTS = {
     schema = 1,
     voice = {
-        -- Renacoach est une option "pour la blague" : desactive par defaut.
+        -- Renacoach is a "just for fun" option: disabled by default.
         enabled = false,
-        probability = 0.5,   -- valeurs d'origine de Renacoach
+        probability = 0.5,   -- original Renacoach values
         interval = 3,
         channel = "Ambience",
         duck = true,
@@ -36,18 +36,18 @@ local CHAR_DEFAULTS = {
             fightMelee = true, fightCaster = true, fightRanged = true,
         },
     },
-    -- Confidentialite par categorie : "OFF" (non enregistre), "P" (prive), "G" (guilde).
-    -- "G" : partage avec les membres de la guilde equipes de l'addon (synchronisation).
+    -- Privacy per category: "OFF" (not recorded), "P" (private), "G" (guild).
+    -- "G": shared with guild members who have the addon (sync).
     privacy = {
         progression = "P", combat = "P", exploration = "P", social = "P", pvp = "P", anecdote = "P", gazette = "P",
     },
-    exportConsent = false,   -- export hors jeu (compagnon / LLM), consentement distinct
-    rivalGuild = "",         -- nom de la guilde rivale (Wanted Board)
-    albumOptOut = false,     -- ne pas apparaitre dans l'album des autres
-    visitedMaps = {},        -- zones deja visitees (pour "premiere visite")
-    enemySeenAt = {},        -- [nom] = derniere observation enregistree (limite de frequence)
-    expSeq = 0,              -- compteur local des expeditions
-    -- expedition = nil      -- expedition en cours (Collectors/Expedition.lua)
+    exportConsent = false,   -- off-game export (companion / LLM), separate consent
+    rivalGuild = "",         -- rival guild name (Wanted Board)
+    albumOptOut = false,     -- do not appear in other people's album
+    visitedMaps = {},        -- zones already visited (for "first visit")
+    enemySeenAt = {},        -- [name] = last recorded observation (rate limit)
+    expSeq = 0,              -- local expedition counter
+    -- expedition = nil      -- current expedition (Collectors/Expedition.lua)
     ui = {
         tab = "journal",
         showMinimap = true,
@@ -56,7 +56,7 @@ local CHAR_DEFAULTS = {
     },
 }
 
--- Copie profonde des valeurs par defaut manquantes, sans ecraser l'existant.
+-- Deep copy of missing defaults, without overwriting existing values.
 local function applyDefaults(target, defaults)
     for k, v in pairs(defaults) do
         if type(v) == "table" then
@@ -70,7 +70,7 @@ local function applyDefaults(target, defaults)
 end
 Settings.applyDefaults = applyDefaults
 
--- Migrations : MIGRATIONS[n] fait passer une table du schema n-1 au schema n.
+-- Migrations: MIGRATIONS[n] upgrades a table from schema n-1 to schema n.
 local MIGRATIONS = {}
 
 local function migrate(db)

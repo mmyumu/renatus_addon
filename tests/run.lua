@@ -1,7 +1,7 @@
--- tests/run.lua : lancer depuis la racine du depot avec `lua tests/run.lua`.
+-- tests/run.lua: run from the repository root with `lua tests/run.lua`.
 package.path = "./tests/?.lua;" .. package.path
 local Stub = require("wow_stub")
-local print = print -- le stub remplace la globale print
+local print = print -- the stub replaces the print global
 
 local ROOT, NAME = "Renatus", "Renatus"
 local passed, failed = 0, 0
@@ -92,7 +92,7 @@ test("entree en combat puis repliques periodiques (proba 1)", function()
     local ns, S = boot({ class = "WARRIOR", specIndex = 1 })
     ns.Voice:SetEnabled(true)
     S.inCombat = true
-    S.randomValue = 0 -- math.random() < probability toujours vrai
+    S.randomValue = 0 -- math.random() < probability always true
     Stub.fire("PLAYER_REGEN_DISABLED")
     eq(familyOf(ns, soundName(S.played[1])), "startFight")
     Stub.advance(3.05)
@@ -496,7 +496,7 @@ local ALICE = { guid = "Player-1-AAA", name = "Alice" }
 local BOB = { guid = "Player-1-BBB", name = "Bob" }
 local CAROL = { guid = "Player-1-CCC", name = "Carol" }
 
--- Messages complets (morceaux reassembles) emis par le client courant.
+-- Complete messages (chunks reassembled) sent by the current client.
 local function decodeSent(ns, sent)
     local out, acc = {}, nil
     for _, m in ipairs(sent) do
@@ -533,7 +533,7 @@ test("evenement public diffuse, evenement prive jamais", function()
     local ns, S = boot({ specIndex = 1, me = ALICE })
     ns.char.privacy.combat = "G"
     Stub.fire("PLAYER_DEAD")
-    Stub.fire("PLAYER_LEVEL_UP", 21)       -- progression : privee
+    Stub.fire("PLAYER_LEVEL_UP", 21)       -- progression: private
     Stub.advance(2)
     local es = ops(ns, S.sent, "E")
     eq(#es, 1)
@@ -578,7 +578,7 @@ test("trou dans la sequence : demande ciblee, l'auteur repond", function()
     Stub.fire("PLAYER_DEAD"); Stub.fire("PLAYER_DEAD")
     Stub.advance(5)
     local savedA, savedAC = RenatusDB, RenatusCharDB
-    -- regroupe les morceaux de chaque message, garde ceux de l'evenement n°2
+    -- regroup the chunks of each message, keep those of event #2
     local onlySecond, current = {}, {}
     for _, m in ipairs(SA.sent) do
         table.insert(current, m)
@@ -590,14 +590,14 @@ test("trou dans la sequence : demande ciblee, l'auteur repond", function()
         end
     end
     assert(#onlySecond >= 1)
-    -- Bob ne recoit que le n°2 : il demande le n°1
+    -- Bob only receives #2: he requests #1
     local nsB, SB = boot({ specIndex = 1, me = BOB })
     Stub.deliver(onlySecond, "Alice-Forever")
     Stub.advance(2)
     local rs = ops(nsB, SB.sent, "R")
     eq(#rs, 1); eq(rs[1].a, ALICE.guid); eq(rs[1].f, 1); eq(rs[1].t, 1)
     local savedB, savedBC, requestMsgs = RenatusDB, RenatusCharDB, SB.sent
-    -- Alice recoit la demande et renvoie le n°1
+    -- Alice receives the request and resends #1
     local nsA2, SA2 = boot({ specIndex = 1, me = ALICE, savedAccount = savedA, savedChar = savedAC })
     Stub.deliver(requestMsgs, "Bob-Forever")
     Stub.advance(3)
@@ -610,7 +610,7 @@ test("trou dans la sequence : demande ciblee, l'auteur repond", function()
 end)
 
 test("vecteurs : un nouveau venu rattrape l'historique via un relais", function()
-    -- Bob possede 2 evenements d'Alice ; Carol n'a rien.
+    -- Bob holds 2 of Alice's events; Carol has nothing.
     local nsA, SA = boot({ specIndex = 1, me = ALICE })
     nsA.char.privacy.combat = "G"
     Stub.fire("PLAYER_DEAD"); Stub.fire("PLAYER_DEAD")
@@ -619,12 +619,12 @@ test("vecteurs : un nouveau venu rattrape l'historique via un relais", function(
     local nsB = boot({ specIndex = 1, me = BOB })
     Stub.deliver(fromAlice, "Alice-Forever")
     local savedB, savedBC = RenatusDB, RenatusCharDB
-    -- Carol se connecte et annonce son vecteur (vide)
+    -- Carol logs in and announces her (empty) vector
     local nsC, SC = boot({ specIndex = 1, me = CAROL })
     Stub.advance(31)
     eq(#ops(nsC, SC.sent, "V"), 1)
     local savedC, savedCC, carolV = RenatusDB, RenatusCharDB, SC.sent
-    -- Bob voit que Carol est en retard : il annonce le sien
+    -- Bob sees Carol is behind: he announces his own
     local nsB2, SB2 = boot({ specIndex = 1, me = BOB, savedAccount = savedB, savedChar = savedBC })
     Stub.deliver(carolV, "Carol-Forever")
     Stub.advance(10)
@@ -632,7 +632,7 @@ test("vecteurs : un nouveau venu rattrape l'historique via un relais", function(
     assert(#vs >= 1, "Bob annonce son vecteur")
     eq(vs[1].v[ALICE.guid], 2)
     local bobV = SB2.sent
-    -- Carol demande, Bob (relais) repond
+    -- Carol requests, Bob (relay) answers
     local nsC2, SC2 = boot({ specIndex = 1, me = CAROL, savedAccount = savedC, savedChar = savedCC })
     Stub.deliver(bobV, "Bob-Forever")
     Stub.advance(2)
@@ -778,7 +778,7 @@ test("deconnexion pendant une expedition : fin estimee a la connexion suivante",
     Stub.fire("PLAYER_LOGOUT")
     local savedA, savedC = RenatusDB, RenatusCharDB
     local ns2, S2 = boot({ specIndex = 1, savedAccount = savedA, savedChar = savedC })
-    -- reconnexion "plus tard", hors instance : le stub repart de t=0, on simule l'ecart
+    -- reconnect "later", outside instances: the stub restarts at t=0, simulate the gap
     S2.now = 5000
     ns2.Expedition:OnLogin()
     local exp = eventsOf(ns2, "EXPEDITION")[1]

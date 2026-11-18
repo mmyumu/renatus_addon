@@ -1,10 +1,10 @@
--- Sync/Serialize.lua : (de)serialisation compacte de tables Lua pour les messages d'addon.
--- Sans dependance externe. Format :
---   s<texte>;   chaine (~XX = octet echappe : controles, '~' et ';')
---   n<nombre>;  nombre
---   T / F       booleens
---   { cle valeur cle valeur ... }   table
--- Le decodeur est defensif : profondeur, nombre d'elements et taille bornes ; nil si invalide.
+-- Sync/Serialize.lua: compact (de)serialization of Lua tables for addon messages.
+-- No external dependency. Format:
+--   s<text>;    string (~XX = escaped byte: control chars, '~' and ';')
+--   n<number>;  number
+--   T / F       booleans
+--   { key value key value ... }   table
+-- The decoder is defensive: depth, item count and size are bounded; nil if invalid.
 local _, ns = ...
 
 local Ser = {}
@@ -36,7 +36,7 @@ local function encode(v, out, depth)
     elseif tv == "table" then
         if depth >= MAX_DEPTH then error("table trop profonde") end
         out[#out + 1] = "{"
-        -- ordre stable : partie tableau puis cles triees (messages identiques d'un client a l'autre)
+        -- stable order: array part then sorted keys (identical messages across clients)
         local n = #v
         for i = 1, n do
             encode(i, out, depth + 1)
@@ -74,7 +74,7 @@ function Ser.Encode(v)
     return table.concat(out)
 end
 
--- Decodage : renvoie la valeur, ou nil si le texte est invalide.
+-- Decoding: returns the value, or nil if the text is invalid.
 function Ser.Decode(text)
     if type(text) ~= "string" then return nil end
     local pos, items = 1, 0

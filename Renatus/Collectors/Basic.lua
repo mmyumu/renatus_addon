@@ -1,6 +1,6 @@
--- Collectors/Basic.lua : premiers collecteurs, limites aux evenements quasi certains.
--- Chaque inscription est protegee : un evenement absent sur Forever est simplement ignore.
--- A confirmer/affiner avec la sonde (docs/ARCHITECTURE.md §12).
+-- Collectors/Basic.lua: first collectors, limited to near-certain events.
+-- Every registration is protected: an event missing on Forever is simply ignored.
+-- To be confirmed/refined with the probe (docs/ARCHITECTURE.md §12).
 local _, ns = ...
 
 local Basic = ns:RegisterModule("CollectorBasic", {})
@@ -14,10 +14,10 @@ local function onLevelUp(_, level)
 end
 
 local function onDead()
-    -- Rivaux apercus juste avant : "presents", pas "tueurs" (deduction, marquee comme telle).
+    -- Rivals seen just before: "present", not "killers" (a deduction, flagged as such).
     local enemies = ns.EnemyWatch and ns.EnemyWatch.RecentNames() or {}
     ns.Store.Add("DEATH", { lvl = try(UnitLevel, "player"), enemies = #enemies > 0 and enemies or nil }, {
-        miss = { "killer" },                 -- inaccessible aux addons (journal de combat ferme)
+        miss = { "killer" },                 -- not available to addons (combat log is closed)
         pt = ns.Context.Participants(),
         ded = #enemies > 0 and { "enemies" } or nil,
     })
@@ -41,7 +41,7 @@ local function onEncounterEnd(_, encounterID, encounterName, difficultyID, group
     })
 end
 
--- Premiere visite connue de l'addon (pas forcement la premiere de la vie du personnage).
+-- First visit known to the addon (not necessarily the character's first ever).
 local function checkZone(silent)
     local mapID = C_Map and try(C_Map.GetBestMapForUnit, "player")
     local key = mapID or try(GetRealZoneText)
@@ -52,8 +52,8 @@ local function checkZone(silent)
     if not silent then ns.Store.Add("ZONE_FIRST_VISIT", {}) end
 end
 
--- Entree en guilde : seulement apres une premiere mesure de reference (sinon l'installation
--- de l'addon par un membre deja en guilde serait comptee comme une entree).
+-- Guild join: only after a first baseline measurement (otherwise installing the
+-- addon while already in a guild would be counted as joining).
 local function onGuildUpdate()
     if not ns.char.guildBaseline then return end
     local _, guildName = ns.Context.GuildKey()
@@ -77,8 +77,8 @@ function Basic:OnLogin()
     ns:RegisterGameEvent("ENCOUNTER_END", onEncounterEnd)
     ns:RegisterGameEvent("ZONE_CHANGED_NEW_AREA", function() checkZone(false) end)
     ns:RegisterGameEvent("PLAYER_GUILD_UPDATE", onGuildUpdate)
-    -- La zone de connexion sert de point de depart, sans evenement.
+    -- The login zone is the starting point, no event.
     checkZone(true)
-    -- Les infos de guilde arrivent parfois apres la connexion : reference prise a +10 s.
+    -- Guild info sometimes arrives after login: baseline taken at +10 s.
     if C_Timer then C_Timer.After(10, takeGuildBaseline) else takeGuildBaseline() end
 end
