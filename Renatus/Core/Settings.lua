@@ -51,6 +51,7 @@ local CHAR_DEFAULTS = {
     -- expedition = nil      -- current expedition (Collectors/Expedition.lua)
     ui = {
         tab = "journal",
+        simple = true,       -- simple view: the gazette only (members who only want to read)
         showMinimap = true,
         minimapAngle = 200,
         demo = false,

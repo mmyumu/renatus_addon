@@ -73,9 +73,21 @@ local function build()
     f.subtitle:SetPoint("TOP", title, "BOTTOM", 0, -4)
     f.subtitle:SetJustifyH("CENTER")
     f.demoBadge = UI.Text(header, 12, { 1, 0.45, 0.35 }, UI.FONT_TITLE)
-    f.demoBadge:SetPoint("RIGHT", -44, -2)
+    f.demoBadge:SetPoint("TOPRIGHT", -44, -12)
     f.demoBadge:SetJustifyH("RIGHT")
-    f.demoBadge:SetText("MODE DÉMO\ndonnées fictives")
+    f.demoBadge:SetText("MODE DÉMO")
+
+    -- Simple view (gazette only) <-> full view (every tab).
+    f.modeButton = UI.Button(header, "Tout afficher", 110, 20, function()
+        UI.SetSimple(not ns.char.ui.simple)
+    end)
+    f.modeButton:SetPoint("BOTTOMRIGHT", -14, 10)
+    UI.Tooltip(f.modeButton, function()
+        if ns.char.ui.simple then
+            return "Vue complète", { "Journal, guilde, membres, tableau de chasse, album, voix et paramètres." }
+        end
+        return "Vue simple", { "Seulement la gazette." }
+    end)
 
     -- Close button: square red plate with a gold cross.
     local close = CreateFrame("Button", nil, f)
@@ -93,12 +105,14 @@ local function build()
 
     -- Navigation
     local nav = CreateFrame("Frame", nil, f)
+    f.nav = nav
     nav:SetPoint("TOPLEFT", MARGIN, -TOP)
     nav:SetSize(UI.NAV_W, PANEL_H)
     UI.Skin(nav, "panel")
 
     -- Content
     local content = CreateFrame("Frame", nil, f)
+    f.content = content
     content:SetPoint("TOPLEFT", MARGIN + UI.NAV_W + GAP, -TOP)
     content:SetSize(UI.CONTENT_W + 16, PANEL_H)
     UI.Skin(content, "panel")
@@ -155,6 +169,30 @@ end
 
 function UI.GetWindow() return window or build() end
 
+-- Simple view: the window shows the gazette alone, without the navigation.
+UI.SIMPLE_TAB = "gazette"
+local function applyLayout(f)
+    local simple = ns.char.ui.simple
+    f.nav:SetShown(not simple)
+    f.content:ClearAllPoints()
+    if simple then
+        f.content:SetPoint("TOPLEFT", MARGIN, -TOP)
+        f:SetSize(MARGIN + UI.CONTENT_W + 16 + MARGIN, UI.HEIGHT)
+    else
+        f.content:SetPoint("TOPLEFT", MARGIN + UI.NAV_W + GAP, -TOP)
+        f:SetSize(UI.WIDTH, UI.HEIGHT)
+    end
+    f.modeButton:SetLabel(simple and "Tout afficher" or "Vue simple")
+end
+
+function UI.SetSimple(simple)
+    ns.char.ui.simple = simple and true or false
+    local f = UI.GetWindow()
+    applyLayout(f)
+    if f:IsShown() then UI.ShowTab(simple and UI.SIMPLE_TAB or (UI.current or ns.char.ui.tab)) end
+    if UI.Options and UI.Options.Refresh then UI.Options.Refresh() end
+end
+
 local function tabByKey(key)
     for _, t in ipairs(UI.tabs) do if t.key == key then return t end end
     return UI.tabs[1]
@@ -197,6 +235,10 @@ end
 
 function UI.Open(key)
     local f = UI.GetWindow()
+    -- Asking for another tab by name (minimap right click, /renatus wanted...) leaves the simple view.
+    if ns.char.ui.simple and key and key ~= UI.SIMPLE_TAB then ns.char.ui.simple = false end
+    applyLayout(f)
+    if ns.char.ui.simple then key = UI.SIMPLE_TAB end
     f:Show()
     UI.RefreshHeader()
     UI.ShowTab(key or UI.current or ns.char.ui.tab)

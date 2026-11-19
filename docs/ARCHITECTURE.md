@@ -20,6 +20,10 @@
 
 ## 1. État actuel du dépôt
 
+### Avancement v0.8.0 (19/11/2026)
+
+- **Vue simple, par défaut** : la fenêtre n'affiche que la gazette, sans navigation (fenêtre réduite à 754 × 630). Le bouton « Tout afficher » du bandeau, la case des Paramètres et du menu Options, ou `/renatus simple` passent à la vue complète. Demander un autre onglet par son nom (clic droit sur la minicarte, `/renatus wanted`…) bascule aussi en vue complète. La collecte et la synchronisation fonctionnent pareil dans les deux vues.
+
 ### Avancement v0.7.0 (19/11/2026)
 
 - **Tueur identifié** (`Collectors/Killer.lua`) : l'addon tente de lire le journal de combat (`COMBAT_LOG_EVENT_UNFILTERED`, inscription protégée, valeurs secrètes ignorées) et garde en mémoire les coups reçus des 10 dernières secondes ; à défaut, il lit le récapitulatif de mort (`C_DeathRecap`). La mort indique « tué par X (paladin elfe de sang) — Jugement ». Un joueur tueur compte comme défaite vérifiée au Tableau de chasse. **À vérifier en jeu** : si Forever ferme les deux, la mort reste « cause inconnue », et l'événement refusé apparaît dans Paramètres.

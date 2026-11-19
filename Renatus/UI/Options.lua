@@ -75,6 +75,9 @@ local function buildNative()
     checkbox("showMinimap", char.ui, "showMinimap", "Bouton sur la minicarte", true,
         "Affiche le bouton de Renatus sur le bord de la minicarte. Renatus reste accessible par /renatus et par le menu des addons de la minicarte.",
         function() if UI.Minimap then UI.Minimap:Update() end end)
+    checkbox("simple", char.ui, "simple", "Vue simple (seulement la gazette)", true,
+        "La fenêtre de Renatus n'affiche que la gazette. Décoche pour avoir le journal, la guilde, le tableau de chasse, l'album, la voix et les paramètres.",
+        function(v) UI.SetSimple(v) end)
     checkbox("demo", char.ui, "demo", "Mode démo (données fictives)", false,
         "Remplit chaque écran avec des données inventées. Rien n'est sauvegardé ni partagé.")
 

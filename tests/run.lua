@@ -969,7 +969,7 @@ test("menu Options du jeu : reglages natifs relies aux memes donnees que la fene
     local reg = S.settings
     eq(ns.UI.Options.native, true, ns.UI.Options.error)
     eq(#reg.categories, 1); eq(reg.categories[1].name, "Renatus")
-    eq(#reg.controls, 5 + #ns.Types.CATEGORIES, "minicarte, demo, consentement, album, voix + confidentialite")
+    eq(#reg.controls, 6 + #ns.Types.CATEGORIES, "minicarte, vue simple, demo, consentement, album, voix + confidentialite")
     -- privacy: same table as the window
     reg.byVar.Renatus_privacy_combat:SetValue("G")
     eq(ns.char.privacy.combat, "G")
@@ -1213,6 +1213,42 @@ test("suppression : seulement mes saisies manuelles ; en demo aussi", function()
     assert(inDataset(ns, ev.id))
     assert(ns.Store.Delete(ev.id))
     eq(inDataset(ns, ev.id), false)
+end)
+
+print("Vue simple")
+
+test("vue simple par defaut : la gazette seule, sans navigation", function()
+    local ns = boot({ specIndex = 1 })
+    eq(ns.char.ui.simple, true)
+    SlashCmdList.RENATUS("")
+    local f = RenatusMainFrame
+    assert(f:IsShown())
+    eq(ns.UI.current, "gazette")
+    eq(f.nav:IsShown(), false)
+    eq(f.width, ns.UI.CONTENT_W + 16 + 40, "fenetre etroite")
+    eq(f.modeButton.label:GetText(), "Tout afficher")
+    -- full view
+    f.modeButton:Click()
+    eq(ns.char.ui.simple, false)
+    eq(f.nav:IsShown(), true); eq(f.width, ns.UI.WIDTH)
+    eq(f.modeButton.label:GetText(), "Vue simple")
+    ns.UI.ShowTab("wanted")
+    f.modeButton:Click()
+    eq(ns.UI.current, "gazette", "retour a la gazette")
+end)
+
+test("vue simple : demander un autre onglet passe en vue complete", function()
+    local ns = boot({ specIndex = 1 })
+    ns.UI.Open("settings")   -- e.g. minimap right click
+    eq(ns.char.ui.simple, false)
+    eq(ns.UI.current, "settings")
+    eq(RenatusMainFrame.nav:IsShown(), true)
+    local c = RenatusMainFrame.containers.settings
+    c.simple:Click()
+    eq(ns.char.ui.simple, true)
+    eq(ns.UI.current, "gazette")
+    SlashCmdList.RENATUS("simple")
+    eq(ns.char.ui.simple, false)
 end)
 
 print(string.format("\n%d ok, %d echec(s)", passed, failed))
