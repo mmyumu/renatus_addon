@@ -2,11 +2,11 @@
 --
 -- Two sources, both optional and tried in this order:
 --   1. the combat log (COMBAT_LOG_EVENT_UNFILTERED): the last damage taken in the
---      previous 10 seconds is kept in memory (never saved), the fatal one names the killer;
+--      previous 10 seconds is kept in memory (never saved), the fatal one names the killer.
+--      Only on clients that still open it to addons (not Midnight-based ones like Forever);
 --   2. the game's death recap (C_DeathRecap), which the default UI shows after a death.
--- Midnight-based clients may forbid the first one or hand out secret values; the
--- registration is protected and secret values are ignored, so nothing breaks:
--- the death is then recorded without a killer, as before.
+-- Secret values are ignored: when nothing readable is left, the death is recorded
+-- without a killer.
 local _, ns = ...
 
 local Killer = ns:RegisterModule("CollectorKiller", {})
@@ -104,6 +104,14 @@ local function fromRecap()
         Safe(best.environmentalType), "recap")
 end
 
+-- Midnight-based clients (WoW Forever included) close the combat log to addons.
+-- Registering it there is not a Lua error that pcall could catch: the game blocks
+-- the call and shows "addon blocked from an action only available to the Blizzard UI".
+-- Those clients are the ones with secret values, so that is what we test.
+function Killer.CombatLogAllowed()
+    return type(issecretvalue) ~= "function"
+end
+
 function Killer.Find()
     return fromLog() or fromRecap()
 end
@@ -117,8 +125,12 @@ function Killer.Reset() hits = {} end
 
 function Killer:OnLogin()
     myGuid = try(UnitGUID, "player")
-    -- Refused on clients that close the combat log to addons: listed in Settings > unavailable events.
-    ns:RegisterGameEvent("COMBAT_LOG_EVENT_UNFILTERED", onCombatLog)
+    if Killer.CombatLogAllowed() then
+        ns:RegisterGameEvent("COMBAT_LOG_EVENT_UNFILTERED", onCombatLog)
+    else
+        -- Listed in Settings > unavailable events.
+        ns.unsupportedEvents.COMBAT_LOG_EVENT_UNFILTERED = true
+    end
     -- Back to life: the damage history is no longer useful.
     ns:RegisterGameEvent("PLAYER_ALIVE", Killer.Reset)
     ns:RegisterGameEvent("PLAYER_UNGHOST", Killer.Reset)

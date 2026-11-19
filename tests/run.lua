@@ -1070,7 +1070,7 @@ local PALA = "Player-1-PALA"
 local PLAYERS = { [PALA] = { cl = "Paladin", c = "PALADIN", ra = "Elfe de sang", raEn = "BloodElf", name = "Lumineux", realm = "Forever" } }
 
 test("mort : le journal de combat donne le tueur (joueur), il entre au tableau de chasse", function()
-    local ns, S = boot({ specIndex = 1, players = PLAYERS })
+    local ns, S = boot({ specIndex = 1, players = PLAYERS, classicLog = true })
     local me = S.me.guid
     -- unrelated event, then hits on the player; the fatal one has overkill
     Stub.combatLog(1, "SPELL_DAMAGE", false, PALA, "Lumineux", 0, 0, "Creature-0-1", "Loup", 0, 0, 20271, "Jugement", 2, 300, -1)
@@ -1091,7 +1091,7 @@ test("mort : le journal de combat donne le tueur (joueur), il entre au tableau d
 end)
 
 test("mort : coups trop anciens ignores, chute reconnue", function()
-    local ns, S = boot({ specIndex = 1, players = PLAYERS })
+    local ns, S = boot({ specIndex = 1, players = PLAYERS, classicLog = true })
     Stub.combatLog(1, "SWING_DAMAGE", false, PALA, "Lumineux", 0, 0, S.me.guid, "Testeur", 0, 0, 120, -1, 1)
     Stub.advance(15)
     Stub.combatLog(2, "ENVIRONMENTAL_DAMAGE", false, nil, nil, 0, 0, S.me.guid, "Testeur", 0, 0, "Falling", 900, 12)
@@ -1128,10 +1128,23 @@ test("mort : recapitulatif vide au moment de la mort, relu une seconde apres", f
     eq(ev.p.killer.n, "Loup affamé"); eq(ev.p.killer.pl, nil)
 end)
 
-test("mort : valeurs secretes ignorees, aucun tueur invente", function()
+test("mort : client Midnight (Forever), le journal de combat n'est jamais demande", function()
     local ns, S = boot({ specIndex = 1, players = PLAYERS })
-    Stub.combatLog(1, "SWING_DAMAGE", false, PALA, "Lumineux", 0, 0, { secret = true }, "Testeur", 0, 0, 120, 30, 1)
+    for _, f in ipairs(S.frames) do
+        assert(not f.events.COMBAT_LOG_EVENT_UNFILTERED, "inscription interdite : action bloquee par le jeu")
+    end
+    eq(ns.unsupportedEvents.COMBAT_LOG_EVENT_UNFILTERED, true, "signale dans les parametres")
+    Stub.combatLog(1, "SWING_DAMAGE", false, PALA, "Lumineux", 0, 0, S.me.guid, "Testeur", 0, 0, 120, 30, 1)
     Stub.fire("PLAYER_DEAD")
+    local ev = eventsOf(ns, "DEATH")[1]
+    eq(ev.p.killer, nil); eq(ev.miss[1], "killer")
+end)
+
+test("mort : recapitulatif avec valeurs secretes, aucun tueur invente", function()
+    local ns, S = boot({ specIndex = 1, players = PLAYERS, recap = true })
+    S.recap = { { timestamp = 5, sourceGUID = { secret = true }, sourceName = { secret = true }, amount = 40 } }
+    Stub.fire("PLAYER_DEAD")
+    Stub.advance(1.1)
     local ev = eventsOf(ns, "DEATH")[1]
     eq(ev.p.killer, nil); eq(ev.miss[1], "killer")
 end)

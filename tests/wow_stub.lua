@@ -210,7 +210,11 @@ function Stub.reset(opts)
         GetPlayerMapPosition = function() return { GetXY = function() return 0.5, 0.25 end } end,
     }
     C_QuestLog = { GetTitleForQuestID = function(id) return "Quête " .. id end }
-    issecretvalue = function(v) return type(v) == "table" and v.secret == true end
+    -- Midnight-based client (secret values) unless opts.classicLog: then no issecretvalue.
+    issecretvalue = nil
+    if not opts.classicLog then
+        issecretvalue = function(v) return type(v) == "table" and v.secret == true end
+    end
     function GetServerTime() return 1795000000 + math.floor(S.now) end
     time = os.time
     date = os.date

@@ -26,7 +26,7 @@
 
 ### Avancement v0.7.0 (19/11/2026)
 
-- **Tueur identifié** (`Collectors/Killer.lua`) : l'addon tente de lire le journal de combat (`COMBAT_LOG_EVENT_UNFILTERED`, inscription protégée, valeurs secrètes ignorées) et garde en mémoire les coups reçus des 10 dernières secondes ; à défaut, il lit le récapitulatif de mort (`C_DeathRecap`). La mort indique « tué par X (paladin elfe de sang) — Jugement ». Un joueur tueur compte comme défaite vérifiée au Tableau de chasse. **À vérifier en jeu** : si Forever ferme les deux, la mort reste « cause inconnue », et l'événement refusé apparaît dans Paramètres.
+- **Tueur identifié** (`Collectors/Killer.lua`) : sur les clients qui l'autorisent, l'addon lit le journal de combat et garde en mémoire les coups reçus des 10 dernières secondes ; sinon, il lit le récapitulatif de mort (`C_DeathRecap`). **v0.8.1 : sur Forever (base Midnight), s'inscrire au journal de combat déclenche « action bloquée » (ce n'est pas une erreur Lua, `pcall` ne l'intercepte pas) : l'inscription est désormais évitée sur les clients à valeurs secrètes.** La mort indique « tué par X (paladin elfe de sang) — Jugement ». Un joueur tueur compte comme défaite vérifiée au Tableau de chasse. **À vérifier en jeu** : si Forever ferme les deux, la mort reste « cause inconnue », et l'événement refusé apparaît dans Paramètres.
 - **Suppression** (tombstones, §3.1) : clic droit sur une de ses saisies manuelles dans le journal (anecdote, note, déclaration). Privée : effacée. Partagée : vidée chez soi et événement `TOMBSTONE` synchronisé ; les autres clients vident leur copie, même si la suppression arrive avant l'événement. Seul l'auteur peut supprimer.
 
 ### Avancement v0.6.0 (19/11/2026)
