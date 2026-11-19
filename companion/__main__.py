@@ -37,11 +37,23 @@ def load_config(path: Path | None) -> dict:
     return {}
 
 
+def local_path(root: str) -> Path:
+    """A Windows path ("C:/...") seen from WSL or Linux becomes /mnt/c/...; anything else is kept."""
+    import os
+    import re
+    m = re.match(r"^([A-Za-z]):[\\/](.*)$", root)
+    if m and os.name != "nt":
+        mounted = Path("/mnt") / m.group(1).lower() / m.group(2).replace("\\", "/")
+        if mounted.parent.exists() or Path("/mnt", m.group(1).lower()).is_dir():
+            return mounted
+    return Path(root)
+
+
 def build_paths(args, cfg) -> WowPaths:
     root = args.wow or cfg.get("wow_path")
     if not root:
         sys.exit("Indique le dossier du jeu : --wow \"C:/…/World of Warcraft/_forever_\" (ou wow_path dans config.toml).")
-    return WowPaths(Path(root), args.account or cfg.get("account"))
+    return WowPaths(local_path(root), args.account or cfg.get("account"))
 
 
 def load_chronicle(paths: WowPaths) -> Chronicle:

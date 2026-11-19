@@ -67,6 +67,17 @@ ne nommer aucun membre sans consentement ni aucun rival, et rester court. Les ar
 arrivent dans **Rédaction** en jeu, marqués « Article (IA) » : tu les relis, publies ou ignores.
 En jeu, ils s'affichent « rédigé par IA, relu par <toi> ».
 
+### Claude Code sur ce PC (le plus simple)
+
+Si `claude` est installé et connecté là où tourne le compagnon (par exemple dans WSL) :
+
+```toml
+[llm]
+command = ["claude", "-p", "--output-format", "json", "--tools", "", "--no-session-persistence"]
+```
+
+Depuis WSL, `wow_path` peut rester un chemin Windows (`C:/MyGames/...`) : il est converti en `/mnt/c/...`.
+
 ### Brancher le Claude de ton Raspberry Pi
 
 Le compagnon lance une commande, lui envoie la demande sur l'entrée standard et lit la réponse.
