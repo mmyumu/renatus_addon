@@ -1259,5 +1259,25 @@ test("fenetre : gazette par defaut, gazette et album en tete, puis les journaux"
     assert(f.options, "bouton Options")
 end)
 
+print("Album : boosters reels")
+
+test("album : boosters gagnes (jour joue, niveau), ouverture enregistree, serie Azeroth", function()
+    local ns = boot({ specIndex = 1 })
+    Stub.fire("PLAYER_LEVEL_UP", 21)
+    local ds = ns.Store.Dataset()
+    eq(ds.boosters, 2, "1 jour joue + 1 niveau")
+    local cards = ns.Album.Catalogue(ds)
+    assert(#cards > 100, "serie Azeroth presente")
+    ns.UI.Open("album")
+    RenatusMainFrame.containers.album.booster:Click()
+    local open = eventsOf(ns, "BOOSTER_OPEN")[1]
+    eq(#open.p.cards, 5)
+    ds = ns.Store.Dataset()
+    eq(ds.boosters, 1); eq(ds.boostersOpened, 1)
+    local total = 0
+    for _, n in pairs(ds.collection) do total = total + n end
+    eq(total, 5)
+end)
+
 print(string.format("\n%d ok, %d echec(s)", passed, failed))
 os.exit(failed == 0 and 0 or 1)

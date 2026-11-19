@@ -17,6 +17,7 @@ local ACCOUNT_DEFAULTS = {
     pressDone = {},   -- [id] = "published" | "ignored": companion items already handled
     collection = {},  -- album: [cardId] = number of copies
     tombstones = {},  -- [deleted event id] = author GUID (deletion received before the event)
+    played = {},      -- [guid] = { ["YYYY-MM-DD"] = true }: days played (1 booster each)
 }
 
 local CHAR_DEFAULTS = {
@@ -40,7 +41,7 @@ local CHAR_DEFAULTS = {
     -- Privacy per category: "OFF" (not recorded), "P" (private), "G" (guild).
     -- "G": shared with guild members who have the addon (sync).
     privacy = {
-        progression = "P", combat = "P", exploration = "P", social = "P", pvp = "P", anecdote = "P", gazette = "P",
+        progression = "P", combat = "P", exploration = "P", social = "P", pvp = "P", anecdote = "P", gazette = "P", album = "P",
     },
     exportConsent = false,   -- off-game export (companion / LLM), separate consent
     rivalGuild = "",         -- rival guild name (Wanted Board)

@@ -303,6 +303,80 @@ def ring(size=64):
     return img
 
 
+def card_frame(size=128):
+    """Card border, 9-slice (corners 32 px), light metal meant to be tinted by rarity."""
+    y, x = np.mgrid[0:size, 0:size].astype(np.float64) + 0.5
+    d = np.minimum(np.minimum(x, size - x), np.minimum(y, size - y))
+    img = band_color(d, [
+        (0.0, (10, 8, 7, 255)), (1.0, (10, 8, 7, 255)),
+        (1.3, (255, 255, 255, 255)), (3.0, (200, 200, 200, 255)), (5.0, (130, 130, 130, 255)),
+        (5.3, (20, 16, 14, 255)), (6.3, (20, 16, 14, 255)),
+        (6.6, (0, 0, 0, 140)), (12.0, (0, 0, 0, 0)), (999.0, (0, 0, 0, 0)),
+    ])
+    # corner studs: small bevelled diamonds on the band
+    for cx, cy in [(5, 5), (size - 5, 5), (5, size - 5), (size - 5, size - 5)]:
+        dd = np.abs(x - cx) + np.abs(y - cy)
+        stud = dd < 7
+        light = np.clip(0.6 - 0.08 * ((x - cx) + (y - cy)), 0.2, 1)
+        col = lerp((90, 90, 90), (255, 255, 255), light)
+        img[..., :3] = np.where(stud[..., None], col, img[..., :3])
+        img[..., 3] = np.where(stud, 255, img[..., 3])
+    return img
+
+
+def card_back(size=256):
+    """Back of an unknown card: red leather, gold frame, compass-rose emblem."""
+    img = leather(size)
+    img[..., :3] *= 1.6
+    y, x = np.mgrid[0:size, 0:size].astype(np.float64) + 0.5
+    d = np.minimum(np.minimum(x, size - x), np.minimum(y, size - y))
+    gold = (210, 165, 80)
+    for d0, d1 in [(14, 17), (22, 23.5)]:
+        m = (d >= d0) & (d < d1)
+        img[..., :3] = np.where(m[..., None], gold, img[..., :3])
+    c = size / 2
+    u, v = x - c, y - c
+    r = np.hypot(u, v)
+    ring = (r > 52) & (r < 56)
+    img[..., :3] = np.where(ring[..., None], gold, img[..., :3])
+    # four-pointed star (two rotated rhombi)
+    star = ((np.abs(u) / 14 + np.abs(v) / 64) < 1) | ((np.abs(u) / 64 + np.abs(v) / 14) < 1)
+    star2 = ((np.abs(u + v) / 20 + np.abs(u - v) / 60) < 1) | ((np.abs(u + v) / 60 + np.abs(u - v) / 20) < 1)
+    light = np.clip(0.6 - (u + v) / 140, 0.3, 1)
+    img[..., :3] = np.where(star2[..., None], lerp((120, 84, 30), (200, 160, 80), light), img[..., :3])
+    img[..., :3] = np.where(star[..., None], lerp((150, 104, 40), (255, 220, 130), light), img[..., :3])
+    gem = r < 9
+    img[..., :3] = np.where(gem[..., None], lerp((90, 6, 6), (230, 50, 40), np.clip(1 - np.hypot(u + 3, v + 3) / 9, 0, 1)), img[..., :3])
+    return img
+
+
+def gem(size=32):
+    """Round gem, white, tinted by rarity."""
+    y, x = np.mgrid[0:size, 0:size].astype(np.float64) + 0.5
+    c = size / 2
+    r = np.hypot(x - c, y - c)
+    img = rgba(size, size)
+    shade = np.clip(1 - np.hypot(x - c + 4, y - c + 4) / (c * 1.3), 0, 1)
+    img[..., :3] = lerp((70, 70, 70), (255, 255, 255), shade ** 0.7)[..., :3]
+    rim = (r > c - 3.5) & (r < c - 1)
+    img[..., :3] = np.where(rim[..., None], (40, 30, 20), img[..., :3])
+    hi = np.hypot(x - c + 4, y - c + 4) < 2.5
+    img[..., :3] = np.where(hi[..., None], (255, 255, 255), img[..., :3])
+    img[..., 3] = 255 * np.clip(c - 1 - r, 0, 1)
+    return img
+
+
+def glow(size=128):
+    """Soft radial glow (white), drawn behind epic and legendary cards."""
+    y, x = np.mgrid[0:size, 0:size].astype(np.float64) + 0.5
+    c = size / 2
+    r = np.hypot(x - c, y - c) / c
+    img = rgba(size, size)
+    img[..., :3] = 255
+    img[..., 3] = 255 * np.clip(1 - r, 0, 1) ** 2
+    return img
+
+
 TEXTURES = {
     "leather": leather,
     "frame": frame,
@@ -315,6 +389,10 @@ TEXTURES = {
     "paper": paper,
     "close": close_button,
     "ring": ring,
+    "cardframe": card_frame,
+    "cardback": card_back,
+    "gem": gem,
+    "glow": glow,
 }
 
 

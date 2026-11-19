@@ -109,6 +109,8 @@ function Store.Build(kind, payload, opts)
     local mode = ns.char.privacy[def.cat] or "P"
     -- opts.vis = "G": explicit publication (article, vote...), regardless of the category setting.
     if opts.vis == "G" then mode = "G" end
+    -- opts.keep: always recorded (at least privately), e.g. booster openings.
+    if mode == "OFF" and opts.keep then mode = "P" end
     if mode == "OFF" then return nil end
     local guid, name, class = Context.Me()
     local public = (mode == "G")
@@ -206,19 +208,32 @@ function Store.Dataset()
     if ns.char.ui.demo then return ns.Demo:Get() end
     local guid = Context.Me()
     local events = realEvents()
-    return {
+    local ds = {
         isDemo = false,
         me = guid,
         guildKey = Context.GuildKey(),
         events = events,
         articles = ns.Views.Articles(events, guid),
         causes = ns.Views.DeathCauses(events),
-        collection = ns.db.collection,
+        collection = nil,   -- filled below from BOOSTER_OPEN events
         boosters = 0,
         founders = {},
         legends = {},
         roster = Store.Roster(),
     }
+    local opened, collection = ns.Album.Opened(events, guid)
+    ds.collection = collection
+    ds.boostersOpened = opened
+    ds.boosters = math.max(0, ns.Album.Earned(events, guid, ns.db.played[guid]) - opened)
+    return ds
+end
+
+-- Today counts as a day played (one booster), whatever is recorded.
+function Store.MarkPlayed()
+    local guid = Context.Me()
+    if not guid or guid == "Player-0-UNKNOWN" then return end
+    ns.db.played[guid] = ns.db.played[guid] or {}
+    ns.db.played[guid][ns.Album.DayKey(GetServerTime and GetServerTime() or time())] = true
 end
 
 -- Own events entered by hand can be deleted (anecdotes, notes, declarations...).

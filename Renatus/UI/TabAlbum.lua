@@ -138,20 +138,27 @@ local function build(c)
 
     c.booster = UI.Button(c, "Ouvrir un booster", 170, 26, function()
         local ds = ns.Store.Dataset()
-        if not ds.isDemo or (ds.boosters or 0) <= 0 then return end
+        if (ds.boosters or 0) <= 0 then return end
         local cards = Album.Catalogue(ds)
-        ds.boostersOpened = (ds.boostersOpened or 0) + 1
-        ds.boosters = ds.boosters - 1
-        local got = Album.BoosterContents(cards, ds.me .. ":booster:" .. ds.boostersOpened)
-        for _, card in ipairs(got) do ds.collection[card.id] = (ds.collection[card.id] or 0) + 1 end
+        local n = (ds.boostersOpened or 0) + 1
+        local got = Album.BoosterContents(cards, ds.me .. ":booster:" .. n)
+        if ds.isDemo then
+            ds.boostersOpened, ds.boosters = n, ds.boosters - 1
+            for _, card in ipairs(got) do ds.collection[card.id] = (ds.collection[card.id] or 0) + 1 end
+        else
+            local ids = {}
+            for i, card in ipairs(got) do ids[i] = card.id end
+            ns.Store.Add("BOOSTER_OPEN", { n = n, cards = ids, cv = cards.version }, { keep = true, noExp = true, loc = {} })
+            ds = ns.Store.Dataset()
+        end
         showReveal(got, ds.collection)
         c:Refresh()
     end)
     c.booster:SetPoint("TOPRIGHT", -4, -6)
     UI.Tooltip(c.booster, function()
         local ds = ns.Store.Dataset()
-        if ds.isDemo then return "Booster", { "5 cartes. Le contenu est déterminé par l'identifiant du booster : impossible de relancer le tirage." } end
-        return "Boosters", { "Les boosters s'obtiendront par l'activité de guilde (règles à choisir), une fois la synchronisation en place." }
+        return "Booster", { "5 cartes. Le contenu est déterminé par l'identifiant du booster : impossible de relancer le tirage.",
+            "On en gagne 1 par jour joué, +1 par niveau, boss vaincu ou sortie avec un membre de la guilde (5 par jour au plus)." }
     end)
 
     local seriesOpts = { { value = "all", label = "Toutes les séries" } }
@@ -194,8 +201,8 @@ local function build(c)
         local owned, total, doubles = Album.Progress(cards, ds.collection, self.series ~= "all" and self.series or nil)
         self.progress:SetText(("%d / %d cartes  ·  %d doublon(s)"):format(owned, total, doubles))
         local nb = ds.boosters or 0
-        self.booster:SetLabel(ds.isDemo and ("Ouvrir un booster (" .. nb .. ")") or "Boosters (bientôt)")
-        self.booster:SetDisabled(not ds.isDemo or nb <= 0)
+        self.booster:SetLabel("Ouvrir un booster (" .. nb .. ")")
+        self.booster:SetDisabled(nb <= 0)
 
         local visible = {}
         for _, card in ipairs(cards) do

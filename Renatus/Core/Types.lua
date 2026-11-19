@@ -13,6 +13,7 @@ Types.CATEGORIES = {
     { key = "pvp", label = "PvP" },
     { key = "anecdote", label = "Anecdotes" },
     { key = "gazette", label = "Gazette (votes, courrier)" },
+    { key = "album", label = "Album (boosters ouverts)" },
 }
 
 -- Provenance: never conflated (see docs/ARCHITECTURE.md §4.2).
@@ -130,6 +131,9 @@ local TYPES = {
         text = function(ev)
             return ev.p.ok and "accepte que la gazette IA parle de lui/elle" or "refuse que la gazette IA parle de lui/elle"
         end },
+    -- Opening of a booster: p.n (number), p.cards (card ids), p.cv (catalogue version).
+    BOOSTER_OPEN = { cat = "album", icon = "Interface\\Icons\\INV_Misc_Ticket_Tarot_Stack_01", importance = 0, hidden = true,
+        text = function(ev) return "ouvre un booster" end },
     -- Deletion of one of the author's own events (refs[1]); never displayed.
     TOMBSTONE = { cat = "anecdote", icon = "Interface\\Icons\\INV_Misc_QuestionMark", importance = 0, hidden = true,
         text = function() return "supprime un de ses événements" end },

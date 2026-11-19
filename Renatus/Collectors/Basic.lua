@@ -82,6 +82,7 @@ local function takeGuildBaseline()
 end
 
 function Basic:OnLogin()
+    ns.Store.MarkPlayed()   -- one booster per day played
     ns:RegisterGameEvent("PLAYER_LEVEL_UP", onLevelUp)
     ns:RegisterGameEvent("PLAYER_DEAD", onDead)
     ns:RegisterGameEvent("QUEST_TURNED_IN", onQuestTurnedIn)
