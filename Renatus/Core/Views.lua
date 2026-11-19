@@ -225,11 +225,27 @@ function Views.Enemies(ds)
                 if p.note then table.insert(e.notes, 1, { text = p.note, by = ev.n, t = ev.t, prov = ev.prov }) end
                 if p.sworn then e.swornVotes[ev.n or "?"] = true end
             end
-        elseif ev.k == "DEATH" and p.enemies then
-            for _, name in ipairs(p.enemies) do
-                local e = byKey[enemyKey(name)] or get(name)
-                e.presentAtDeaths = e.presentAtDeaths + 1
+        elseif ev.k == "DEATH" then
+            local k = type(p.killer) == "table" and p.killer or nil
+            local killerKey = k and k.pl and type(k.n) == "string" and enemyKey(k.n)
+            if killerKey then
+                -- Killed by a player: a verified defeat (combat log or death recap).
+                local e = get(k.n)
+                see(e, "class", k.c, ev.t)
+                see(e, "race", k.ra, ev.t)
+                see(e, "realm", k.r, ev.t)
+                e.lastSeen, e.lastZone = ev.t, ns.Types.Zone(ev)
+                e.members[ev.n or "?"] = true
+                e.losses[ev.prov] = (e.losses[ev.prov] or 0) + 1
+                e.killedMembers[ev.n or "?"] = true
                 table.insert(e.encounters, 1, ev)
+            end
+            for _, name in ipairs(p.enemies or {}) do
+                if enemyKey(name) ~= killerKey then
+                    local e = byKey[enemyKey(name)] or get(name)
+                    e.presentAtDeaths = e.presentAtDeaths + 1
+                    table.insert(e.encounters, 1, ev)
+                end
             end
         end
     end

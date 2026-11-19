@@ -1064,5 +1064,77 @@ test("gazette vide : numero zero, rien a voter", function()
     assert(c.front:IsShown(), "pas de lecture sans article")
 end)
 
+print("Tueur (v0.6.1)")
+
+local PALA = "Player-1-PALA"
+local PLAYERS = { [PALA] = { cl = "Paladin", c = "PALADIN", ra = "Elfe de sang", raEn = "BloodElf", name = "Lumineux", realm = "Forever" } }
+
+test("mort : le journal de combat donne le tueur (joueur), il entre au tableau de chasse", function()
+    local ns, S = boot({ specIndex = 1, players = PLAYERS })
+    local me = S.me.guid
+    -- unrelated event, then hits on the player; the fatal one has overkill
+    Stub.combatLog(1, "SPELL_DAMAGE", false, PALA, "Lumineux", 0, 0, "Creature-0-1", "Loup", 0, 0, 20271, "Jugement", 2, 300, -1)
+    Stub.combatLog(1, "SWING_DAMAGE", false, PALA, "Lumineux", 0, 0, me, "Testeur", 0, 0, 120, -1, 1)
+    Stub.advance(1)
+    Stub.combatLog(2, "SPELL_DAMAGE", false, PALA, "Lumineux", 0, 0, me, "Testeur", 0, 0, 20271, "Jugement", 2, 450, 37)
+    Stub.fire("PLAYER_DEAD")
+    local ev = eventsOf(ns, "DEATH")[1]
+    local k = ev.p.killer
+    eq(k.n, "Lumineux"); eq(k.pl, true); eq(k.c, "PALADIN"); eq(k.sp, "Jugement"); eq(k.src, "log"); eq(k.ok, 37)
+    eq(ev.miss, nil, "tueur connu")
+    local text = ns.Types.Describe(ev, true)
+    assert(text:find("tué par Lumineux %(paladin elfe de sang%) — Jugement"), text)
+    local _, byKey = ns.Views.Enemies(ns.Store.Dataset())
+    local e = byKey["lumineux"]
+    assert(e, "fiche ennemie")
+    eq(e.losses.OBS, 1); eq(e.class, "PALADIN")
+end)
+
+test("mort : coups trop anciens ignores, chute reconnue", function()
+    local ns, S = boot({ specIndex = 1, players = PLAYERS })
+    Stub.combatLog(1, "SWING_DAMAGE", false, PALA, "Lumineux", 0, 0, S.me.guid, "Testeur", 0, 0, 120, -1, 1)
+    Stub.advance(15)
+    Stub.combatLog(2, "ENVIRONMENTAL_DAMAGE", false, nil, nil, 0, 0, S.me.guid, "Testeur", 0, 0, "Falling", 900, 12)
+    Stub.fire("PLAYER_DEAD")
+    local ev = eventsOf(ns, "DEATH")[1]
+    eq(ev.p.killer.env, "Falling")
+    assert(ns.Types.Describe(ev, true):find("victime de une chute") or ns.Types.Describe(ev, true):find("chute"))
+    local _, byKey = ns.Views.Enemies(ns.Store.Dataset())
+    eq(byKey["lumineux"], nil, "pas de fiche pour un coup ancien")
+end)
+
+test("mort : journal de combat ferme, le recapitulatif de mort prend le relais", function()
+    local ns, S = boot({ specIndex = 1, players = PLAYERS, recap = true,
+        unknownEvents = { COMBAT_LOG_EVENT_UNFILTERED = true } })
+    assert(ns.unsupportedEvents.COMBAT_LOG_EVENT_UNFILTERED, "signale comme indisponible")
+    S.recap = {
+        { timestamp = 100, event = "SWING_DAMAGE", sourceGUID = PALA, sourceName = "Lumineux", amount = 80 },
+        { timestamp = 103, event = "SPELL_DAMAGE", sourceGUID = PALA, sourceName = "Lumineux", spellName = "Marteau de la justice", amount = 500, overkill = 20 },
+    }
+    Stub.fire("PLAYER_DEAD")
+    eq(#eventsOf(ns, "DEATH"), 1, "enregistree immediatement")
+    local k = eventsOf(ns, "DEATH")[1].p.killer
+    eq(k.sp, "Marteau de la justice"); eq(k.src, "recap")
+end)
+
+test("mort : recapitulatif vide au moment de la mort, relu une seconde apres", function()
+    local ns, S = boot({ specIndex = 1, players = PLAYERS, recap = true })
+    S.recap = {}
+    Stub.fire("PLAYER_DEAD")
+    eq(#eventsOf(ns, "DEATH"), 0, "en attente du recapitulatif")
+    S.recap = { { timestamp = 5, sourceGUID = "Creature-0-99", sourceName = "Loup affamé", spellName = "Morsure", amount = 40 } }
+    Stub.advance(1.1)
+    local ev = eventsOf(ns, "DEATH")[1]
+    eq(ev.p.killer.n, "Loup affamé"); eq(ev.p.killer.pl, nil)
+end)
+
+test("mort : valeurs secretes ignorees, aucun tueur invente", function()
+    local ns, S = boot({ specIndex = 1, players = PLAYERS })
+    Stub.combatLog(1, "SWING_DAMAGE", false, PALA, "Lumineux", 0, 0, { secret = true }, "Testeur", 0, 0, 120, 30, 1)
+    Stub.fire("PLAYER_DEAD")
+    local ev = eventsOf(ns, "DEATH")[1]
+    eq(ev.p.killer, nil); eq(ev.miss[1], "killer")
+end)
+
 print(string.format("\n%d ok, %d echec(s)", passed, failed))
 os.exit(failed == 0 and 0 or 1)

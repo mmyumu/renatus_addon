@@ -16,11 +16,22 @@ end
 local function onDead()
     -- Rivals seen just before: "present", not "killers" (a deduction, flagged as such).
     local enemies = ns.EnemyWatch and ns.EnemyWatch.RecentNames() or {}
-    ns.Store.Add("DEATH", { lvl = try(UnitLevel, "player"), enemies = #enemies > 0 and enemies or nil }, {
-        miss = { "killer" },                 -- not available to addons (combat log is closed)
-        pt = ns.Context.Participants(),
-        ded = #enemies > 0 and { "enemies" } or nil,
-    })
+    local level = try(UnitLevel, "player")
+    local participants = ns.Context.Participants()
+    local function record(killer)
+        ns.Store.Add("DEATH", { lvl = level, enemies = #enemies > 0 and enemies or nil, killer = killer }, {
+            miss = not killer and { "killer" } or nil,  -- neither the combat log nor the death recap told us
+            pt = participants,
+            ded = #enemies > 0 and { "enemies" } or nil,
+        })
+    end
+    local killer = ns.Killer and ns.Killer.Find()
+    if killer or not (ns.Killer and ns.Killer.RecapPending()) or not C_Timer then
+        record(killer)
+    else
+        -- The death recap may be filled a moment after the death.
+        C_Timer.After(1, function() record(ns.Killer.Find()) end)
+    end
 end
 
 local function onQuestTurnedIn(_, questID)

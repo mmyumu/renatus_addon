@@ -224,6 +224,21 @@ function Stub.reset(opts)
         return S.randomValue
     end
 
+    -- Combat log (S.cleu = packed arguments of the current event), players by GUID, death recap.
+    S.players = opts.players or {}
+    function CombatLogGetCurrentEventInfo()
+        local e = S.cleu or { n = 0 }
+        return unpack(e, 1, e.n or #e)
+    end
+    function GetPlayerInfoByGUID(guid)
+        local p = S.players[guid]
+        if p then return p.cl, p.c, p.ra, p.raEn, 2, p.name, p.realm end
+    end
+    C_DeathRecap = nil
+    if opts.recap then
+        C_DeathRecap = { GetRecapEvents = function() return S.recap end }
+    end
+
     Settings, AddonCompartmentFrame, SettingsPanel = nil, nil, nil
     CreateSettingsListSectionHeaderInitializer, CreateSettingsButtonInitializer = nil, nil
     InterfaceOptions_AddCategory = nil
@@ -332,6 +347,12 @@ function Stub.advance(seconds)
         table.sort(due, function(a, b) return a.at < b.at end)
         for _, t in ipairs(due) do t.fn() end
     end
+end
+
+-- Combat log event (same arguments as CombatLogGetCurrentEventInfo).
+function Stub.combatLog(...)
+    Stub.state.cleu = { n = select("#", ...), ... }
+    Stub.fire("COMBAT_LOG_EVENT_UNFILTERED")
 end
 
 -- Replays addon messages sent by another client (sender = "Name-Realm").

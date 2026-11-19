@@ -21,6 +21,7 @@ Sync\Serialize.lua
 Sync\Transport.lua
 Sync\Sync.lua
 Collectors\Enemies.lua
+Collectors\Killer.lua
 Collectors\Basic.lua
 Collectors\Expedition.lua
 Voice\Voice.lua

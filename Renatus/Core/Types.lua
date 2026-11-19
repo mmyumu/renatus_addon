@@ -48,6 +48,20 @@ local TYPES = {
             local s = "meurt"
             if ev.p.lvl then s = s .. " au niveau " .. ev.p.lvl end
             if ev.p.cause then s = s .. " (" .. ev.p.cause .. ")" end
+            local k = ev.p.killer
+            if type(k) == "table" and k.n then
+                if k.env then
+                    s = s .. ", victime de " .. k.n
+                else
+                    local who = k.n
+                    local bits = {}
+                    if k.cl then table.insert(bits, string.lower(k.cl)) end
+                    if k.ra then table.insert(bits, string.lower(k.ra)) end
+                    if #bits > 0 then who = who .. " (" .. table.concat(bits, " ") .. ")" end
+                    s = s .. ", tué par " .. who
+                    if k.sp then s = s .. " — " .. k.sp end
+                end
+            end
             if ev.p.enemies and #ev.p.enemies > 0 then
                 s = s .. " — ennemis présents : " .. table.concat(ev.p.enemies, ", ")
             end
