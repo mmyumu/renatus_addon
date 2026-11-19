@@ -20,6 +20,11 @@
 
 ## 1. État actuel du dépôt
 
+### Distribution : launcher et publication automatique (19/11/2026)
+
+- Dépôt public `mmyumu/renatus_addon`. Push sur `main` avec une nouvelle version dans `Renatus.toc` → `addon-release.yml` publie `v<version>` (`Renatus-<version>.zip`, notes = message du commit ; tiret = version de test, en prerelease).
+- `launcher/` : application Tauri 2 (Windows) qui détecte `_forever_`, vérifie toutes les 10 minutes, installe la dernière release (même règles que `tools/deploy.sh`) et se met à jour elle-même (`launcher-v*`, release « latest », `latest.json` signé). Détails : `launcher/README.md`.
+
 ### Avancement v0.11.0 (19/11/2026)
 
 - **Album** : boosters réels (1 par jour joué, +1 par niveau, boss ou sortie avec un membre de la guilde, 5 par jour au plus ; ouvertures enregistrées en événements `BOOSTER_OPEN` cachés, collection rejouée depuis eux). Série fixe **Azeroth** (`Core/Cards.lua`, 123 cartes en 7 séries) et cartes de guilde enrichies (paliers de niveau, avis de recherche, boss, sorties, morts mémorables, unes).

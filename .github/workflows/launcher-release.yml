@@ -1,0 +1,127 @@
+# Builds and publishes the launcher when a push to main carries a launcher
+# version not released yet (bump it with launcher/scripts/bump.sh X.Y.Z).
+# The release is marked "latest", so:
+#   - releases/latest/download/Renatus-Launcher-setup.exe is a permanent download link;
+#   - releases/latest/download/latest.json is what installed launchers poll to update themselves.
+name: Launcher release
+on:
+  push:
+    branches: [main]
+    paths: ['launcher/**']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: launcher-release
+  cancel-in-progress: false
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      new: ${{ steps.version.outputs.new }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read and check the version
+        id: version
+        working-directory: launcher
+        run: |
+          version=$(node -p 'require("./src-tauri/tauri.conf.json").version')
+          for v in "$(node -p 'require("./package.json").version')" \
+                   "$(grep -m1 '^version = ' src-tauri/Cargo.toml | cut -d'"' -f2)" \
+                   "$(grep -m1 '^version = ' core/Cargo.toml | cut -d'"' -f2)"; do
+            if [ "$v" != "$version" ]; then
+              echo "::error::Launcher versions disagree ($v vs $version): use launcher/scripts/bump.sh"
+              exit 1
+            fi
+          done
+          if gh release view "launcher-v$version" >/dev/null 2>&1; then
+            echo "launcher-v$version is already released, nothing to do."
+            echo "new=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "new=true" >> "$GITHUB_OUTPUT"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: plan
+    if: needs.plan.outputs.new == 'true'
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+        working-directory: launcher
+    env:
+      VERSION: ${{ needs.plan.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: launcher/package-lock.json
+      - uses: dtolnay/rust-toolchain@1.94.0
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: launcher
+      - run: npm ci
+      - run: cargo test --locked --release
+      - name: Build and sign the installer
+        run: npm run tauri -- build
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      - name: Collect the release files
+        run: |
+          tag="launcher-v$VERSION"
+          setup="Renatus-Launcher-setup.exe"
+          built="$(ls target/release/bundle/nsis/*-setup.exe | head -n 1)"
+          mkdir release
+          cp "$built" "release/$setup"
+          cp "$built.sig" "release/$setup.sig"
+          (cd release && sha256sum "$setup" > SHA256SUMS.txt)
+          SIGNATURE="$(cat "$built.sig")" \
+          URL="https://github.com/$GITHUB_REPOSITORY/releases/download/$tag/$setup" \
+          NOTES="https://github.com/$GITHUB_REPOSITORY/releases/tag/$tag" \
+          node -e '
+            const e = process.env;
+            const manifest = {
+              version: e.VERSION,
+              notes: e.NOTES,
+              pub_date: new Date().toISOString(),
+              platforms: { "windows-x86_64": { signature: e.SIGNATURE, url: e.URL } },
+            };
+            require("fs").writeFileSync("release/latest.json", JSON.stringify(manifest, null, 2) + "\n");
+          '
+          ls -l release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release
+          path: launcher/release/
+          if-no-files-found: error
+
+  publish:
+    needs: [plan, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      VERSION: ${{ needs.plan.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: release
+          path: release
+      - name: Create the GitHub release
+        run: |
+          git log -1 --format=%B | grep -v '^Co-Authored-By:' > notes.md
+          gh release create "launcher-v$VERSION" release/* \
+            --target "$GITHUB_SHA" \
+            --title "Renatus Launcher $VERSION" \
+            --notes-file notes.md \
+            --latest

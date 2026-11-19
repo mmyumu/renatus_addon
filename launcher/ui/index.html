@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <title>Renatus</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="main.js" defer></script>
+</head>
+<body>
+  <header>
+    <h1>Renatus</h1>
+    <p class="sub">Mises à jour automatiques de l'addon</p>
+  </header>
+
+  <section class="card" id="status">
+    <div class="row"><span class="label">Installé</span><span id="installed">—</span></div>
+    <div class="row"><span class="label">Dernière version</span><span id="available">—</span></div>
+    <p id="message"></p>
+    <button id="check">Vérifier maintenant</button>
+  </section>
+
+  <section class="card">
+    <div class="label">Dossier du jeu</div>
+    <div id="wow" class="path">—</div>
+    <div class="buttons">
+      <button id="pick">Changer</button>
+      <button id="open">Ouvrir AddOns</button>
+    </div>
+  </section>
+
+  <section class="card" id="notes-card" hidden>
+    <div class="label">Nouveautés</div>
+    <pre id="notes"></pre>
+  </section>
+
+  <section class="card">
+    <label><input type="checkbox" id="autostart"> Lancer avec Windows</label>
+    <label><input type="checkbox" id="test"> Recevoir les versions de test</label>
+  </section>
+
+  <footer>Fermer cette fenêtre laisse le launcher actif près de l'horloge. <span id="version"></span></footer>
+</body>
+</html>

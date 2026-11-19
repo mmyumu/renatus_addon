@@ -1,0 +1,62 @@
+# Publishes the addon when a push to main carries a version not released yet.
+# Bump `## Version:` in Renatus/Renatus.toc and `ns.version` in Core/Init.lua,
+# commit, push: the commit message becomes the release notes shown in the launcher.
+# A version with a hyphen (0.12.0-test.1) is a prerelease: only launchers with
+# "versions de test" enabled install it.
+# Addon releases are never marked "latest": that slot belongs to the launcher,
+# whose updater reads releases/latest/download/latest.json.
+name: Addon release
+on:
+  push:
+    branches: [main]
+    paths: ['Renatus/**', 'Renatus_Press/**']
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: addon-release
+  cancel-in-progress: false
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read the version
+        id: version
+        run: |
+          version=$(grep -m1 '^## Version:' Renatus/Renatus.toc | cut -d' ' -f3 | tr -d '\r')
+          code=$(grep -m1 '^ns.version' Renatus/Core/Init.lua | cut -d'"' -f2)
+          if [ "$version" != "$code" ]; then
+            echo "::error::Renatus.toc says $version but Core/Init.lua says $code"
+            exit 1
+          fi
+          if gh release view "v$version" >/dev/null 2>&1; then
+            echo "v$version is already released, nothing to do."
+            echo "new=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "new=true" >> "$GITHUB_OUTPUT"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - name: Run the addon tests
+        if: steps.version.outputs.new == 'true'
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq lua5.4
+          lua5.4 tests/run.lua
+      - name: Publish the release
+        if: steps.version.outputs.new == 'true'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          zip="Renatus-$VERSION.zip"
+          # Tracked files only: ignored local files never ship.
+          git archive --format=zip -o "$zip" HEAD Renatus Renatus_Press
+          git log -1 --format=%B | grep -v '^Co-Authored-By:' > notes.md
+          flags=(--latest=false)
+          [[ "$VERSION" == *-* ]] && flags+=(--prerelease)
+          gh release create "v$VERSION" "$zip" \
+            --target "$GITHUB_SHA" \
+            --title "Renatus $VERSION" \
+            --notes-file notes.md \
+            "${flags[@]}"
