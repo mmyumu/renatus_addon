@@ -132,9 +132,36 @@ function Store.Build(kind, payload, opts)
     return ev
 end
 
+------------------------------------------------------------------------
+-- Deletion (tombstones, docs/ARCHITECTURE.md §3.1): an author may delete
+-- their own events. A shared event is emptied but kept (the sequence must
+-- stay contiguous for the sync) and a TOMBSTONE event tells the others.
+------------------------------------------------------------------------
+-- Keeps only what the sync needs to know the event existed.
+local KEEP = { v = true, id = true, a = true, n = true, s = true, t = true, k = true, g = true, vis = true }
+local function strip(ev)
+    for k in pairs(ev) do if not KEEP[k] then ev[k] = nil end end
+    ev.p = {}
+    ev.del = true
+end
+
+-- TOMBSTONE: empties the target if it belongs to the same author.
+local function applyTombstone(tomb)
+    local id = tomb.refs and tomb.refs[1]
+    if type(id) ~= "string" then return end
+    local target = ns.db.events[id]
+    if target then
+        if target.a == tomb.a then strip(target) end
+    else
+        ns.db.tombstones[id] = tomb.a   -- the event may arrive later
+    end
+end
+
 -- Inserts an already built event (local or received). Returns false on duplicate.
 function Store.Insert(ev)
     if not ev or not ev.id or ns.db.events[ev.id] then return false end
+    if ev.k == "TOMBSTONE" then applyTombstone(ev)
+    elseif ns.db.tombstones[ev.id] == ev.a then strip(ev); ns.db.tombstones[ev.id] = nil end
     ns.db.events[ev.id] = ev
     cache = nil
     ns.EventBus.Publish("CHRONICLE_EVENT", ev)
@@ -163,7 +190,9 @@ end
 local function realEvents()
     if not cache then
         cache = {}
-        for _, ev in pairs(ns.db.events) do table.insert(cache, ev) end
+        for _, ev in pairs(ns.db.events) do
+            if not ev.del then table.insert(cache, ev) end
+        end
         table.sort(cache, function(a, b)
             if a.t ~= b.t then return a.t > b.t end
             return a.id > b.id
@@ -190,6 +219,38 @@ function Store.Dataset()
         legends = {},
         roster = Store.Roster(),
     }
+end
+
+-- Own events entered by hand can be deleted (anecdotes, notes, declarations...).
+function Store.CanDelete(ev)
+    if type(ev) ~= "table" or ev.del or ev.prov ~= "MAN" then return false end
+    if ns.Types.Get(ev.k).hidden then return false end
+    return ev.a == Store.Dataset().me
+end
+
+function Store.Delete(id)
+    local ds = Store.Dataset()
+    if ds.isDemo then
+        for i, ev in ipairs(ds.events) do
+            if ev.id == id and Store.CanDelete(ev) then
+                table.remove(ds.events, i)
+                ns.EventBus.Publish("CHRONICLE_EVENT", ev)
+                return true
+            end
+        end
+        return false
+    end
+    local ev = ns.db.events[id]
+    if not Store.CanDelete(ev) then return false end
+    if ev.vis ~= "G" then
+        -- Private: never left this client, simply removed.
+        ns.db.events[id] = nil
+        cache = nil
+        ns.EventBus.Publish("CHRONICLE_EVENT", ev)
+        return true
+    end
+    local tomb = Store.Build("TOMBSTONE", {}, { vis = "G", prov = "MAN", refs = { id }, noExp = true, loc = {} })
+    return Store.Insert(tomb) and true or false
 end
 
 -- Guild roster (members without the addon included, no statistics).

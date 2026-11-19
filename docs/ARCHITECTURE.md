@@ -20,6 +20,11 @@
 
 ## 1. État actuel du dépôt
 
+### Avancement v0.7.0 (19/11/2026)
+
+- **Tueur identifié** (`Collectors/Killer.lua`) : l'addon tente de lire le journal de combat (`COMBAT_LOG_EVENT_UNFILTERED`, inscription protégée, valeurs secrètes ignorées) et garde en mémoire les coups reçus des 10 dernières secondes ; à défaut, il lit le récapitulatif de mort (`C_DeathRecap`). La mort indique « tué par X (paladin elfe de sang) — Jugement ». Un joueur tueur compte comme défaite vérifiée au Tableau de chasse. **À vérifier en jeu** : si Forever ferme les deux, la mort reste « cause inconnue », et l'événement refusé apparaît dans Paramètres.
+- **Suppression** (tombstones, §3.1) : clic droit sur une de ses saisies manuelles dans le journal (anecdote, note, déclaration). Privée : effacée. Partagée : vidée chez soi et événement `TOMBSTONE` synchronisé ; les autres clients vident leur copie, même si la suppression arrive avant l'événement. Seul l'auteur peut supprimer.
+
 ### Avancement v0.6.0 (19/11/2026)
 
 - **Textures propres à l'addon** (`Renatus/Media/*.tga`, générées par `tools/make_media.py` : `uv run tools/make_media.py --preview DIR`) : cuir rouge sombre, cadre de fer et de bronze avec grenats aux coins, bandeau de titre, onglet actif rouge et or, boutons rouges cerclés d'or, barres de section, papier journal. Elles remplacent les textures du client de la v0.5.0. Chaque élément garde une couleur unie dessous : sans les fichiers, la fenêtre reste lisible.
@@ -55,7 +60,7 @@
 - **Compagnon v1, sans LLM** (`companion/`) : lecture des SavedVariables et des journaux de combat, causes de mort, affrontements PvP contre des rivaux connus, articles écrits à la main, écriture de `Renatus_Press/Press.lua`. En jeu, **Gazette > Rédaction** : rien n'est publié sans validation.
 - **Gazette réelle** : articles (`ARTICLE`, provenance « Rédaction »), votes pour la une (un par membre et par semaine), causes de mort affichées sur les morts (« d'après le journal de combat de X »).
 - 66 tests Lua (`lua tests/run.lua`) et 14 tests Python (`python3 -m unittest discover -s tests/companion -t .`).
-- **Pas encore faits** : ~~LLM de la gazette (fait en v0.4.0)~~, obtention réelle de boosters (modèle à choisir, §9.2), réglages de guilde signés par le chef (`GUILD_CONFIG` : rédacteurs, rivale commune), tombstones, rivalités détectées (§6.4).
+- **Pas encore faits** : ~~LLM de la gazette (fait en v0.4.0)~~, obtention réelle de boosters (modèle à choisir, §9.2), réglages de guilde signés par le chef (`GUILD_CONFIG` : rédacteurs, rivale commune), ~~tombstones (fait en v0.7.0)~~, rivalités détectées (§6.4).
 
 ### Avancement v0.2.0 (18/11/2026)
 

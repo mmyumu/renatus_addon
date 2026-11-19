@@ -1136,5 +1136,84 @@ test("mort : valeurs secretes ignorees, aucun tueur invente", function()
     eq(ev.p.killer, nil); eq(ev.miss[1], "killer")
 end)
 
+print("Suppression (tombstones)")
+
+local function inDataset(ns, id)
+    for _, ev in ipairs(ns.Store.Dataset().events) do if ev.id == id then return true end end
+    return false
+end
+
+test("supprimer une anecdote privee : clic droit dans le journal, confirmation", function()
+    local ns = boot({ specIndex = 1 })
+    local ev = ns.Store.AddManual("ANECDOTE", { title = "Le saut raté", desc = "La falaise a gagné." })
+    ns.UI.Open("journal")
+    local c = RenatusMainFrame.containers.journal
+    local row
+    for _, r in ipairs(c.list.rows) do if r.item and r.item.ev.id == ev.id then row = r end end
+    assert(row, "ligne de l'anecdote")
+    local dialog = ns.UI.Dialogs.Delete(ev)
+    assert(dialog and dialog.text:GetText():find("Le saut raté"), "confirmation")
+    dialog.no:Click()
+    assert(ns.db.events[ev.id], "annuler ne supprime rien")
+    row.scripts.OnClick(row, "RightButton")
+    dialog = ns.UI.Dialogs.Delete(ev)
+    dialog.yes:Click()
+    eq(ns.db.events[ev.id], nil, "effacee")
+    eq(#eventsOf(ns, "TOMBSTONE"), 0, "privee : rien a annoncer")
+    eq(inDataset(ns, ev.id), false)
+end)
+
+test("supprimer une anecdote partagee : tombstone envoye, copie videe", function()
+    local ns = boot({ specIndex = 1 })
+    ns.char.privacy.anecdote = "G"
+    local ev = ns.Store.AddManual("ANECDOTE", { title = "Secret", desc = "Rien" })
+    eq(ev.vis, "G")
+    assert(ns.Store.Delete(ev.id))
+    local stored = ns.db.events[ev.id]
+    assert(stored and stored.del, "gardee vide pour la synchro")
+    eq(stored.p.title, nil); eq(stored.loc, nil)
+    local tomb = eventsOf(ns, "TOMBSTONE")[1]
+    eq(tomb.refs[1], ev.id); eq(tomb.vis, "G")
+    eq(inDataset(ns, ev.id), false); eq(inDataset(ns, tomb.id), true)
+    eq(#ns.Views.Filter(ns.Store.Dataset().events, {}), 0, "rien d'affiche")
+    -- the emptied copy is still valid on the wire
+    local copy = {}
+    for k, v in pairs(stored) do copy[k] = v end
+    assert(ns.Sync.Validate(copy, ns.Context.GuildKey()), "copie videe acceptee")
+end)
+
+test("tombstones recus : avant ou apres l'evenement, seulement de l'auteur", function()
+    local ns = boot({ specIndex = 1 })
+    local g = ns.Context.GuildKey()
+    local function ev(author, s, k, p, refs)
+        return { v = 1, id = author .. ":" .. s, a = author, n = "Bob", s = s, t = 1795000000 + s, k = k, g = g,
+            vis = "G", prov = "MAN", p = p or {}, refs = refs }
+    end
+    local bob, eve = "Player-1-BOB", "Player-1-EVE"
+    ns.Store.Insert(ev(bob, 1, "ANECDOTE", { title = "A" }))
+    ns.Store.Insert(ev(bob, 2, "TOMBSTONE", {}, { bob .. ":1" }))
+    eq(ns.db.events[bob .. ":1"].del, true, "apres")
+    ns.Store.Insert(ev(bob, 4, "TOMBSTONE", {}, { bob .. ":3" }))
+    ns.Store.Insert(ev(bob, 3, "ANECDOTE", { title = "B" }))
+    eq(ns.db.events[bob .. ":3"].del, true, "avant")
+    ns.Store.Insert(ev(bob, 5, "ANECDOTE", { title = "C" }))
+    ns.Store.Insert(ev(eve, 1, "TOMBSTONE", {}, { bob .. ":5" }))
+    eq(ns.db.events[bob .. ":5"].del, nil, "un autre auteur ne peut pas supprimer")
+    eq(ns.Store.CanDelete(ns.db.events[bob .. ":5"]), false, "pas mon anecdote")
+end)
+
+test("suppression : seulement mes saisies manuelles ; en demo aussi", function()
+    local ns, S = boot({ specIndex = 1 })
+    Stub.fire("PLAYER_DEAD")
+    local death = eventsOf(ns, "DEATH")[1]
+    eq(ns.Store.CanDelete(death), false, "evenement observe")
+    eq(ns.Store.Delete(death.id), false)
+    SlashCmdList.RENATUS("demo")
+    local ev = ns.Store.AddManual("ANECDOTE", { title = "Démo" })
+    assert(inDataset(ns, ev.id))
+    assert(ns.Store.Delete(ev.id))
+    eq(inDataset(ns, ev.id), false)
+end)
+
 print(string.format("\n%d ok, %d echec(s)", passed, failed))
 os.exit(failed == 0 and 0 or 1)

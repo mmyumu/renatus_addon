@@ -130,6 +130,9 @@ local TYPES = {
         text = function(ev)
             return ev.p.ok and "accepte que la gazette IA parle de lui/elle" or "refuse que la gazette IA parle de lui/elle"
         end },
+    -- Deletion of one of the author's own events (refs[1]); never displayed.
+    TOMBSTONE = { cat = "anecdote", icon = "Interface\\Icons\\INV_Misc_QuestionMark", importance = 0, hidden = true,
+        text = function() return "supprime un de ses événements" end },
     DEATH_CAUSE = { cat = "combat", icon = "Interface\\Icons\\INV_Misc_Bone_HumanSkull_01", importance = 1, hidden = true,
         text = function(ev)
             return ("rapporte, d'après son journal de combat, la mort de %s : %s"):format(

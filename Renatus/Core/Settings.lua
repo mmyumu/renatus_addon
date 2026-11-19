@@ -16,6 +16,7 @@ local ACCOUNT_DEFAULTS = {
     articles = {},    -- (obsolete: articles are ARTICLE events)
     pressDone = {},   -- [id] = "published" | "ignored": companion items already handled
     collection = {},  -- album: [cardId] = number of copies
+    tombstones = {},  -- [deleted event id] = author GUID (deletion received before the event)
 }
 
 local CHAR_DEFAULTS = {

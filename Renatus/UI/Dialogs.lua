@@ -175,3 +175,51 @@ function UI.Dialogs.Letter()
         ns.Store.AddManual("LETTER", { title = v.title, desc = v.desc })
     end)
 end
+
+-- Yes / no question. onYes runs only on confirmation.
+local confirm
+function UI.Dialogs.Confirm(title, text, yesLabel, onYes)
+    if confirm then confirm:Hide() end
+    local f = CreateFrame("Frame", nil, UI.GetWindow())
+    confirm = f
+    f:SetFrameStrata("DIALOG")
+    f:SetToplevel(true)
+    f:EnableMouse(true)
+    f:SetPoint("CENTER")
+    f:SetSize(420, 170)
+    UI.Skin(f, "window")
+    local t = UI.Title(f, 18)
+    t:SetPoint("TOPLEFT", 26, -24)
+    t:SetText(title)
+    local body = UI.Text(f, 12)
+    body:SetPoint("TOPLEFT", 26, -54)
+    body:SetWidth(368)
+    body:SetText(text)
+    f.text = body
+    local no = UI.Button(f, "Annuler", 100, 24, function() f:Hide() end)
+    no:SetPoint("BOTTOMRIGHT", -26, 24)
+    f.no = no
+    local yes = UI.Button(f, yesLabel or "Confirmer", 120, 24, function()
+        f:Hide()
+        onYes()
+    end)
+    yes:SetPoint("RIGHT", no, "LEFT", -8, 0)
+    f.yes = yes
+    f:Show()
+    return f
+end
+
+-- Deletion of one of the player's own events, after confirmation.
+function UI.Dialogs.Delete(ev)
+    if not ns.Store.CanDelete(ev) then return nil end
+    local what = ev.p and ev.p.title and ("« " .. ev.p.title .. " »") or ns.Types.Describe(ev, false)
+    local text = "Supprimer " .. what .. " de ton journal ?"
+    if ev.vis == "G" then
+        text = text .. "\n\nCet événement est partagé : la suppression est envoyée aux autres membres, "
+            .. "dont l'addon effacera sa copie. Une copie déjà lue ou recopiée ailleurs ne peut pas être reprise."
+    end
+    return UI.Dialogs.Confirm("Supprimer", text, "Supprimer", function()
+        ns.Store.Delete(ev.id)
+        UI.Refresh()
+    end)
+end

@@ -78,6 +78,7 @@ local function rowTooltip(row)
             or ("Relayé par " .. tostring(ev.rx.by) .. " (copie de l'original de " .. tostring(ev.n) .. ")"), 0.6, 0.6, 0.6 })
     end
     if ev.vis == "P" then table.insert(lines, { "Privé : visible uniquement par toi.", 0.6, 0.6, 0.6 }) end
+    if ns.Store.CanDelete(ev) then table.insert(lines, { "Clic droit : supprimer", 1, 0.82, 0 }) end
     return Types.Describe(ev, true), lines
 end
 
@@ -104,6 +105,11 @@ local function createRow(row)
     sep:SetPoint("BOTTOMLEFT")
     sep:SetPoint("BOTTOMRIGHT")
     UI.Tooltip(row, rowTooltip)
+    -- Right click on one of your own hand-entered events: delete it.
+    row:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    row:SetScript("OnClick", function(self, button)
+        if button == "RightButton" and self.item then UI.Dialogs.Delete(self.item.ev) end
+    end)
 end
 
 local function updateRow(row, item, mode)
