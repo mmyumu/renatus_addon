@@ -20,6 +20,12 @@
 
 ## 1. État actuel du dépôt
 
+### Avancement v0.6.0 (19/11/2026)
+
+- **Textures propres à l'addon** (`Renatus/Media/*.tga`, générées par `tools/make_media.py` : `uv run tools/make_media.py --preview DIR`) : cuir rouge sombre, cadre de fer et de bronze avec grenats aux coins, bandeau de titre, onglet actif rouge et or, boutons rouges cerclés d'or, barres de section, papier journal. Elles remplacent les textures du client de la v0.5.0. Chaque élément garde une couleur unie dessous : sans les fichiers, la fenêtre reste lisible.
+- Fenêtre 948 × 630, navigation élargie (188 px) : « Tableau de chasse » ne déborde plus.
+- **Gazette en vraie une de journal** : titre, numéro d'édition, semaine, prix ; une édition par semaine, la une est l'article le plus voté ; article en deux colonnes équilibrées avec lettrine ; « En bref » tiré des événements de la semaine ; colonne « Dans cette édition », « Le chiffre de la semaine » (décès), courrier des lecteurs ; page de lecture avec les sources.
+
 ### Avancement v0.5.0 (19/11/2026)
 
 - **Habillage médiéval** (`UI.Skin` dans `UI/Widgets.lua`) : textures du client (bordure dorée des boîtes de dialogue, fond de pierre, parchemin des hauts faits, boutons rouges, croix de fermeture, halo doré du journal de quêtes), police gothique (Morpheus) pour les onglets. Chaque texture est vérifiée (`GetFileIDFromPath`) ; si elle manque, ou si l'API des backdrops manque, on revient à l'aspect plat d'avant.

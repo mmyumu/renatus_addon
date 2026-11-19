@@ -1010,24 +1010,58 @@ test("menu Options du jeu : client sans API Settings, /renatus options ouvre la 
     eq(ns.UI.current, "settings")
 end)
 
-print("Habillage (v0.5.0)")
+print("Habillage et gazette (v0.5.0)")
 
-test("habillage medieval : textures du jeu si presentes, sinon aspect plat", function()
+test("habillage : textures de l'addon sur la fenetre, les panneaux et la gazette", function()
+    local ns = boot({ specIndex = 1 })
+    for _, tab in ipairs(ns.UI.tabs) do ns.UI.Open(tab.key) end
+    eq(RenatusMainFrame.gcSkin, "window")
+    eq(RenatusMainFrame.containers.gazette.paper.gcSkin, "parchment")
+    eq(ns.UI.WIDTH, 948); eq(ns.UI.HEIGHT, 630)
+    assert(RenatusMainFrame.close, "bouton de fermeture")
+    ns.UI.Open("gazette")
+    eq(RenatusMainFrame.navButtons.gazette.sel:IsShown(), true)
+    eq(RenatusMainFrame.navButtons.journal.sel:IsShown(), false)
+end)
+
+test("gazette : une edition par semaine, la une est l'article le plus vote", function()
+    local ns = boot({ specIndex = 1 })
+    SlashCmdList.RENATUS("demo")
+    ns.UI.Open("gazette")
+    local c = RenatusMainFrame.containers.gazette
+    assert(#c.editions >= 2, "editions par semaine")
+    eq(c.editions[1].number, #c.editions, "la plus recente porte le plus grand numero")
+    local first = c.editions[1]
+    for _, a in ipairs(first.articles) do assert(a.votes <= first.articles[1].votes, "une = plus de votes") end
+    eq(c.current, first.articles[1])
+    assert(c.front:IsShown() and not c.reader:IsShown(), "premiere page")
+    assert(c.front.info:GetText():find("Semaine du"), "semaine")
+    eq(c.next.gcDisabled, true, "pas d'edition plus recente")
+    -- older edition
+    c.prev:Click()
+    eq(c.edition, 2)
+    eq(c.current, c.editions[2].articles[1])
+    c.next:Click()
+    eq(c.edition, 1)
+    -- read the front-page story, then its sources, then back
+    c.front.storyHit:Click()
+    assert(c.reader:IsShown() and c.back:IsShown(), "lecture")
+    eq(c.reader.title:GetText(), first.articles[1].title)
+    c.paper.sources:Click()
+    assert(c.showSources and c.reader.body.fontString:GetText():find("Faits ayant servi"), "sources")
+    c.back:Click()
+    assert(c.front:IsShown() and not c.showSources, "retour a la une")
+end)
+
+test("gazette vide : numero zero, rien a voter", function()
     local ns = boot({ specIndex = 1 })
     ns.UI.Open("gazette")
-    eq(RenatusMainFrame.gcSkin, "window", "bordure doree")
-    eq(RenatusMainFrame.containers.gazette.paper.gcSkin, "parchment")
-    assert(RenatusMainFrame.close, "bouton de fermeture")
-
-    -- Client without these files: flat look, every tab still builds.
-    Stub.reset({ specIndex = 1 })
-    function GetFileIDFromPath() return nil end
-    ns = Stub.loadAddon(ROOT, NAME)
-    for _, tab in ipairs(ns.UI.tabs) do ns.UI.Open(tab.key) end
-    eq(RenatusMainFrame.gcSkin, nil)
-    assert(RenatusMainFrame.gcBg, "fond plat")
-    eq(RenatusMainFrame.containers.gazette.paper.gcSkin, nil)
-    GetFileIDFromPath = nil
+    local c = RenatusMainFrame.containers.gazette
+    eq(c.current, nil)
+    eq(c.front.headline:GetText(), "Les rotatives sont à l'arrêt")
+    eq(c.paper.vote.gcDisabled, true)
+    c.paper.sources:Click()
+    assert(c.front:IsShown(), "pas de lecture sans article")
 end)
 
 print(string.format("\n%d ok, %d echec(s)", passed, failed))
