@@ -1,9 +1,13 @@
--- UI/Options.lua: "Renatus" entry in the game's Options > AddOns panel.
--- Native controls (Blizzard Settings API) for the simple options; the rest
--- (rival guild, sync, voice details) stays in the addon window, reachable by a button.
--- Every setting reads and writes the same tables as the addon window (ns.char),
--- so both stay consistent. If the Settings API is missing or differs on this
--- client, a minimal panel with just the button is registered instead.
+-- UI/Options.lua: every Renatus setting, in the game's Esc > Options > AddOns > Renatus.
+-- The addon window only shows content (gazette, album, journals).
+--
+--   Renatus            native controls: display, privacy, AI consent, album
+--     Voix             native controls: Renacoach voice lines
+--     Guilde           addon widgets (needs a text field): rival guild, sync, data
+--
+-- Every setting reads and writes ns.char directly, so the window stays consistent.
+-- If the Settings API is missing or differs on this client, one canvas page with
+-- the same settings (built with the addon's own widgets) is registered instead.
 local ADDON, ns = ...
 local UI = ns.UI
 
@@ -15,6 +19,20 @@ local MODES = {
     { "P", "Privé" },
     { "G", "Guilde" },
 }
+local PRIVACY_HELP = "Désactivé : rien n'est enregistré. Privé : visible par toi seul. Guilde : partagé avec les membres équipés de l'addon."
+local CONSENT_HELP = "Si coché, tes événements partagés avec la guilde peuvent être envoyés à une IA (Claude) par l'application du rédacteur, pour écrire la gazette. Si décoché, rien de toi n'est envoyé et ton nom est retiré des faits des autres. Ton choix est partagé avec la guilde."
+
+local FAMILY_LABELS = {
+    startFight = "Début de combat", endFight = "Fin de combat", death = "Mort",
+    fightGeneric = "Encouragements (tous)", fightTank = "Tank", fightHealer = "Soigneur", fightDPS = "DPS",
+    fightMelee = "Corps à corps", fightCaster = "Lanceur de sorts", fightRanged = "Distance",
+}
+local FAMILY_ORDER = { "startFight", "endFight", "death", "fightGeneric", "fightTank", "fightHealer",
+    "fightDPS", "fightMelee", "fightCaster", "fightRanged" }
+local CHANNELS = { { "Ambience", "Ambiance" }, { "Master", "Général" }, { "SFX", "Effets" },
+    { "Dialog", "Dialogues" }, { "Music", "Musique" } }
+local ROLES = { { "AUTO", "Automatique" }, { "TANK", "Tank" }, { "HEALER", "Soigneur" }, { "DAMAGER", "DPS" } }
+local KINDS = { { "AUTO", "Automatique" }, { "melee", "Corps à corps" }, { "caster", "Lanceur de sorts" }, { "ranged", "Distance" } }
 
 local function openWindow(tab)
     if SettingsPanel and SettingsPanel.IsShown and SettingsPanel:IsShown() then
@@ -24,102 +42,243 @@ local function openWindow(tab)
 end
 O.OpenWindow = openWindow
 
--- Native panel (Settings API, 11.0+ signatures, also used by Midnight / Forever).
+local function playSample()
+    local v = ns.char.voice
+    local was = v.enabled
+    v.enabled = true
+    ns.Voice:PlayFamilies(ns.Voice:GetCombatFamilies())
+    v.enabled = was
+end
+O.PlaySample = playSample
+
+------------------------------------------------------------------------
+-- "Guilde" page (also the whole fallback page): addon widgets on a canvas.
+------------------------------------------------------------------------
+local function buildCanvas(full)
+    local f = CreateFrame("Frame")
+    f.name = full and "Renatus" or "Guilde"
+    local x, y = 16, -16
+    local title = UI.Title(f, 22)
+    title:SetPoint("TOPLEFT", x, y)
+    title:SetText(full and "Renatus" or "Guilde")
+    y = y - 40
+
+    if full then
+        -- Fallback page: the settings the native page would have shown.
+        local priv = UI.Section(f, "Collecte et confidentialité", 300)
+        priv:SetPoint("TOPLEFT", x, y)
+        y = y - 28
+        f.privacy = {}
+        local opts = {}
+        for _, m in ipairs(MODES) do opts[#opts + 1] = { value = m[1], label = m[2] } end
+        for _, cat in ipairs(ns.Types.CATEGORIES) do
+            local label = UI.Text(f, 12)
+            label:SetPoint("TOPLEFT", x, y - 4)
+            label:SetText(cat.label)
+            local d = UI.Dropdown(f, 130, opts, function(v) ns.char.privacy[cat.key] = v end)
+            d:SetPoint("TOPLEFT", x + 180, y)
+            f.privacy[cat.key] = d
+            y = y - 26
+        end
+        f.export = UI.Checkbox(f, "La gazette rédigée par IA peut parler de moi", function(v) ns.Press.SetConsent(v) end)
+        f.export:SetPoint("TOPLEFT", x, y)
+        UI.Tooltip(f.export, "Gazette IA", { CONSENT_HELP })
+        f.minimap = UI.Checkbox(f, "Bouton sur la minicarte", function(v)
+            ns.char.ui.showMinimap = v
+            if UI.Minimap then UI.Minimap:Update() end
+        end)
+        f.minimap:SetPoint("TOPLEFT", x, y - 24)
+        f.demo = UI.Checkbox(f, "Mode démo (données fictives)", function(v) ns.char.ui.demo = v; UI.Refresh() end)
+        f.demo:SetPoint("TOPLEFT", x, y - 48)
+        f.optOut = UI.Checkbox(f, "Ne pas apparaître dans l'album des autres", function(v) ns.char.albumOptOut = v end)
+        f.optOut:SetPoint("TOPLEFT", x, y - 72)
+        y = -56
+        x = 360
+    end
+
+    local pvp = UI.Section(f, "Tableau de chasse", 300)
+    pvp:SetPoint("TOPLEFT", x, y)
+    local rl = UI.Text(f, 12)
+    rl:SetPoint("TOPLEFT", x, y - 28)
+    rl:SetText("Nom de la guilde rivale :")
+    f.rival = UI.EditBox(f, 240, 24, false, 48)
+    f.rival:SetPoint("TOPLEFT", x, y - 46)
+    f.rival.edit:SetScript("OnTextChanged", function(self) ns.char.rivalGuild = self:GetText() or "" end)
+    local rh = UI.Text(f, 10, UI.C.dim)
+    rh:SetPoint("TOPLEFT", x, y - 76)
+    rh:SetWidth(300)
+    rh:SetText("Ses membres croisés en jeu sont notés au tableau de chasse (une fois toutes les 10 minutes au plus).")
+    y = y - 112
+
+    local sync = UI.Section(f, "Synchronisation", 300)
+    sync:SetPoint("TOPLEFT", x, y)
+    f.syncInfo = UI.Text(f, 11)
+    f.syncInfo:SetPoint("TOPLEFT", x, y - 26)
+    f.syncInfo:SetWidth(320)
+    f.syncNow = UI.Button(f, "Synchroniser maintenant", 190, 22, function()
+        if ns.Sync then ns.Sync.SendVector(true) end
+        f:Refresh()
+    end)
+    f.syncNow:SetPoint("TOPLEFT", x, y - 104)
+    y = y - 142
+
+    local data = UI.Section(f, "Données", 300)
+    data:SetPoint("TOPLEFT", x, y)
+    f.dataInfo = UI.Text(f, 11)
+    f.dataInfo:SetPoint("TOPLEFT", x, y - 26)
+    f.dataInfo:SetWidth(320)
+    f.unsupported = UI.Text(f, 10, UI.C.dim)
+    f.unsupported:SetPoint("TOPLEFT", x, y - 60)
+    f.unsupported:SetWidth(320)
+
+    function f:Refresh()
+        if self.privacy then
+            for key, d in pairs(self.privacy) do d:SetValue(ns.char.privacy[key] or "P") end
+            self.export:SetChecked(ns.char.exportConsent)
+            self.minimap:SetChecked(ns.char.ui.showMinimap)
+            self.demo:SetChecked(ns.char.ui.demo)
+            self.optOut:SetChecked(ns.char.albumOptOut)
+        end
+        self.rival:SetText(ns.char.rivalGuild or "")
+        self.dataInfo:SetText(("%d événement(s) enregistré(s) sur ce compte.\nSchéma de données v%d."):format(ns.Store.Count(), ns.Settings.SCHEMA))
+        if ns.Sync then
+            local st = ns.Sync.Status()
+            local lines = {}
+            table.insert(lines, st.canSend and "|cff8fd88fActive|r" or ("|cffcc9933En pause|r (" .. tostring(st.reason) .. ")"))
+            table.insert(lines, ("Membres équipés vus : %d  ·  messages en attente : %d"):format(st.peers, st.queue))
+            table.insert(lines, ("Événements partagés connus : %d (%d auteurs)"):format(st.shared, st.authors))
+            local last = st.stats.lastReceived and UI.Ago(st.stats.lastReceived) or "jamais"
+            table.insert(lines, ("Reçus : %d  ·  dernier message : %s"):format(st.received, last))
+            if st.rejected > 0 then table.insert(lines, ("|cffcc6633%d événement(s) rejeté(s) (invalides)|r"):format(st.rejected)) end
+            self.syncInfo:SetText(table.concat(lines, "\n"))
+        end
+        local list = {}
+        for ev in pairs(ns.unsupportedEvents) do table.insert(list, ev) end
+        table.sort(list)
+        self.unsupported:SetText(#list > 0 and ("Événements indisponibles sur ce client : " .. table.concat(list, ", ")) or "")
+    end
+    f:SetScript("OnShow", function(self) self:Refresh() end)
+    return f
+end
+
+------------------------------------------------------------------------
+-- Native pages (Settings API, 11.0+ signatures, also used by Midnight / Forever)
+------------------------------------------------------------------------
 local function buildNative()
     local S = Settings
     local createCheckbox = S.CreateCheckbox or S.CreateCheckBox
     local createDropdown = S.CreateDropdown or S.CreateDropDown
     assert(S.RegisterVerticalLayoutCategory and S.RegisterAddOnSetting and createCheckbox and createDropdown,
         "Settings API incomplete")
-
-    local category, layout = S.RegisterVerticalLayoutCategory("Renatus")
-
-    local function header(text)
-        if CreateSettingsListSectionHeaderInitializer then
-            layout:AddInitializer(CreateSettingsListSectionHeaderInitializer(text))
-        end
-    end
-
-    local function button(label, text, tooltip, onClick)
-        if CreateSettingsButtonInitializer then
-            layout:AddInitializer(CreateSettingsButtonInitializer(label, text, onClick, tooltip, true))
-        end
-    end
-
-    -- tbl[field] is the stored value; onChange runs after the value is written.
-    local function setting(key, tbl, field, varType, name, default, onChange)
-        local s = S.RegisterAddOnSetting(category, "Renatus_" .. key, field, tbl, varType, name, default)
-        s:SetValueChangedCallback(function(_, value)
-            if onChange then onChange(value) end
-            UI.Refresh()
-        end)
-        return s
-    end
-
-    local function checkbox(key, tbl, field, name, default, tooltip, onChange)
-        createCheckbox(category, setting(key, tbl, field, S.VarType.Boolean, name, default, onChange), tooltip)
-    end
-
-    local function modeOptions()
-        local container = S.CreateControlTextContainer()
-        for _, m in ipairs(MODES) do container:Add(m[1], m[2]) end
-        return container:GetData()
-    end
-
     local char = ns.char
 
-    button("Fenêtre de Renatus", "Ouvrir", "Journal, guilde, tableau de chasse, gazette, album.",
-        function() openWindow() end)
+    local function page(category, layout)
+        local P = { category = category, layout = layout }
+        function P.header(text)
+            if CreateSettingsListSectionHeaderInitializer then
+                layout:AddInitializer(CreateSettingsListSectionHeaderInitializer(text))
+            end
+        end
+        function P.button(label, text, tooltip, onClick)
+            if CreateSettingsButtonInitializer then
+                layout:AddInitializer(CreateSettingsButtonInitializer(label, text, onClick, tooltip, true))
+            end
+        end
+        -- tbl[field] is the stored value; onChange runs after the value is written.
+        function P.setting(key, tbl, field, varType, name, default, onChange)
+            local s = S.RegisterAddOnSetting(category, "Renatus_" .. key, field, tbl, varType, name, default)
+            s:SetValueChangedCallback(function(_, value)
+                if onChange then onChange(value) end
+                UI.Refresh()
+            end)
+            return s
+        end
+        function P.checkbox(key, tbl, field, name, default, tooltip, onChange)
+            createCheckbox(category, P.setting(key, tbl, field, S.VarType.Boolean, name, default, onChange), tooltip)
+        end
+        function P.dropdown(key, tbl, field, name, default, choices, tooltip, onChange)
+            local s = P.setting(key, tbl, field, S.VarType.String, name, default, onChange)
+            createDropdown(category, s, function()
+                local container = S.CreateControlTextContainer()
+                for _, c in ipairs(choices) do container:Add(c[1], c[2]) end
+                return container:GetData()
+            end, tooltip)
+        end
+        function P.slider(key, tbl, field, name, default, min, max, step, format, tooltip, onChange)
+            if not (S.CreateSlider and S.CreateSliderOptions) then return end
+            local s = P.setting(key, tbl, field, S.VarType.Number, name, default, onChange)
+            local opts = S.CreateSliderOptions(min, max, step)
+            if opts.SetLabelFormatter and MinimalSliderWithSteppersMixin and MinimalSliderWithSteppersMixin.Label then
+                opts:SetLabelFormatter(MinimalSliderWithSteppersMixin.Label.Right, format)
+            end
+            S.CreateSlider(category, s, opts, tooltip)
+        end
+        return P
+    end
 
-    header("Interface")
-    checkbox("showMinimap", char.ui, "showMinimap", "Bouton sur la minicarte", true,
+    -- Main page
+    local category, layout = S.RegisterVerticalLayoutCategory("Renatus")
+    local P = page(category, layout)
+    P.button("Fenêtre de Renatus", "Ouvrir", "Gazette, album et journaux.", function() openWindow() end)
+    P.header("Affichage")
+    P.checkbox("showMinimap", char.ui, "showMinimap", "Bouton sur la minicarte", true,
         "Affiche le bouton de Renatus sur le bord de la minicarte. Renatus reste accessible par /renatus et par le menu des addons de la minicarte.",
         function() if UI.Minimap then UI.Minimap:Update() end end)
-    checkbox("simple", char.ui, "simple", "Vue simple (gazette et album)", true,
-        "La fenêtre de Renatus n'affiche que la gazette et l'album. Décoche pour avoir aussi les journaux, les membres, le tableau de chasse, la voix et les paramètres.",
-        function(v) UI.SetSimple(v) end)
-    checkbox("demo", char.ui, "demo", "Mode démo (données fictives)", false,
+    P.checkbox("demo", char.ui, "demo", "Mode démo (données fictives)", false,
         "Remplit chaque écran avec des données inventées. Rien n'est sauvegardé ni partagé.")
-
-    header("Collecte et confidentialité")
+    P.header("Collecte et confidentialité")
     for _, cat in ipairs(ns.Types.CATEGORIES) do
-        local s = setting("privacy_" .. cat.key, char.privacy, cat.key, S.VarType.String, cat.label, "P")
-        createDropdown(category, s, modeOptions,
-            "Désactivé : rien n'est enregistré. Privé : visible par toi seul. Guilde : partagé avec les membres équipés de l'addon.")
+        P.dropdown("privacy_" .. cat.key, char.privacy, cat.key, cat.label, "P", MODES, PRIVACY_HELP)
     end
-    checkbox("exportConsent", char, "exportConsent", "La gazette rédigée par IA peut parler de moi", false,
-        "Si coché, tes événements partagés avec la guilde peuvent être envoyés à une IA (Claude) par l'application du rédacteur, pour écrire la gazette. Si décoché, rien de toi n'est envoyé et ton nom est retiré des faits des autres. Ton choix est partagé avec la guilde.",
-        function(v) ns.Press.SetConsent(v) end)
-    checkbox("albumOptOut", char, "albumOptOut", "Ne pas apparaître dans l'album des autres", false,
+    P.checkbox("exportConsent", char, "exportConsent", "La gazette rédigée par IA peut parler de moi", false,
+        CONSENT_HELP, function(v) ns.Press.SetConsent(v) end)
+    P.checkbox("albumOptOut", char, "albumOptOut", "Ne pas apparaître dans l'album des autres", false,
         "Ta carte de membre n'est plus proposée dans l'album de guilde.")
 
-    header("Voix (Renacoach)")
-    checkbox("voice", char.voice, "enabled", "Répliques de Renacoach en combat", false,
-        "Joue les répliques d'origine de Renacoach en combat. Réglages détaillés dans l'onglet Voix.",
+    -- Voice page
+    local vcat, vlayout
+    if S.RegisterVerticalLayoutSubcategory then
+        vcat, vlayout = S.RegisterVerticalLayoutSubcategory(category, "Voix")
+    end
+    local V = vcat and page(vcat, vlayout) or P
+    if not vcat then P.header("Voix (Renacoach)") end
+    local voice = char.voice
+    local function rebuild() ns.Voice:RebuildPools() end
+    V.checkbox("voice", voice, "enabled", "Répliques de Renacoach en combat", false,
+        "Le coach vocal, pour la blague : les répliques d'origine de Renacoach, entendues par toi seul.",
         function(v) ns.Voice:SetEnabled(v) end)
+    V.button("Tester", "Écouter une réplique", "Joue une réplique au hasard parmi celles de ton rôle.", playSample)
+    V.slider("voiceProbability", voice, "probability", "Chance de réplique en combat", 0.5, 0, 1, 0.05,
+        function(v) return math.floor(v * 100 + 0.5) .. " %" end, "À chaque tirage en combat.")
+    V.slider("voiceInterval", voice, "interval", "Tirage toutes les", 3, 1, 15, 1,
+        function(v) return math.floor(v + 0.5) .. " s" end)
+    V.dropdown("voiceChannel", voice, "channel", "Canal audio", "Ambience", CHANNELS)
+    V.checkbox("voiceDuck", voice, "duck", "Baisser les effets sonores pendant une réplique", true, nil,
+        function(v) if not v then ns.Voice.RestoreVolume(true) end end)
+    V.slider("voiceDuckVolume", voice, "duckVolume", "Volume des effets pendant une réplique", 0.25, 0, 1, 0.05,
+        function(v) return math.floor(v * 100 + 0.5) .. " %" end)
+    V.dropdown("voiceRole", voice, "roleOverride", "Rôle", "AUTO", ROLES,
+        "Automatique : d'après la spécialisation ou le rôle de groupe. Si ta spé n'est pas reconnue (Forever), choisis-le ici.", rebuild)
+    V.dropdown("voiceType", voice, "typeOverride", "Style de combat", "AUTO", KINDS, nil, rebuild)
+    V.header("Familles de répliques")
+    for _, key in ipairs(FAMILY_ORDER) do
+        V.checkbox("voiceFamily_" .. key, voice.families, key, FAMILY_LABELS[key], true)
+    end
 
-    header("Plus de réglages")
-    button("Guilde rivale, synchronisation", "Paramètres", "Ouvre l'onglet Paramètres de la fenêtre de Renatus.",
-        function() openWindow("settings") end)
-    button("Réglages détaillés de la voix", "Voix", "Ouvre l'onglet Voix de la fenêtre de Renatus.",
-        function() openWindow("voice") end)
+    -- Guild page (text field: addon widgets on a canvas)
+    O.guildPanel = buildCanvas(false)
+    if S.RegisterCanvasLayoutSubcategory then
+        O.guildCategory = S.RegisterCanvasLayoutSubcategory(category, O.guildPanel, "Guilde")
+    end
 
     S.RegisterAddOnCategory(category)
+    O.voiceCategory = vcat
     return category
 end
 
--- Fallback: a plain frame with a title and a button to open the window.
+-- Fallback: one canvas page with every setting except the voice (/renatus voice).
 local function buildFallback()
-    local panel = CreateFrame("Frame")
-    panel.name = "Renatus"
-    local title = panel:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
-    title:SetPoint("TOPLEFT", 16, -16)
-    title:SetText("Renatus")
-    local text = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
-    text:SetPoint("TOPLEFT", 16, -44)
-    text:SetText("Les réglages sont dans la fenêtre de Renatus (onglet Paramètres).")
-    local b = UI.Button(panel, "Ouvrir Renatus", 160, 24, function() openWindow("settings") end)
-    b:SetPoint("TOPLEFT", 16, -72)
+    local panel = buildCanvas(true)
     O.fallbackPanel = panel
     if Settings and Settings.RegisterCanvasLayoutCategory and Settings.RegisterAddOnCategory then
         local category = Settings.RegisterCanvasLayoutCategory(panel, "Renatus")
@@ -144,15 +303,19 @@ function O:OnInitialize()
     if ok then self.category = result else self.error = result end
 end
 
--- Opens the game's options on the Renatus page (falls back to the addon window).
-function O.Open()
+-- Opens the game's options on a Renatus page: nil / "settings" = main, "voice", "guild".
+function O.Open(which)
     local c = O.category
+    if which == "voice" and O.voiceCategory then c = O.voiceCategory end
+    if which == "guild" and O.guildCategory then c = O.guildCategory end
     if c and Settings and Settings.OpenToCategory and type(c) == "table" and c.GetID then
         Settings.OpenToCategory(c:GetID())
+        return true
     elseif c and InterfaceOptionsFrame_OpenToCategory then
         InterfaceOptionsFrame_OpenToCategory(c)
         InterfaceOptionsFrame_OpenToCategory(c) -- twice: known bug of the old panel
-    else
-        UI.Open("settings")
+        return true
     end
+    ns.Print("options indisponibles sur ce client : /renatus help")
+    return false
 end

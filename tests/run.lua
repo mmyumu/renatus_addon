@@ -376,7 +376,9 @@ test("tous les onglets s'ouvrent (donnees reelles vides)", function()
     SlashCmdList.RENATUS("")
     assert(RenatusMainFrame:IsShown(), "fenetre ouverte")
     openAllTabs(ns)
-    eq(#ns.UI.tabs, 8)
+    eq(#ns.UI.tabs, 6, "gazette, album + 4 journaux ; les reglages sont dans les Options")
+    eq(ns.UI.tabs[1].key, "gazette"); eq(ns.UI.tabs[2].key, "album")
+    assert(RenatusMainFrame.journalsLabel, "section journaux")
 end)
 
 test("tous les onglets s'ouvrent (demo) et se remplissent", function()
@@ -436,12 +438,14 @@ test("album : ouvrir un booster en demo", function()
     eq(ds.boosters, before - 1)
 end)
 
-test("voix : la case active le module", function()
-    local ns = boot({ specIndex = 1 })
-    ns.UI.Open("voice")
-    local c = RenatusMainFrame.containers.voice
-    c.enabled:Click()
+test("voix : la case des Options active le module", function()
+    local ns, S = boot({ specIndex = 1, settingsApi = true })
+    S.settings.byVar.Renatus_voice:SetValue(true)
     eq(ns.char.voice.enabled, true)
+    S.settings.byVar.Renatus_voiceProbability:SetValue(0.8)
+    eq(ns.char.voice.probability, 0.8)
+    S.settings.byVar.Renatus_voiceFamily_death:SetValue(false)
+    eq(ns.char.voice.families.death, false)
 end)
 
 test("formulaires : anecdote manuelle marquee 'declare'", function()
@@ -900,8 +904,7 @@ end)
 test("consentement gazette IA : publie et partage, le dernier choix compte", function()
     local ns = boot({ specIndex = 1 })
     eq(#eventsOf(ns, "AI_CONSENT"), 0, "rien coche : rien a annoncer")
-    ns.UI.Open("settings")
-    local c = RenatusMainFrame.containers.settings
+    local c = ns.UI.Options.fallbackPanel   -- no Settings API in this test: the single canvas page
     c.export:Click()
     local ev = eventsOf(ns, "AI_CONSENT")[1]
     eq(ev.vis, "G", "partage meme si la categorie est privee"); eq(ev.p.ok, true)
@@ -916,15 +919,15 @@ end)
 
 print("Interface (v0.3)")
 
-test("parametres : etat de la synchronisation ; voix : reglages manuels", function()
+test("options (page de repli) : confidentialite, guilde rivale, synchronisation", function()
     local ns = boot({ specIndex = 1 })
-    ns.UI.Open("settings")
-    local c = RenatusMainFrame.containers.settings
+    local c = ns.UI.Options.fallbackPanel
+    c.scripts.OnShow(c)
     assert(c.syncInfo:GetText():find("Membres"), "etat de synchro")
     c.syncNow:Click()
-    ns.UI.Open("voice")
-    local v = RenatusMainFrame.containers.voice
-    assert(v.status:GetText():find("Rôle"), "statut voix")
+    c.privacy.combat:SetValue("G")
+    c.rival:SetText("Les Crocs")
+    eq(ns.char.rivalGuild, "Les Crocs")
 end)
 
 print("Acces a l'addon (v0.4.2)")
@@ -961,36 +964,49 @@ test("menu des addons de la minicarte (Retail) : ouvre la fenetre ou les paramet
     entry.func(nil, nil, nil, nil, "LeftButton")             -- 10.x menus
     eq(RenatusMainFrame:IsShown(), false, "ferme")
     entry.func(nil, { buttonName = "RightButton" })
-    eq(ns.UI.current, "settings", "clic droit : parametres")
+    eq(ns.UI.current, "gazette", "clic droit : options du jeu, pas la fenetre")
 end)
 
-test("menu Options du jeu : reglages natifs relies aux memes donnees que la fenetre", function()
+test("menu Options du jeu : page principale, sous-pages Voix et Guilde", function()
     local ns, S = boot({ specIndex = 1, settingsApi = true })
     local reg = S.settings
     eq(ns.UI.Options.native, true, ns.UI.Options.error)
     eq(#reg.categories, 1); eq(reg.categories[1].name, "Renatus")
-    eq(#reg.controls, 6 + #ns.Types.CATEGORIES, "minicarte, vue simple, demo, consentement, album, voix + confidentialite")
-    -- privacy: same table as the window
+    eq(#reg.subcategories, 2); eq(reg.subcategories[1].name, "Voix"); eq(reg.subcategories[2].name, "Guilde")
+    local main, voice = 0, 0
+    for _, c in ipairs(reg.controls) do
+        if c.category == reg.categories[1] then main = main + 1 else voice = voice + 1 end
+    end
+    eq(main, 4 + #ns.Types.CATEGORIES, "minicarte, demo, consentement, album + confidentialite")
+    eq(voice, 8 + 10, "voix : 8 reglages + 10 familles")
+    -- privacy: same table as everywhere
     reg.byVar.Renatus_privacy_combat:SetValue("G")
     eq(ns.char.privacy.combat, "G")
     ns.char.privacy.pvp = "OFF"
     eq(reg.byVar.Renatus_privacy_pvp:GetValue(), "OFF", "lit la valeur courante")
-    -- minimap button follows the checkbox
     reg.byVar.Renatus_showMinimap:SetValue(false)
     eq(ns.UI.Minimap.button:IsShown(), false)
-    -- consent goes through Press: published and shared
     reg.byVar.Renatus_exportConsent:SetValue(true)
     eq(ns.Press.LastConsent().p.ok, true)
-    -- voice
-    reg.byVar.Renatus_voice:SetValue(true)
-    eq(ns.char.voice.enabled, true)
-    -- buttons open the window, closing the options panel
+    -- the "Open" button opens the window and closes the options panel
     SettingsPanel:Show()
-    reg.buttons[#reg.buttons].onClick()
+    reg.buttons[1].onClick()
     eq(SettingsPanel:IsShown(), false, "panneau Options ferme")
-    eq(ns.UI.current, "voice")
-    -- /renatus options
+    assert(RenatusMainFrame:IsShown())
+    eq(ns.UI.current, "gazette")
+    -- Guild page: rival guild text field, sync status
+    local g = ns.UI.Options.guildPanel
+    g.scripts.OnShow(g)
+    g.rival:SetText("Les Crocs de Sang")
+    eq(ns.char.rivalGuild, "Les Crocs de Sang")
+    assert(g.syncInfo:GetText():find("Membres"), "etat de synchro")
+    g.syncNow:Click()
+    -- opening pages
     SlashCmdList.RENATUS("options")
+    eq(reg.opened, reg.categories[1]:GetID())
+    ns.UI.Open("voice")
+    eq(reg.opened, reg.subcategories[1]:GetID(), "/renatus voice -> sous-page Voix")
+    ns.UI.Open("settings")
     eq(reg.opened, reg.categories[1]:GetID())
 end)
 
@@ -1004,10 +1020,12 @@ test("menu Options du jeu : API differente, repli sur un panneau avec un bouton"
     eq(S.settings.categories[1].frame, ns.UI.Options.fallbackPanel)
 end)
 
-test("menu Options du jeu : client sans API Settings, /renatus options ouvre la fenetre", function()
-    local ns = boot({ specIndex = 1 })
-    SlashCmdList.RENATUS("options")
-    eq(ns.UI.current, "settings")
+test("menu Options du jeu : client sans aucune API d'options, un message", function()
+    local ns, S = boot({ specIndex = 1 })
+    eq(ns.UI.Options.Open(), false)
+    local found
+    for _, line in ipairs(S.printed) do if line:find("options indisponibles") then found = true end end
+    assert(found, "message")
 end)
 
 print("Habillage et gazette (v0.5.0)")
@@ -1228,47 +1246,17 @@ test("suppression : seulement mes saisies manuelles ; en demo aussi", function()
     eq(inDataset(ns, ev.id), false)
 end)
 
-print("Vue simple")
+print("Fenetre : contenu seulement")
 
-test("vue simple par defaut : gazette et album seulement", function()
+test("fenetre : gazette par defaut, gazette et album en tete, puis les journaux", function()
     local ns = boot({ specIndex = 1 })
-    eq(ns.char.ui.simple, true)
     SlashCmdList.RENATUS("")
     local f = RenatusMainFrame
-    assert(f:IsShown())
     eq(ns.UI.current, "gazette")
-    local visible = {}
-    for key, b in pairs(f.navButtons) do if b:IsShown() then visible[#visible + 1] = key end end
-    table.sort(visible)
-    eq(table.concat(visible, ","), "album,gazette")
-    ns.UI.Open("album")
-    eq(ns.char.ui.simple, true, "l'album reste dans la vue simple")
-    eq(ns.UI.current, "album")
-    eq(f.modeButton.label:GetText(), "Tout afficher")
-    -- full view: every tab
-    f.modeButton:Click()
-    eq(ns.char.ui.simple, false)
-    eq(f.navButtons.wanted:IsShown(), true)
-    eq(ns.UI.current, "album", "onglet conserve")
-    eq(f.modeButton.label:GetText(), "Vue simple")
-    ns.UI.ShowTab("wanted")
-    f.modeButton:Click()
-    eq(ns.UI.current, "gazette", "retour a la gazette")
-    eq(f.navButtons.wanted:IsShown(), false)
-end)
-
-test("vue simple : demander un autre onglet passe en vue complete", function()
-    local ns = boot({ specIndex = 1 })
-    ns.UI.Open("settings")   -- e.g. minimap right click
-    eq(ns.char.ui.simple, false)
-    eq(ns.UI.current, "settings")
-    eq(RenatusMainFrame.navButtons.settings:IsShown(), true)
-    local c = RenatusMainFrame.containers.settings
-    c.simple:Click()
-    eq(ns.char.ui.simple, true)
-    eq(ns.UI.current, "gazette")
-    SlashCmdList.RENATUS("simple")
-    eq(ns.char.ui.simple, false)
+    eq(f.navButtons.gazette.height, 52); eq(f.navButtons.album.height, 52)
+    eq(f.navButtons.journal.height, 32)
+    eq(f.navButtons.settings, nil); eq(f.navButtons.voice, nil)
+    assert(f.options, "bouton Options")
 end)
 
 print(string.format("\n%d ok, %d echec(s)", passed, failed))

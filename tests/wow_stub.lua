@@ -263,7 +263,7 @@ end
 -- Simplified Settings API (Retail 11.0+ signatures). S.settings records what the
 -- addon registered: categories, settings (by variable), controls and buttons.
 function Stub.installSettingsApi(S)
-    local reg = { categories = {}, byVar = {}, controls = {}, buttons = {}, headers = {}, opened = nil }
+    local reg = { categories = {}, subcategories = {}, byVar = {}, controls = {}, buttons = {}, headers = {}, opened = nil }
     S.settings = reg
     local function newCategory(name, frame)
         local cat = { name = name, frame = frame, id = #reg.categories + 1 }
@@ -278,6 +278,7 @@ function Stub.installSettingsApi(S)
     local function control(kind)
         return function(category, setting, options, tooltip)
             table.insert(reg.controls, { kind = kind, setting = setting, options = options, category = category })
+            if kind == "slider" and options and options.format then setting.formatted = options.format(setting:GetValue()) end
         end
     end
     Settings = {
@@ -287,6 +288,24 @@ function Stub.installSettingsApi(S)
             return cat, newLayout(cat)
         end,
         RegisterCanvasLayoutCategory = function(frame, name) return newCategory(name, frame) end,
+        RegisterVerticalLayoutSubcategory = function(parent, name)
+            local cat = newCategory(name)
+            cat.parent = parent
+            table.insert(reg.subcategories, cat)
+            cat.id = 100 + #reg.subcategories
+            return cat, newLayout(cat)
+        end,
+        RegisterCanvasLayoutSubcategory = function(parent, frame, name)
+            local cat = newCategory(name, frame)
+            cat.parent = parent
+            table.insert(reg.subcategories, cat)
+            cat.id = 100 + #reg.subcategories
+            return cat
+        end,
+        CreateSlider = control("slider"),
+        CreateSliderOptions = function(min, max, step)
+            return { min = min, max = max, step = step, SetLabelFormatter = function(self, _, fn) self.format = fn end }
+        end,
         RegisterAddOnCategory = function(cat) table.insert(reg.categories, cat) end,
         RegisterAddOnSetting = function(category, variable, key, tbl, varType, name, default)
             assert(not reg.byVar[variable], "variable deja enregistree : " .. variable)

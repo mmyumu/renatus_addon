@@ -638,5 +638,5 @@ local function build(c)
     end
 end
 
-UI.RegisterTab({ key = "gazette", simple = true, label = "Gazette", icon = "Interface\\Icons\\INV_Misc_Note_06", order = 50,
+UI.RegisterTab({ key = "gazette", group = "main", label = "Gazette", icon = "Interface\\Icons\\INV_Misc_Note_06", order = 1,
     build = build, refresh = function(c) c:Refresh() end })

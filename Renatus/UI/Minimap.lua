@@ -25,11 +25,11 @@ local function place(button, angle)
 end
 
 local function onClick(button)
-    if button == "RightButton" then UI.Open("settings") else UI.Toggle() end
+    if button == "RightButton" then UI.Options.Open() else UI.Toggle() end
 end
 M.OnClick = onClick
 
-local TOOLTIP = { "Clic gauche : ouvrir", "Clic droit : paramètres", "Glisser : déplacer" }
+local TOOLTIP = { "Clic gauche : ouvrir", "Clic droit : options", "Glisser : déplacer" }
 
 local function createButton(self)
     local b = CreateFrame("Button", "RenatusMinimapButton", Minimap)

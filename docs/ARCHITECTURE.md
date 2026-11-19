@@ -20,6 +20,12 @@
 
 ## 1. État actuel du dépôt
 
+### Avancement v0.9.0 (19/11/2026)
+
+- **La fenêtre ne montre que du contenu** : Gazette et Album en tête (grands boutons), puis la section « Journaux » (Mon journal, Guilde, Membres, Tableau de chasse). La Gazette s'ouvre par défaut. La vue simple/complète de la v0.8 disparaît.
+- **Tous les réglages sont dans Échap > Options > AddOns > Renatus** (`UI/Options.lua`) : page principale (affichage, confidentialité, consentement IA, album) ; sous-page **Voix** (réglages natifs, curseurs compris) ; sous-page **Guilde** (widgets de l'addon : guilde rivale, synchronisation, données). Sans l'API Settings, une seule page reprend tout sauf la voix (`/renatus voice`). Le bouton « Options » de la fenêtre, le clic droit sur la minicarte, `/renatus options` et `/renatus voice` ouvrent la bonne page.
+- Les onglets Voix et Paramètres sont supprimés de la fenêtre.
+
 ### Avancement v0.8.2 (19/11/2026)
 
 - **Trois niveaux d'usage** :

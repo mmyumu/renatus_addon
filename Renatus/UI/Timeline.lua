@@ -219,7 +219,7 @@ function UI.BuildTimeline(c, mode)
             local anyShared = false
             for _, v in pairs(shared) do if v == "G" then anyShared = true end end
             self.info:SetText((ds.isDemo or anyShared) and "Événements partagés par les membres équipés de l'addon."
-                or "Tu ne partages encore rien : règle des catégories sur « Guilde » dans les Paramètres.")
+                or "Tu ne partages encore rien : règle des catégories sur « Guilde » dans Options > AddOns > Renatus.")
             emptyText = ds.guildKey and "Aucun événement pour ces filtres." or "Tu n'es dans aucune guilde."
         end
         local events = Views.Filter(ds.events, f)
