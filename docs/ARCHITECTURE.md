@@ -20,6 +20,12 @@
 
 ## 1. État actuel du dépôt
 
+### Avancement v0.11.0 (19/11/2026)
+
+- **Album** : boosters réels (1 par jour joué, +1 par niveau, boss ou sortie avec un membre de la guilde, 5 par jour au plus ; ouvertures enregistrées en événements `BOOSTER_OPEN` cachés, collection rejouée depuis eux). Série fixe **Azeroth** (`Core/Cards.lua`, 123 cartes en 7 séries) et cartes de guilde enrichies (paliers de niveau, avis de recherche, boss, sorties, morts mémorables, unes).
+- **Visuel des cartes** : cadre teinté selon la rareté, dos de carte, gemme, halo pour épique et légendaire ; image = icône recadrée, la première candidate présente sur le client (`UI.CardArt`, `GetFileIDFromPath`). Booster distribué face cachée puis retourné carte par carte. Filtre Guilde / Azeroth.
+- Reste : échanges de cartes entre membres.
+
 ### Avancement v0.9.0 (19/11/2026)
 
 - **La fenêtre ne montre que du contenu** : Gazette et Album en tête (grands boutons), puis la section « Journaux » (Mon journal, Guilde, Membres, Tableau de chasse). La Gazette s'ouvre par défaut. La vue simple/complète de la v0.8 disparaît.

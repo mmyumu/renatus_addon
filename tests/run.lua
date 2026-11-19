@@ -1279,5 +1279,33 @@ test("album : boosters gagnes (jour joue, niveau), ouverture enregistree, serie 
     eq(total, 5)
 end)
 
+test("album : icone de carte = premiere presente sur le client, sinon la generique", function()
+    local ns = boot({ specIndex = 1 })
+    local present = { ["Interface\\Icons\\Achievement_Zone_Westfall_01"] = true }
+    function GetFileIDFromPath(path) return present[path] and 1 or nil end
+    local card = { id = "t1", icons = { "Achievement_Zone_Westfall", "Achievement_Zone_Westfall_01", "INV_Misc_Map_01" } }
+    eq(ns.UI.CardArt(card), "Interface\\Icons\\Achievement_Zone_Westfall_01")
+    local none = { id = "t2", icons = { "Nope", "INV_Misc_Map_01" } }
+    eq(ns.UI.CardArt(none), "Interface\\Icons\\INV_Misc_Map_01", "repli sur la derniere")
+    GetFileIDFromPath = nil
+end)
+
+test("album : booster distribue face cachee, cartes retournees une a une ; filtre Azeroth", function()
+    local ns = boot({ specIndex = 1 })
+    SlashCmdList.RENATUS("demo")
+    ns.UI.Open("album")
+    local c = RenatusMainFrame.containers.album
+    c.booster:Click()
+    local shown = 0
+    for _, f in ipairs(c.cards) do if f:IsShown() then shown = shown + 1 end end
+    assert(shown > 0)
+    c.series = "family:azeroth"; c:Refresh()
+    for _, f in ipairs(c.cards) do
+        if f:IsShown() then assert(f.card.azeroth, "seulement Azeroth") end
+    end
+    assert(c.progress:GetText():find("/ 123 cartes"), c.progress:GetText())
+    Stub.advance(2)
+end)
+
 print(string.format("\n%d ok, %d echec(s)", passed, failed))
 os.exit(failed == 0 and 0 or 1)
