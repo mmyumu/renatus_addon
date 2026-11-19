@@ -223,5 +223,5 @@ local function build(c)
     end
 end
 
-UI.RegisterTab({ key = "album", label = "Album", icon = "Interface\\Icons\\INV_Misc_Ticket_Tarot_Stack_01", order = 60,
+UI.RegisterTab({ key = "album", simple = true, label = "Album", icon = "Interface\\Icons\\INV_Misc_Ticket_Tarot_Stack_01", order = 60,
     build = build, refresh = function(c) c:Refresh() end })

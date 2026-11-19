@@ -20,6 +20,13 @@
 
 ## 1. État actuel du dépôt
 
+### Avancement v0.8.2 (19/11/2026)
+
+- **Trois niveaux d'usage** :
+  1. **Vue simple** (par défaut, tous les membres) : Gazette et Album. Les onglets portent `simple = true`.
+  2. **Vue complète** (« Tout afficher ») : en plus, les journaux, les membres, le tableau de chasse, la voix et les paramètres.
+  3. **Rédaction** (le rédacteur seul) : l'addon `Renatus_Press` (sans lui, aucun bouton « Rédaction » n'apparaît) et le compagnon hors jeu (LLM).
+
 ### Avancement v0.8.0 (19/11/2026)
 
 - **Vue simple, par défaut** : la fenêtre n'affiche que la gazette, sans navigation (fenêtre réduite à 754 × 630). Le bouton « Tout afficher » du bandeau, la case des Paramètres et du menu Options, ou `/renatus simple` passent à la vue complète. Demander un autre onglet par son nom (clic droit sur la minicarte, `/renatus wanted`…) bascule aussi en vue complète. La collecte et la synchronisation fonctionnent pareil dans les deux vues.

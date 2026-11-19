@@ -58,7 +58,7 @@ local function build(c)
         if UI.Minimap then UI.Minimap:Update() end
     end)
     c.minimap:SetPoint("TOPLEFT", 360, -178)
-    c.simple = UI.Checkbox(c, "Vue simple (seulement la gazette)", function(v) UI.SetSimple(v) end)
+    c.simple = UI.Checkbox(c, "Vue simple (gazette et album)", function(v) UI.SetSimple(v) end)
     c.simple:SetPoint("TOPLEFT", 360, -156)
     c.demo = UI.Checkbox(c, "Mode démo (données fictives)", function(v)
         ns.char.ui.demo = v

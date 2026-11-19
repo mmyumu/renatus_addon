@@ -1230,24 +1230,31 @@ end)
 
 print("Vue simple")
 
-test("vue simple par defaut : la gazette seule, sans navigation", function()
+test("vue simple par defaut : gazette et album seulement", function()
     local ns = boot({ specIndex = 1 })
     eq(ns.char.ui.simple, true)
     SlashCmdList.RENATUS("")
     local f = RenatusMainFrame
     assert(f:IsShown())
     eq(ns.UI.current, "gazette")
-    eq(f.nav:IsShown(), false)
-    eq(f.width, ns.UI.CONTENT_W + 16 + 40, "fenetre etroite")
+    local visible = {}
+    for key, b in pairs(f.navButtons) do if b:IsShown() then visible[#visible + 1] = key end end
+    table.sort(visible)
+    eq(table.concat(visible, ","), "album,gazette")
+    ns.UI.Open("album")
+    eq(ns.char.ui.simple, true, "l'album reste dans la vue simple")
+    eq(ns.UI.current, "album")
     eq(f.modeButton.label:GetText(), "Tout afficher")
-    -- full view
+    -- full view: every tab
     f.modeButton:Click()
     eq(ns.char.ui.simple, false)
-    eq(f.nav:IsShown(), true); eq(f.width, ns.UI.WIDTH)
+    eq(f.navButtons.wanted:IsShown(), true)
+    eq(ns.UI.current, "album", "onglet conserve")
     eq(f.modeButton.label:GetText(), "Vue simple")
     ns.UI.ShowTab("wanted")
     f.modeButton:Click()
     eq(ns.UI.current, "gazette", "retour a la gazette")
+    eq(f.navButtons.wanted:IsShown(), false)
 end)
 
 test("vue simple : demander un autre onglet passe en vue complete", function()
@@ -1255,7 +1262,7 @@ test("vue simple : demander un autre onglet passe en vue complete", function()
     ns.UI.Open("settings")   -- e.g. minimap right click
     eq(ns.char.ui.simple, false)
     eq(ns.UI.current, "settings")
-    eq(RenatusMainFrame.nav:IsShown(), true)
+    eq(RenatusMainFrame.navButtons.settings:IsShown(), true)
     local c = RenatusMainFrame.containers.settings
     c.simple:Click()
     eq(ns.char.ui.simple, true)

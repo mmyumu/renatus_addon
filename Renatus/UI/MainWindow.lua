@@ -84,9 +84,9 @@ local function build()
     f.modeButton:SetPoint("BOTTOMRIGHT", -14, 10)
     UI.Tooltip(f.modeButton, function()
         if ns.char.ui.simple then
-            return "Vue complète", { "Journal, guilde, membres, tableau de chasse, album, voix et paramètres." }
+            return "Vue complète", { "Ajoute ton journal, celui de la guilde, les membres, le tableau de chasse, la voix et les paramètres." }
         end
-        return "Vue simple", { "Seulement la gazette." }
+        return "Vue simple", { "Seulement la gazette et l'album." }
     end)
 
     -- Close button: square red plate with a gold cross.
@@ -169,18 +169,27 @@ end
 
 function UI.GetWindow() return window or build() end
 
--- Simple view: the window shows the gazette alone, without the navigation.
-UI.SIMPLE_TAB = "gazette"
+-- Simple view: only the tabs every member wants (tab.simple: gazette and album).
+-- The full view adds the journals, the wanted board, voice and settings.
+UI.SIMPLE_TAB = "gazette"   -- default tab of the simple view
+
+function UI.IsSimpleTab(key)
+    for _, t in ipairs(UI.tabs) do if t.key == key then return t.simple == true end end
+    return false
+end
+
 local function applyLayout(f)
     local simple = ns.char.ui.simple
-    f.nav:SetShown(not simple)
-    f.content:ClearAllPoints()
-    if simple then
-        f.content:SetPoint("TOPLEFT", MARGIN, -TOP)
-        f:SetSize(MARGIN + UI.CONTENT_W + 16 + MARGIN, UI.HEIGHT)
-    else
-        f.content:SetPoint("TOPLEFT", MARGIN + UI.NAV_W + GAP, -TOP)
-        f:SetSize(UI.WIDTH, UI.HEIGHT)
+    local i = 0
+    for _, tab in ipairs(UI.tabs) do
+        local b = f.navButtons[tab.key]
+        local visible = not simple or tab.simple
+        b:SetShown(visible)
+        if visible then
+            b:ClearAllPoints()
+            b:SetPoint("TOPLEFT", 6, -10 - i * 44)
+            i = i + 1
+        end
     end
     f.modeButton:SetLabel(simple and "Tout afficher" or "Vue simple")
 end
@@ -189,7 +198,11 @@ function UI.SetSimple(simple)
     ns.char.ui.simple = simple and true or false
     local f = UI.GetWindow()
     applyLayout(f)
-    if f:IsShown() then UI.ShowTab(simple and UI.SIMPLE_TAB or (UI.current or ns.char.ui.tab)) end
+    if f:IsShown() then
+        local key = UI.current or ns.char.ui.tab
+        if simple and not UI.IsSimpleTab(key) then key = UI.SIMPLE_TAB end
+        UI.ShowTab(key)
+    end
     if UI.Options and UI.Options.Refresh then UI.Options.Refresh() end
 end
 
@@ -235,10 +248,12 @@ end
 
 function UI.Open(key)
     local f = UI.GetWindow()
-    -- Asking for another tab by name (minimap right click, /renatus wanted...) leaves the simple view.
-    if ns.char.ui.simple and key and key ~= UI.SIMPLE_TAB then ns.char.ui.simple = false end
+    -- Asking for a full-view tab by name (minimap right click, /renatus wanted...) leaves the simple view.
+    if ns.char.ui.simple and key and not UI.IsSimpleTab(key) then ns.char.ui.simple = false end
     applyLayout(f)
-    if ns.char.ui.simple then key = UI.SIMPLE_TAB end
+    if ns.char.ui.simple and not key then
+        key = UI.IsSimpleTab(UI.current or ns.char.ui.tab) and (UI.current or ns.char.ui.tab) or UI.SIMPLE_TAB
+    end
     f:Show()
     UI.RefreshHeader()
     UI.ShowTab(key or UI.current or ns.char.ui.tab)
