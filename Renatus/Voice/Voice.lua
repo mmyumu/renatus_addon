@@ -202,11 +202,32 @@ function Voice:PlayFile(name)
 end
 
 -- Plays a random line from the given families. Does nothing if the module is disabled.
+-- Only the in-game triggers below call it: the line is then "heard" (see PlaySample).
 function Voice:PlayFamilies(families)
     if not settings().enabled then return false end
     local sounds = self:CollectSounds(families)
     if #sounds == 0 then return false end
-    return self:PlayFile(sounds[math.random(#sounds)])
+    local willPlay, name = self:PlayFile(sounds[math.random(#sounds)])
+    if willPlay then settings().lastHeard = name end
+    return willPlay, name
+end
+
+-- Line of the "Tester" button: always the same one until a line is heard in combat.
+Voice.SAMPLE = FAMILIES.startFight[1]
+
+local function known(name)
+    for _, list in pairs(FAMILIES) do
+        for _, s in ipairs(list) do if s == name then return true end end
+    end
+    return false
+end
+
+-- Test of the volume and channel: replays the last line heard in combat, else the
+-- sample line. Never a random one: the other lines are earned by playing.
+function Voice:PlaySample()
+    local name = settings().lastHeard
+    if not known(name) then name = Voice.SAMPLE end
+    return self:PlayFile(name)
 end
 
 function Voice:Play(family) return self:PlayFamilies({ family }) end

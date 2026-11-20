@@ -32,6 +32,7 @@ local CHAR_DEFAULTS = {
         duckVolume = 0.25,
         roleOverride = "AUTO",   -- AUTO, TANK, HEALER, DAMAGER
         typeOverride = "AUTO",   -- AUTO, melee, caster, ranged
+        -- lastHeard = nil       -- last line heard in game, replayed by the "Tester" button
         families = {
             startFight = true, endFight = true, death = true,
             fightGeneric = true, fightTank = true, fightHealer = true, fightDPS = true,

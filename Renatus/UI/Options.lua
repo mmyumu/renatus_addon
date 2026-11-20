@@ -51,13 +51,7 @@ local function openWindow(tab)
 end
 O.OpenWindow = openWindow
 
-local function playSample()
-    local v = ns.char.voice
-    local was = v.enabled
-    v.enabled = true
-    ns.Voice:PlayFamilies(ns.Voice:GetCombatFamilies())
-    v.enabled = was
-end
+local function playSample() ns.Voice:PlaySample() end
 O.PlaySample = playSample
 
 ------------------------------------------------------------------------
@@ -207,7 +201,9 @@ local function buildNative()
     V.checkbox("voice", voice, "enabled", "Répliques de Renacoach en combat", false,
         "Le coach vocal, pour la blague : les répliques d'origine de Renacoach, entendues par toi seul.",
         function(v) ns.Voice:SetEnabled(v) end)
-    V.button("Tester", "Écouter une réplique", "Joue une réplique au hasard parmi celles de ton rôle.", playSample)
+    V.button("Tester", "Écouter une réplique",
+        "Rejoue la dernière réplique entendue en combat (une réplique d'exemple tant que tu n'en as entendu aucune), pour régler le volume. Les autres se découvrent en jouant.",
+        playSample)
     V.slider("voiceProbability", voice, "probability", "Chance de réplique en combat", 0.5, 0, 1, 0.05,
         function(v) return math.floor(v * 100 + 0.5) .. " %" end, "À chaque tirage en combat.")
     V.slider("voiceInterval", voice, "interval", "Tirage toutes les", 3, 1, 15, 1,

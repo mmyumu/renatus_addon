@@ -122,6 +122,28 @@ test("entree en combat puis repliques periodiques (proba 1)", function()
     eq(S.played[2].channel, "Ambience")
 end)
 
+test("bouton Tester : jamais au hasard, la derniere replique entendue en combat", function()
+    local ns, S = boot({ class = "WARRIOR", specIndex = 1 })
+    -- Before any fight: always the same sample line, even when spammed, module off or on.
+    for _ = 1, 5 do ns.UI.Options.PlaySample() end
+    SlashCmdList.RENATUS("voice test")
+    eq(#S.played, 6)
+    for _, p in ipairs(S.played) do eq(soundName(p), ns.Voice.SAMPLE, "toujours la replique d'exemple") end
+    -- A line heard in combat becomes the one the button replays.
+    ns.Voice:SetEnabled(true)
+    S.inCombat = true
+    S.randomValue = 0
+    Stub.fire("PLAYER_REGEN_DISABLED")
+    Stub.advance(3.05)
+    local heard = soundName(S.played[#S.played])
+    eq(ns.char.voice.lastHeard, heard)
+    S.inCombat = false
+    ns.UI.Options.PlaySample()
+    ns.UI.Options.PlaySample()
+    eq(soundName(S.played[#S.played]), heard)
+    eq(soundName(S.played[#S.played - 1]), heard)
+end)
+
 test("tirage au-dessus de la probabilite : pas de replique periodique", function()
     local ns, S = boot({ specIndex = 1 })
     ns.Voice:SetEnabled(true)

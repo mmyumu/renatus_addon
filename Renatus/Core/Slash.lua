@@ -33,9 +33,8 @@ local function voiceCommand(args)
     elseif cmd == "" or cmd == "status" then
         voiceStatus()
     elseif cmd == "test" then
-        if not s.enabled then ns.Print("active d'abord le module : /renatus voice on") return end
-        local pool = ns.Voice:GetCombatFamilies()
-        local _, name = ns.Voice:PlayFamilies(pool)
+        -- The last line heard in combat (else the sample one), never a random one.
+        local _, name = ns.Voice:PlaySample()
         ns.Print("test : %s", tostring(name))
     elseif cmd == "prob" then
         local p = tonumber(rest)
