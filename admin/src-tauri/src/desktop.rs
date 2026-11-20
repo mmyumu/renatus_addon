@@ -1,6 +1,7 @@
 //! Windows shell of the admin app: one window, the work happens in renatus-admin-core.
 //!
-//! Every 20 s it looks at the addon's SavedVariables. When the game rewrote them
+//! Every 20 s it re-reads the installed addon versions (the launcher may update them)
+//! and looks at the addon's SavedVariables. When the game rewrote them
 //! (/reload, logout) and "automatique" is on, it proposes the combat-log deaths,
 //! refreshes the rival guild from the armory once a day and, if asked, writes the
 //! week's AI gazette, then notifies: "N éléments en attente, /reload".
@@ -11,7 +12,7 @@ use std::time::{Duration, SystemTime};
 
 use renatus_admin_core::config::Config;
 use renatus_admin_core::ops::{self, Proposal, Status};
-use renatus_admin_core::paths::WowPaths;
+use renatus_admin_core::paths::{WowPaths, ADMIN_ADDON};
 use renatus_admin_core::{addon, armory, chronicle::Chronicle, edition, gazette, issues};
 use renatus_launcher_core::wow;
 use serde::{Deserialize, Serialize};
@@ -561,10 +562,30 @@ fn sv_modified(cfg: &Config) -> Option<SystemTime> {
     std::fs::metadata(sv).ok()?.modified().ok()
 }
 
+/// Versions of Renatus and Renatus_Admin on disk differ from the ones shown (installed
+/// meanwhile by the launcher, the update button or a deploy)?
+fn addon_versions_changed(app: &AppHandle, cfg: &Config) -> bool {
+    let Some(paths) = cfg.paths() else {
+        return false;
+    };
+    let addons = paths.addons();
+    let renatus = addon::installed_version(&addons, "Renatus");
+    let admin = addon::installed_version(&addons, ADMIN_ADDON);
+    let shared = app.state::<Shared>();
+    let s = shared.state.lock().unwrap();
+    s.status
+        .as_ref()
+        .is_some_and(|st| st.renatus_version != renatus || st.admin_version != admin)
+}
+
 async fn watch(app: AppHandle) {
     loop {
         tokio::time::sleep(WATCH_EVERY).await;
         let cfg = config(&app);
+        if addon_versions_changed(&app, &cfg) {
+            refresh_status(&app);
+            publish_view(&app);
+        }
         let Some(modified) = sv_modified(&cfg) else {
             continue;
         };
