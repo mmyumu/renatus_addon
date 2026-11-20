@@ -173,7 +173,8 @@ function UI.Dialogs.Wanted(name)
         { key = "reward", label = "Récompense (symbolique)", value = "100 pièces de vantardise", max = 80 },
     }, function(v)
         ns.Store.AddManual("WANTED", { name = v.name, nickname = v.nickname, reason = v.reason, reward = v.reward })
-    end)
+    end, { hint = "Prénom seul (« Ladou ») ou nom complet (« Ladou Pipø ») : les deux désignent le même ennemi."
+        .. " Saisie manuelle : affichée comme « déclarée »." })
 end
 
 -- A letter to the editor about an issue (its key, nil = the latest one): published at

@@ -1,8 +1,9 @@
 -- Editorial.lua: items produced outside the game by the companion app, reviewed here.
 --
 -- The companion writes Renatus_Admin/Press.lua (a plain Lua table, RenatusPress).
--- The game reloads it on every /reload. Nothing is published automatically: an officer
--- reviews each item (Publish / Ignore) in the admin window (Window.lua).
+-- The game reloads it on every /reload. An officer reviews each item (Publish / Ignore)
+-- in the admin window (Window.lua). One exception: the rival guild's armory roster (public
+-- data) is published without a click when an officer logs in (Press.AutoRoster).
 -- Once published, the item becomes an event signed by the editor:
 --   DEATH_CAUSE, PVP_CLASH -> provenance LOG ("according to X's combat log")
 --   ARTICLE                -> provenance GEN (editorial; facts are in refs)
@@ -146,3 +147,35 @@ end
 function Press.Ignore(item)
     if valid(item) then R.db.pressDone[item.id] = "ignored" end
 end
+
+-- Armory roster of the rival guild in force: an officer's client publishes the latest
+-- pending one by itself (R.db.adminAutoRoster == false turns this off); older pending ones,
+-- and one not newer than the roster in force, are set aside. Changing the rival guild
+-- itself (GUILD_CONFIG) still needs a click. Returns the published event, if any.
+function Press.AutoRoster()
+    if R.db.adminAutoRoster == false or not A.IsOfficer() then return nil end
+    local rival = R.GuildConfig.Rival()
+    if not rival then return nil end
+    rival = rival:lower()
+    local list = Press.Pending(function(i)
+        return i.kind == "RIVAL_ROSTER" and type(i.p.guild) == "string" and i.p.guild:lower() == rival
+            and type(i.p.members) == "table"
+    end)
+    if #list == 0 then return nil end
+    local function at(i) return tonumber(i.p.at) or tonumber(i.t) or 0 end
+    table.sort(list, function(x, y) return at(x) > at(y) end)
+    for i = 2, #list do Press.Ignore(list[i]) end
+    local latest, cur = list[1], R.GuildConfig.Roster()
+    if cur and (tonumber(cur.p.at) or cur.t or 0) >= at(latest) then Press.Ignore(latest) return nil end
+    local ev = Press.Publish(latest)
+    if ev then R.Print("effectif de <%s> publié automatiquement (%s).", tostring(latest.p.guild), Press.Label(latest)) end
+    return ev
+end
+
+-- Once per session, as soon as the guild roster tells this character is an officer.
+local autoDone = false
+R:RegisterGameEvent("GUILD_ROSTER_UPDATE", function()
+    if autoDone or not A.IsOfficer() then return end
+    autoDone = true
+    Press.AutoRoster()
+end)

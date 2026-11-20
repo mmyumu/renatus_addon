@@ -10,7 +10,7 @@ local UI = ns.UI
 local N = ns:RegisterModule("Notifier", {})
 UI.Notifier = N
 
-N.ICON = "Interface\\Icons\\INV_Misc_Note_06"
+N.ICON = UI.MEDIA .. "gazette"   -- a tilted front page (tools/make_media.py)
 local SIZE = 40
 local BOOSTER_COLOR = { 0.85, 0.6, 0.08 }
 
@@ -102,19 +102,15 @@ local function build()
     glow:Hide()
     b.glow = glow
 
+    -- The front page fills the button (it carries its own shadow); hover lights it up.
     local icon = b:CreateTexture(nil, "ARTWORK")
-    icon:SetPoint("TOPLEFT", 4, -4)
-    icon:SetPoint("BOTTOMRIGHT", -4, 4)
+    icon:SetAllPoints()
     icon:SetTexture(N.ICON)
-    icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
-    if icon.SetMask then pcall(icon.SetMask, icon, "Interface\\CharacterFrame\\TempPortraitAlphaMask") end
-    local ring = b:CreateTexture(nil, "OVERLAY")
-    ring:SetPoint("TOPLEFT", -6, 6)
-    ring:SetPoint("BOTTOMRIGHT", 6, -6)
-    ring:SetTexture(UI.MEDIA .. "ring")
+    b.icon = icon
     local hl = b:CreateTexture(nil, "HIGHLIGHT")
-    hl:SetAllPoints(icon)
-    hl:SetColorTexture(1, 0.85, 0.5, 0.18)
+    hl:SetAllPoints()
+    hl:SetTexture(N.ICON)
+    hl:SetAlpha(0.35)
     hl:SetBlendMode("ADD")
 
     b.gazette = UI.Badge(b, 18)

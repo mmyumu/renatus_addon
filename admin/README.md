@@ -7,7 +7,7 @@ Elle lit les fichiers du jeu (journal de l'addon, journaux de combat), l'armurer
 n'écrit qu'un fichier : `Interface/AddOns/Renatus_Admin/Press.lua`. En jeu, avec l'addon
 `Renatus_Admin` : `/reload`, puis l'icône clé de la minimap (ou `/radmin`) : onglets **Rédaction**
 (articles) et **Guilde rivale** pour publier ou ignorer chaque élément (officiers seulement).
-Rien n'est diffusé à la guilde sans ce clic.
+Rien n'est diffusé à la guilde sans ce clic, sauf l'effectif de la guilde rivale déjà en vigueur.
 
 ## Ce qu'elle fait
 
@@ -16,14 +16,18 @@ Rien n'est diffusé à la guilde sans ce clic.
 - **Guilde rivale** : nom ou lien de l'armurerie (`https://armorywowforever.com/g/forever/eu/pvp/...`).
   Propose en jeu le réglage de guilde (la guilde rivale de tous les membres) et l'effectif relevé
   (niveau, classe, race, rang ; score d'équipement, niveau d'objet et dernière connexion pour les
-  ennemis déjà connus de la guilde). En jeu, provenance « Armurerie ».
+  ennemis déjà connus de la guilde). En jeu, provenance « Armurerie ». L'effectif est relu au
+  lancement de l'app puis toutes les heures, et proposé en jeu
+  sans clic dans l'app, seulement s'il a changé (membres, niveaux, rangs, équipement). En jeu,
+  `Renatus_Admin` le publie tout seul à la connexion d'un officier (case à cocher dans l'onglet
+  Guilde rivale) ; changer de guilde rivale demande toujours un clic.
 - **Gazette** : un numéro par parution. Choix des faits envoyés à l'IA (ceux déjà parus dans un
   numéro sont décochés), aperçu exact de la demande, brouillon à relire (articles, rejets,
   réponse brute de l'IA) avant de le proposer en jeu, mise en page (maquette au choix de l'IA
   ou imposée dans les Réglages, voir `docs/ARCHITECTURE.md` §7.1 bis). Les articles écrits à la
   main (`.md`, voir `exemple-article.md.txt`) entrent dans le numéro.
 - **Automatique** : fenêtre ouverte, après chaque `/reload` ou déconnexion, elle analyse les
-  journaux de combat s'il y en a, relève l'armurerie une fois par jour et, si coché, rédige
+  journaux de combat s'il y en a et, si coché, rédige
   un numéro quand le précédent a une semaine (faits nouveaux seulement), puis le signale par
   une notification.
 

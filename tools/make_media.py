@@ -377,6 +377,132 @@ def glow(size=128):
     return img
 
 
+def _serif(px, bold=True):
+    """A serif font for the masthead; None if none is installed (blocks are drawn instead)."""
+    from PIL import ImageFont
+    names = ["LiberationSerif-Bold.ttf", "DejaVuSerif-Bold.ttf"] if bold else ["LiberationSerif-Regular.ttf", "DejaVuSerif.ttf"]
+    for d in ["/usr/share/fonts/truetype/liberation", "/usr/share/fonts/truetype/dejavu"]:
+        for n in names:
+            try:
+                return ImageFont.truetype(os.path.join(d, n), px)
+            except OSError:
+                pass
+    return None
+
+
+def gazette_icon(size=128):
+    """On-screen gazette widget: a front page, slightly tilted, with a folded corner.
+
+    Drawn 4x larger then reduced, so lines stay crisp at 40 px: masthead between
+    double rules, a red banner, a bold headline, an engraving, columns of text.
+    """
+    from PIL import ImageDraw, ImageFilter
+    S = 4
+    W = size * S
+    ink, dim, red = (34, 22, 14, 255), (92, 72, 52, 255), (150, 30, 20, 255)
+    # page, upright, then rotated onto the canvas
+    pw, ph = int(W * 0.80), int(W * 0.94)
+    page = Image.new("RGBA", (pw, ph), (0, 0, 0, 0))
+    paper_img = paper(512)
+    tex = Image.fromarray(np.clip(paper_img, 0, 255).astype(np.uint8), "RGBA").resize((pw, ph))
+    tex.putalpha(255)
+    page.paste(tex, (0, 0))
+    d = ImageDraw.Draw(page)
+    m = int(pw * 0.08)                      # margin
+    x0, x1 = m, pw - m
+    y = int(ph * 0.05)
+    # masthead
+    d.rectangle([x0, y, x1, y + S * 1.2], fill=ink)
+    y += int(S * 3)
+    font = _serif(int(ph * 0.13))
+    mh = int(ph * 0.12)
+    if font:
+        text = "GAZETTE"
+        tw = d.textlength(text, font=font)
+        scale = (x1 - x0) / tw
+        f2 = _serif(int(ph * 0.13 * min(scale, 1.4)))
+        tw = d.textlength(text, font=f2)
+        bbox = d.textbbox((0, 0), text, font=f2)
+        d.text(((pw - tw) / 2, y - bbox[1]), text, font=f2, fill=ink)
+        mh = bbox[3] - bbox[1]
+    else:
+        d.rectangle([x0, y, x1, y + mh], fill=ink)
+    y += mh + int(S * 2.5)
+    d.rectangle([x0, y, x1, y + S * 0.8], fill=ink)
+    y += int(S * 1.8)
+    d.rectangle([x0, y, x1, y + S * 2.2], fill=ink)
+    y += int(S * 4.5)
+    # red banner across the page
+    bh = int(ph * 0.075)
+    d.rectangle([x0, y, x1, y + bh], fill=red)
+    for i in range(5):  # pale "letters" in the banner
+        bx = x0 + int((x1 - x0) * (0.1 + i * 0.17))
+        d.rectangle([bx, y + bh * 0.3, bx + (x1 - x0) * 0.12, y + bh * 0.7], fill=(240, 214, 180, 255))
+    y += bh + int(S * 3)
+    # headline: two thick lines
+    hl = int(ph * 0.05)
+    d.rectangle([x0, y, x1, y + hl], fill=ink)
+    y += hl + int(S * 2)
+    d.rectangle([x0, y, x0 + (x1 - x0) * 0.72, y + hl], fill=ink)
+    y += hl + int(S * 4)
+    # engraving (left) and text columns
+    colw = (x1 - x0 - S * 4) / 2
+    iy0, iy1 = y, y + int(ph * 0.26)
+    ix1 = int(x0 + colw)
+    # engraving drawn on its own, so the hill stays inside its frame
+    gw, gh = ix1 - x0, iy1 - iy0
+    pic = Image.new("RGBA", (gw, gh), (120, 92, 62, 255))
+    g = ImageDraw.Draw(pic)
+    for i, t in enumerate(np.linspace(0, 1, gh)):  # sky to ground, hatched
+        c = tuple(int(v) for v in lerp((204, 180, 140), (140, 108, 72), t)) + (255,)
+        if i % S < S - 1:
+            g.line([0, i, gw, i], fill=c)
+    # a hill and a banner on a pole: a battle scene in miniature
+    g.ellipse([-gw * 0.3, gh * 0.62, gw * 1.2, gh * 1.6], fill=(64, 46, 30, 255))
+    fx = gw * 0.5
+    g.rectangle([fx, gh * 0.16, fx + S * 1.2, gh * 0.68], fill=ink)
+    g.polygon([(fx + S, gh * 0.16), (fx + gw * 0.34, gh * 0.25), (fx + S, gh * 0.34)], fill=red)
+    page.paste(pic, (x0, iy0))
+    d.rectangle([x0, iy0, ix1, iy1], outline=ink, width=S)
+    # text lines
+    def lines(xa, xb, ya, yb, seed):
+        rng = np.random.default_rng(seed)
+        yy = ya
+        while yy + S * 1.6 < yb:
+            end = xb if rng.random() > 0.18 else xa + (xb - xa) * rng.uniform(0.4, 0.8)
+            d.rectangle([xa, yy, end, yy + S * 1.3], fill=dim)
+            yy += S * 3.4
+    lines(x0 + colw + S * 4, x1, iy0, iy1, 1)
+    y = iy1 + int(S * 3.5)
+    lines(x0, x0 + colw, y, ph - m, 2)
+    lines(x0 + colw + S * 4, x1, y, ph - m, 3)
+    d.line([x0 + colw + S * 2, iy1 + S * 3, x0 + colw + S * 2, ph - m], fill=dim, width=max(1, S // 2))
+    # folded corner (bottom right)
+    fc = int(pw * 0.2)
+    d.polygon([(pw - fc, ph), (pw, ph - fc), (pw, ph)], fill=(0, 0, 0, 0))
+    d.polygon([(pw - fc, ph), (pw, ph - fc), (pw - fc, ph - fc)], fill=(196, 172, 128, 255))
+    d.line([(pw - fc, ph), (pw, ph - fc)], fill=(120, 92, 60, 255), width=S)
+    # thin dark edge around the sheet
+    edge = Image.new("L", (pw, ph), 0)
+    ImageDraw.Draw(edge).rectangle([0, 0, pw - 1, ph - 1], outline=255, width=S)
+    page.paste((110, 84, 56, 255), (0, 0), Image.composite(edge, Image.new("L", (pw, ph), 0), page.getchannel("A")))
+
+    rot = page.rotate(6, resample=Image.BICUBIC, expand=True)
+    if rot.height > W * 0.97:  # keep the whole sheet (and its shadow) on the canvas
+        k = W * 0.97 / rot.height
+        rot = rot.resize((int(rot.width * k), int(rot.height * k)), Image.LANCZOS)
+    canvas = Image.new("RGBA", (W, W), (0, 0, 0, 0))
+    ox, oy = (W - rot.width) // 2 - S, (W - rot.height) // 2 - S
+    # soft shadow under the sheet
+    shadow = Image.new("RGBA", rot.size, (0, 0, 0, 0))
+    shadow.putalpha(rot.getchannel("A").point(lambda a: int(a * 0.6)))
+    shadow = shadow.filter(ImageFilter.GaussianBlur(S * 3))
+    canvas.alpha_composite(shadow, (ox + S * 3, oy + S * 4))
+    canvas.alpha_composite(rot, (ox, oy))
+    small = canvas.resize((size, size), Image.LANCZOS)
+    return np.asarray(small).astype(np.float64)
+
+
 TEXTURES = {
     "leather": leather,
     "frame": frame,
@@ -393,6 +519,7 @@ TEXTURES = {
     "cardback": card_back,
     "gem": gem,
     "glow": glow,
+    "gazette": gazette_icon,
 }
 
 

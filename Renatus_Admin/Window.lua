@@ -138,11 +138,15 @@ local function buildRival(f, page)
     local hint = UI.Text(page, 10, UI.C.dim)
     hint:SetPoint("TOPLEFT", 0, -130)
     hint:SetWidth(BODY_W)
-    hint:SetText("Onglet Guilde rivale de l'application, « Actualiser depuis l'armurerie », puis /reload. "
+    hint:SetText("L'application relit l'armurerie à son lancement puis toutes les heures, et ne propose l'effectif que s'il a changé. "
         .. "Publier = la guilde rivale et son effectif valent pour tous les membres.")
-    page.list = itemList(page, BODY_W, 120, Press.IsGuildItem,
+    page.list = itemList(page, BODY_W, 106, Press.IsGuildItem,
         "Rien en attente.", function() f:Refresh() end)
     page.list:SetPoint("TOPLEFT", 0, -150)
+
+    page.auto = UI.Checkbox(page, "Publier l'effectif tout seul à la connexion (la guilde rivale garde son clic)",
+        function(v) R.db.adminAutoRoster = v; if v then Press.AutoRoster() end; f:Refresh() end)
+    page.auto:SetPoint("TOPLEFT", -4, -262)
 
     local man = UI.Section(page, "Saisie manuelle (sans l'application)", 340)
     man:SetPoint("TOPLEFT", 0, -292)
@@ -174,6 +178,7 @@ local function buildRival(f, page)
         self.info:SetText(table.concat(lines, "\n"))
         if not self.rival.edit:HasFocus() then self.rival:SetText(rival or "") end
         self.publish:SetDisabled(not A.IsOfficer())
+        self.auto:SetChecked(R.db.adminAutoRoster ~= false)
         self.list:Update()
     end
 end

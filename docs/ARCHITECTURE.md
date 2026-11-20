@@ -42,7 +42,8 @@
 
 ### Avancement v0.9.0 (19/11/2026)
 
-- **La fenêtre ne montre que du contenu** : Gazette et Album en tête (grands boutons), puis la section « Journaux » (Mon journal, Guilde, Membres, Tableau de chasse). La Gazette s'ouvre par défaut. La vue simple/complète de la v0.8 disparaît.
+- **La fenêtre ne montre que du contenu** : Gazette, Album et Tableau de chasse en tête (grands boutons, les trois fonctions principales des membres), puis la section « Journaux » (Mon journal, Guilde, Membres). La Gazette s'ouvre par défaut ; le bouton « Archives » sous la page liste tous les numéros parus avec leur date (il remplace les flèches ‹ › entre éditions). La vue simple/complète de la v0.8 disparaît.
+- **Tableau de chasse** : s'ouvre sur une **vue d'ensemble** (bandeau de la guilde rivale avec le bilan victoires – défaites, « Les plus redoutés » cliquables, « Nouvelles du front », raccourci vers les avis), puis les onglets Avis et Registre. Les ennemis sont indexés par **prénom** (`Views.EnemyKey`) : « Ladou » vu en jeu et « Ladou Pipø » de l'armurerie ou tapé dans un avis désignent la même fiche ; le nom complet est affiché quand il est connu (`e.display`).
 - **Tous les réglages sont dans Échap > Options > AddOns > Renatus** (`UI/Options.lua`) : page principale (affichage, confidentialité, consentement IA, album) ; sous-page **Voix** (réglages natifs, curseurs compris) ; sous-page **Guilde** (widgets de l'addon : guilde rivale, synchronisation, données). Sans l'API Settings, une seule page reprend tout sauf la voix (`/renatus voice`). Le bouton « Options » de la fenêtre, le clic droit sur la minicarte, `/renatus options` et `/renatus voice` ouvrent la bonne page.
 - Les onglets Voix et Paramètres sont supprimés de la fenêtre.
 

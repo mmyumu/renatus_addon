@@ -114,6 +114,18 @@ impl Chronicle {
             .and_then(|e| str_of(payload(e), "rival").map(str::to_string))
     }
 
+    /// Most recent armory roster published for `guild` (the addon also checks the author's rank).
+    pub fn latest_roster(&self, guild: &str) -> Option<&Value> {
+        let guild = guild.to_lowercase();
+        self.of_kind("RIVAL_ROSTER")
+            .filter(|e| str_of(e, "vis") == Some("G") && e.get("del").is_none())
+            .filter(|e| str_of(payload(e), "guild").map(str::to_lowercase) == Some(guild.clone()))
+            .max_by(|a, b| {
+                let at = |e: &Value| num_of(payload(e), "at").max(num_of(e, "t"));
+                at(a).total_cmp(&at(b))
+            })
+    }
+
     /// Wanted posters still open: lowercase enemy name -> displayed name.
     pub fn wanted(&self) -> BTreeMap<String, String> {
         let mut last: HashMap<String, (f64, bool, String)> = HashMap::new();
@@ -311,6 +323,8 @@ mod tests {
                     ["Player-1-A:2"] = { ["id"] = "Player-1-A:2", ["a"] = "Player-1-A", ["n"] = "Testeur", ["k"] = "ENEMY_SEEN", ["t"] = 900, ["vis"] = "G", ["g"] = "G-F", ["p"] = { ["name"] = "Gorbash" } },
                     ["Player-1-B:1"] = { ["id"] = "Player-1-B:1", ["a"] = "Player-1-B", ["n"] = "Bob", ["k"] = "GUILD_CONFIG", ["t"] = 800, ["vis"] = "G", ["p"] = { ["rival"] = "Les Crocs" } },
                     ["Player-1-B:2"] = { ["id"] = "Player-1-B:2", ["a"] = "Player-1-B", ["n"] = "Bob", ["k"] = "WANTED", ["t"] = 850, ["vis"] = "G", ["p"] = { ["name"] = "Gorbash" } },
+                    ["Player-1-B:3"] = { ["id"] = "Player-1-B:3", ["a"] = "Player-1-B", ["n"] = "Bob", ["k"] = "RIVAL_ROSTER", ["t"] = 700, ["vis"] = "G", ["p"] = { ["guild"] = "Les Crocs", ["at"] = 600, ["members"] = {} } },
+                    ["Player-1-B:4"] = { ["id"] = "Player-1-B:4", ["a"] = "Player-1-B", ["n"] = "Bob", ["k"] = "RIVAL_ROSTER", ["t"] = 750, ["vis"] = "G", ["p"] = { ["guild"] = "Les Crocs", ["at"] = 740, ["members"] = {} } },
                 },
                 ["pressDone"] = { ["dc:old"] = "published" },
             }"#,
@@ -325,6 +339,11 @@ mod tests {
         assert_eq!(ch.members().len(), 2);
         assert!(ch.known_enemies().contains("gorbash"));
         assert_eq!(ch.configured_rival().as_deref(), Some("Les Crocs"));
+        assert_eq!(
+            ch.latest_roster("les crocs").and_then(|e| str_of(e, "id")),
+            Some("Player-1-B:4")
+        );
+        assert!(ch.latest_roster("Autre").is_none());
         assert_eq!(
             ch.wanted().get("gorbash").map(String::as_str),
             Some("Gorbash")

@@ -338,6 +338,33 @@ pub fn roster_item(guild_ref: &GuildRef, guild: &Guild, profiles: &[Character], 
     })
 }
 
+/// Do two roster payloads list the same members (name, level, rank, class, race, gear)?
+/// The last login and the date of the reading are left out: they change every day.
+pub fn same_roster(a: &Value, b: &Value) -> bool {
+    fn members(p: &Value) -> Option<Vec<String>> {
+        let mut out: Vec<String> = p
+            .get("members")?
+            .as_array()?
+            .iter()
+            .map(|m| {
+                ["n", "lvl", "rk", "cl", "ra", "gs", "il"]
+                    .iter()
+                    .map(|k| m.get(*k).map(Value::to_string).unwrap_or_default())
+                    .collect::<Vec<_>>()
+                    .join("|")
+            })
+            .collect();
+        out.sort();
+        Some(out)
+    }
+    let guild = |p: &Value| {
+        p.get("guild")
+            .and_then(Value::as_str)
+            .map(str::to_lowercase)
+    };
+    guild(a).is_some() && guild(a) == guild(b) && members(a).is_some() && members(a) == members(b)
+}
+
 /// Press.lua item: make `rival` the guild's rival (published by an officer in game).
 pub fn guild_config_item(rival: &str, now: i64) -> Value {
     json!({
@@ -406,6 +433,26 @@ mod tests {
         // the published event must stay small enough for the addon's sync
         let lua = crate::lua::dumps_value(&item["p"], 0);
         assert!(lua.len() < 6000);
+    }
+
+    #[test]
+    fn unchanged_roster_is_recognised() {
+        let guild: Guild = serde_json::from_str(GUILD).unwrap();
+        let g = GuildRef::parse("Cest Dieu qui pilote").unwrap();
+        let a = roster_item(&g, &guild, &[], 1_795_115_600);
+        // another day: other id, other date, same members
+        let mut b = roster_item(&g, &guild, &[], 1_795_202_000);
+        b["p"]["at"] = json!(1_795_202_000);
+        b["p"]["members"][0]["ll"] = json!(1_795_200_000);
+        assert!(same_roster(&a["p"], &b["p"]));
+        b["p"]["members"][0]["lvl"] = json!(99);
+        assert!(!same_roster(&a["p"], &b["p"]), "a level up is news");
+        let mut c = a.clone();
+        c["p"]["members"].as_array_mut().unwrap().pop();
+        assert!(!same_roster(&a["p"], &c["p"]), "a member left");
+        let mut d = a.clone();
+        d["p"]["guild"] = json!("Autre");
+        assert!(!same_roster(&a["p"], &d["p"]));
     }
 
     #[test]

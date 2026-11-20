@@ -2,9 +2,9 @@
 //!
 //! Every 20 s it re-reads the installed addon versions (the launcher may update them)
 //! and looks at the addon's SavedVariables. When the game rewrote them
-//! (/reload, logout) and "automatique" is on, it proposes the combat-log deaths,
-//! refreshes the rival guild from the armory once a day and, if asked, writes the
-//! week's AI gazette, then notifies: "N éléments en attente, /reload".
+//! (/reload, logout) and "automatique" is on, it proposes the combat-log deaths and, if
+//! asked, writes the week's AI gazette, then notifies: "N éléments en attente, /reload".
+//! The rival guild is re-read from the armory at launch, then every hour.
 
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -22,7 +22,8 @@ use tauri_plugin_notification::NotificationExt;
 use tauri_plugin_updater::{Update, UpdaterExt};
 
 const WATCH_EVERY: Duration = Duration::from_secs(20);
-const ARMORY_EVERY: i64 = 24 * 3600;
+const ARMORY_EVERY: Duration = Duration::from_secs(3600);
+const BUSY_RETRY: Duration = Duration::from_secs(60);
 const MAX_LOG: usize = 300;
 const APP_UPDATE_EVERY: Duration = Duration::from_secs(3600);
 
@@ -256,6 +257,24 @@ fn rival_work(
         s.config.last_armory = Some(ops::now());
         let _ = s.config.save(&s.config_path);
         Ok(proposal)
+    }
+}
+
+/// The rival guild is re-read from the armory at launch, then every hour (new members,
+/// levels, ranks); a changed roster is proposed in game. If another job is running, it
+/// tries again a minute later.
+async fn rival_loop(app: AppHandle) {
+    loop {
+        let mut wait = ARMORY_EVERY;
+        if !config(&app).rival.trim().is_empty() {
+            let work = rival_work(&app);
+            if let Err(e) = job(app.clone(), "Armurerie (toutes les heures)", work).await {
+                if e.starts_with("Patiente") {
+                    wait = BUSY_RETRY;
+                }
+            }
+        }
+        tokio::time::sleep(wait).await;
     }
 }
 
@@ -611,13 +630,6 @@ async fn watch(app: AppHandle) {
             |_, p, ch| Ok(ops::deaths(p, ch, None)),
         )
         .await;
-        let stale = cfg
-            .last_armory
-            .is_none_or(|t| ops::now() - t > ARMORY_EVERY);
-        if !cfg.rival.trim().is_empty() && stale {
-            let work = rival_work(&app);
-            let _ = job(app.clone(), "Automatique : armurerie", work).await;
-        }
         if cfg.auto_gazette {
             let due = cfg
                 .paths()
@@ -814,6 +826,7 @@ pub fn run() {
             refresh_status(&handle);
             tauri::async_runtime::spawn(watch(handle.clone()));
             tauri::async_runtime::spawn(check_admin_release(handle.clone()));
+            tauri::async_runtime::spawn(rival_loop(handle.clone()));
             if !cfg!(debug_assertions) {
                 tauri::async_runtime::spawn(watch_app_updates(handle.clone()));
                 tauri::async_runtime::spawn(async move {

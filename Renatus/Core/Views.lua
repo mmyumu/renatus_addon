@@ -181,7 +181,13 @@ end
 ------------------------------------------------------------------------
 -- Wanted Board: computed enemy records
 ------------------------------------------------------------------------
-local function enemyKey(name) return lower(name) end
+-- WoW Forever: in game a character shows its first name only ("Ladou"), the armory
+-- and the guild roster its full name ("Ladou Pipø"). Both designate the same enemy,
+-- so records are keyed by the first name; whatever a member types works.
+local function enemyKey(name)
+    name = tostring(name or "?"):match("^%s*(.-)%s*$")
+    return lower(name:match("^(%S+)") or name)
+end
 Views.EnemyKey = enemyKey
 
 local function emptyRecord() return { OBS = 0, LOG = 0, MAN = 0, DED = 0 } end
@@ -198,6 +204,7 @@ function Views.Enemies(ds)
             byKey[key] = e
             table.insert(list, e)
         end
+        if not e.fullName and type(name) == "string" and name:find("%S%s+%S") then e.fullName = name end
         return e
     end
     local function see(e, field, value, t)
@@ -269,11 +276,7 @@ function Views.Enemies(ds)
             local at = roster.at or 0
             for _, m in ipairs(roster.members) do
                 if type(m) == "table" and type(m.n) == "string" then
-                    local e
-                    for _, x in ipairs(list) do
-                        if ns.GuildConfig.SameCharacter(x.name, m.n) then e = x break end
-                    end
-                    e = e or get(m.n:match("^(%S+)") or m.n)
+                    local e = byKey[enemyKey(m.n)] or get(m.n:match("^(%S+)") or m.n)
                     e.rival, e.armory, e.fullName = true, m, m.n
                     e.guild = e.guild or roster.guild
                     e.class = e.class or m.cl
@@ -296,6 +299,7 @@ function Views.Enemies(ds)
             or (verifiedLosses >= 5 and (verifiedLosses .. " défaites vérifiées"))
             or (killed >= 3 and (killed .. " membres vaincus")) or nil
         e.nickname = e.nicknames[1] and e.nicknames[1].text or nil
+        e.display = e.fullName or e.name
         local names = {}
         for n in pairs(e.members) do table.insert(names, n) end
         table.sort(names)

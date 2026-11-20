@@ -10,7 +10,7 @@ use std::time::Duration;
 use serde::Serialize;
 use serde_json::{json, Value};
 
-use crate::chronicle::{num_of, str_of, Chronicle};
+use crate::chronicle::{num_of, payload, str_of, Chronicle};
 use crate::paths::{WowPaths, ADMIN_ADDON};
 use crate::{armory, articles, combatlog, edition, gazette, issues, llm, press};
 
@@ -313,14 +313,23 @@ pub fn rival(rival: &str, ch: &Chronicle) -> Result<(armory::Guild, Proposal), S
     let known: Vec<String> = ch.known_enemies().into_iter().collect();
     let (profiles, notes) = armory::fetch_profiles(&g, &guild, &known);
     out.notes.extend(notes);
-    out.items
-        .push(armory::roster_item(&g, &guild, &profiles, now));
-    out.notes.push(format!(
-        "{} : {} membre(s) ; {} fiche(s) détaillée(s) (ennemis déjà connus).",
-        guild.name,
-        guild.members.len(),
-        profiles.len()
-    ));
+    let item = armory::roster_item(&g, &guild, &profiles, now);
+    let published = ch.latest_roster(&guild.name);
+    if published.is_some_and(|ev| armory::same_roster(payload(ev), &item["p"])) {
+        out.notes.push(format!(
+            "{} : {} membre(s), effectif inchangé depuis le dernier publié : rien à proposer.",
+            guild.name,
+            guild.members.len()
+        ));
+    } else {
+        out.items.push(item);
+        out.notes.push(format!(
+            "{} : {} membre(s) ; {} fiche(s) détaillée(s) (ennemis déjà connus).",
+            guild.name,
+            guild.members.len(),
+            profiles.len()
+        ));
+    }
     Ok((guild, out))
 }
 

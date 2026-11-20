@@ -105,7 +105,7 @@ local function build()
     content:SetSize(UI.CONTENT_W + 16, PANEL_H)
     UI.Skin(content, "panel")
 
-    -- Navigation: the two main features (tab.group == "main") in large, then
+    -- Navigation: the three main features (tab.group == "main") in large, then
     -- the journals in a smaller section. Settings live in the game's Options.
     f.navButtons, f.containers = {}, {}
     local y = 10
@@ -152,7 +152,9 @@ local function build()
         b.text:SetShadowOffset(1, -1)
         b.text:SetPoint("LEFT", icon, "RIGHT", 10, 0)
         b.text:SetPoint("RIGHT", -4, 0)
-        b.text:SetWordWrap(false)
+        -- Large entries may take two lines ("Tableau de chasse").
+        b.text:SetWordWrap(main)
+        if main and b.text.SetMaxLines then b.text:SetMaxLines(2) end
         b.text:SetJustifyV("MIDDLE")
         b.text:SetText(tab.label)
         -- Something new in this tab (UI/Notifier.lua): a pip on the right.

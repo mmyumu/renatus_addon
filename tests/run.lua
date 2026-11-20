@@ -442,7 +442,8 @@ test("tous les onglets s'ouvrent (donnees reelles vides)", function()
     assert(RenatusMainFrame:IsShown(), "fenetre ouverte")
     openAllTabs(ns)
     eq(#ns.UI.tabs, 6, "gazette, album + 4 journaux ; les reglages sont dans les Options")
-    eq(ns.UI.tabs[1].key, "gazette"); eq(ns.UI.tabs[2].key, "album")
+    eq(ns.UI.tabs[1].key, "gazette"); eq(ns.UI.tabs[2].key, "album"); eq(ns.UI.tabs[3].key, "wanted")
+    eq(ns.UI.tabs[3].group, "main", "tableau de chasse en grand, sous l'album")
     assert(RenatusMainFrame.journalsLabel, "section journaux")
 end)
 
@@ -476,6 +477,20 @@ test("tableau de chasse : affiches, registre, fiche", function()
     SlashCmdList.RENATUS("demo")
     ns.UI.Open("wanted")
     local c = RenatusMainFrame.containers.wanted
+    -- overview first: rival guild, score, most feared, news, shortcut to the posters
+    eq(c.view, "home")
+    assert(c.home:IsShown() and not c.posters:IsShown(), "accueil par defaut")
+    eq(c.home.guild:GetText(), "<Les Crocs de Sang>")
+    assert(c.home.score:GetText():find("–"), "score")
+    local top = c.home.feared[1]
+    assert(top:IsShown() and top.enemy, "le plus redoute")
+    assert(c.home.news[1].line:GetText() ~= "", "nouvelles du front")
+    top:Click()
+    assert(c.detailFrame:IsShown() and not c.home:IsShown(), "fiche depuis l'accueil")
+    c.detail = nil; c:Refresh()
+    assert(c.home.postersLink.label:GetText():find("avis de recherche"), c.home.postersLink.label:GetText())
+    c.home.postersLink:Click()
+    eq(c.view, "posters")
     eq(c.posters.items[1].poster ~= nil, true)
     c.posters.items[1]:Click()
     assert(c.detailFrame:IsShown(), "fiche affichee")
@@ -1056,11 +1071,60 @@ test("armurerie : effectif publie (EXT) et affiche sur la fiche de l'ennemi", fu
     eq(#list, 2, "Ladou (croise) + Inoups (armurerie seulement), pas de doublon Ladou / Ladou Pipø")
     eq(list[1].name, "Ladou"); eq(list[1].rival, true)
     eq(list[2].name, "Inoups"); eq(list[2].rival, true); eq(list[2].lastSeen, nil); eq(list[2].level, 21)
+    eq(list[1].display, "Ladou Pipø", "nom complet affiche")
+    -- a wanted poster typed with the full name lands on the same enemy
+    ns.Store.AddManual("WANTED", { name = "ladou pipø", reason = "Camping" })
+    local posters, enemies = ns.Views.Wanted(ns.Store.Dataset())
+    eq(#enemies, 2, "pas de doublon pour le nom complet")
+    eq(posters[1].enemy, enemies[1])
+    eq(ns.Views.EnemyKey("Ladou Pipø"), ns.Views.EnemyKey("ladou"))
     c:Refresh()
     c.detail = nil; c.view = "registry"; c:Refresh()
+    assert(c.registry.rows[1].name:GetText():find("Ladou Pipø"), "registre : nom complet")
     local row2 = c.registry.rows[2]
     assert(row2.name:GetText():find("GUILDE RIVALE"), row2.name:GetText())
     assert(row2.sub:GetText():find("jamais croisé") and row2.sub:GetText():find("chef de guilde"), row2.sub:GetText())
+    RenatusPress = nil
+end)
+
+test("armurerie : l'effectif le plus recent est publie tout seul a la connexion d'un officier", function()
+    local ns, A, S = bootAdmin({ specIndex = 1, rank = 1, roster = OFFICERS })
+    local function roster(id, at, n)
+        return { id = id, kind = "RIVAL_ROSTER", t = at, p = { guild = "Les Crocs", count = n, at = at,
+            members = { { n = "Ladou Pipø", lvl = 25 } } } }
+    end
+    RenatusPress = { version = 1, items = {
+        { id = "cfg:1", kind = "GUILD_CONFIG", t = 10, p = { rival = "Les Crocs" } },
+        roster("roster:crocs:1", 100, 1), roster("roster:crocs:2", 200, 2),
+        roster("roster:autre", 300, 3),
+    } }
+    RenatusPress.items[4].p.guild = "Autre guilde"
+    eq(A.Press.AutoRoster(), nil, "pas de guilde rivale en vigueur : rien")
+    assert(A.Press.Publish(A.Press.Pending()[1]))
+    local ev = A.Press.AutoRoster()
+    eq(ev.k, "RIVAL_ROSTER"); eq(ev.p.at, 200, "le plus recent")
+    eq(ns.db.pressDone["roster:crocs:1"], "ignored")
+    eq(ns.db.pressDone["roster:autre"], nil, "autre guilde : attend un clic")
+    eq(ns.GuildConfig.Roster(), ev)
+    eq(A.Press.AutoRoster(), nil, "rien de neuf")
+    -- turned off
+    ns.db.adminAutoRoster = false
+    table.insert(RenatusPress.items, roster("roster:crocs:3", 400, 4))
+    eq(A.Press.AutoRoster(), nil)
+    ns.db.adminAutoRoster = nil
+    -- once per session, on the guild roster update
+    Stub.fire("GUILD_ROSTER_UPDATE")
+    eq(ns.GuildConfig.Roster().p.at, 400)
+    RenatusPress = nil
+end)
+
+test("armurerie : pas de publication automatique pour un non-officier", function()
+    local ns, A = bootAdmin({ specIndex = 1, rank = 5, roster = { { name = "Testeur", rank = 5 } } })
+    RenatusPress = { version = 1, items = { { id = "r", kind = "RIVAL_ROSTER", t = 1,
+        p = { guild = "X", at = 1, members = {} } } } }
+    ns.char.rivalGuild = "X"
+    eq(A.Press.AutoRoster(), nil)
+    eq(ns.db.pressDone["r"], nil)
     RenatusPress = nil
 end)
 
@@ -1362,12 +1426,22 @@ test("gazette : un numero par parution, date de parution, la une suit l'ordre ed
     eq(c.current, first.articles[1])
     assert(c.front:IsShown() and not c.reader:IsShown(), "premiere page")
     assert(c.front.info:GetText():find("Paru le"), "date de parution")
-    eq(c.next.gcDisabled, true, "pas d'edition plus recente")
-    -- older edition
-    c.prev:Click()
+    -- archives: every issue with its date, most recent first; pick the older one
+    c.archives:Click()
+    assert(c.archive:IsShown() and not c.front:IsShown() and c.back:IsShown(), "archives")
+    eq(c.archives:IsShown(), false)
+    local rows = c.archive.list.rows
+    eq(rows[1].number:GetText(), "N° 2"); eq(rows[2].number:GetText(), "N° 1")
+    assert(rows[2].date:GetText():find("Paru le"), "date de parution")
+    eq(rows[3]:IsShown(), false)
+    rows[2]:Click()
     eq(c.edition, 2)
+    assert(c.front:IsShown() and not c.archive:IsShown(), "retour a la une du numero choisi")
     eq(c.current, c.editions[2].articles[1])
-    c.next:Click()
+    c.archives:Click()
+    c.back:Click()
+    assert(c.front:IsShown() and c.edition == 2, "retour sans changer de numero")
+    c:OpenEdition(1)
     eq(c.edition, 1)
     -- read the front-page story, then its sources, then back
     c.front.storyHit:Click()
@@ -1779,7 +1853,7 @@ test("mise en page de demo : pages, portrait, citation, avis, sommaire", functio
     assert(p2:find("RECHERCHÉ") and p2:find("Mortefeuille"), "avis de recherche")
     assert(p2:find("DANS CETTE ÉDITION") and p2:find("Le mouton de la discorde"), "sommaire : article non place")
     assert(c.front.footRight:GetText():find("Page 2 sur 2"))
-    c.prev:Click()
+    c:OpenEdition(2)
     eq(c.page, 1, "autre edition : retour en page 1")
     eq(c.editions[2].layout, nil, "edition sans mise en page : la une classique")
     eq(#c.pages, 1)
@@ -1820,7 +1894,7 @@ test("edition : publier la mise en page publie ses articles ; ordre editorial ; 
     eq(#eventsOf(ns, "ARTICLE"), 0)
     eq(c.front.topRight:GetText(), "APERÇU, NON PUBLIÉ")
     eq(c.current.title, "Premiere", "@1 = premier dans l'ordre editorial")
-    eq(c.endPreview:IsShown(), true); eq(c.prev:IsShown(), false)
+    eq(c.endPreview:IsShown(), true); eq(c.archives:IsShown(), false)
     assert(canvasText(c):find("LE PORTRAIT"), "portrait dans l'apercu")
     c.endPreview:Click()
     eq(c.preview, nil)

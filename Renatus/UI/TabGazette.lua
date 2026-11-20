@@ -1,5 +1,6 @@
 -- UI/TabGazette.lua: the satirical gazette, laid out as a newspaper.
--- One issue per publication (Views.Editions), dated, browsable with ‹ ›. Its pages follow
+-- One issue per publication (Views.Editions), dated; past issues are listed in the
+-- archives (button "Archives" under the page). Its pages follow
 -- the layout published with it (EDITION event, drawn by UI/Newsprint.lua), or the classic
 -- front page: the first article in two columns with a drop cap, "In brief", the other
 -- articles in a side column.
@@ -218,6 +219,66 @@ local function refreshReader(c, ds, edition, a)
 end
 
 ------------------------------------------------------------------------
+-- Archives: every issue, most recent first, with its date
+------------------------------------------------------------------------
+local ARCHIVE_W = 600
+local ROW_H = 42
+
+local function plural(n, word) return n .. " " .. word .. (n > 1 and "s" or "") end
+
+local function buildArchive(c, page)
+    local r = CreateFrame("Frame", nil, page)
+    r:SetAllPoints()
+    c.archive = r
+    local x = (PAGE_W - ARCHIVE_W) / 2
+    local mast = ink(UI.Title(r, 22), INK)
+    mast:SetPoint("TOP", 0, -14)
+    mast:SetJustifyH("CENTER")
+    mast:SetText("La Gazette de la Guilde")
+    local sub = ink(UI.Text(r, 9), INK_DIM)
+    sub:SetPoint("TOP", 0, -42)
+    sub:SetJustifyH("CENTER")
+    sub:SetText("ARCHIVES  ·  TOUS LES NUMÉROS PARUS")
+    rule(r, X0 - 4, 56, PAGE_W - 2 * X0 + 8, 2)
+    rule(r, X0 - 4, 60, PAGE_W - 2 * X0 + 8, 1)
+    r.list = UI.List(r, ARCHIVE_W + 14, BODY_BOTTOM - 76, ROW_H, function(row)
+        row.number = ink(UI.Title(row, 15), INK)
+        row.number:SetPoint("TOPLEFT", 6, -4)
+        row.date = ink(UI.Text(row, 11), INK)
+        row.date:SetPoint("LEFT", row.number, "RIGHT", 10, 0)
+        row.count = ink(UI.Text(row, 10), INK_DIM)
+        row.count:SetPoint("TOPRIGHT", -6, -7)
+        row.count:SetJustifyH("RIGHT")
+        row.headline = ink(UI.Text(row, 10), INK_DIM)
+        row.headline:SetPoint("TOPLEFT", 6, -23)
+        row.headline:SetWidth(ARCHIVE_W - 30)
+        row.headline:SetWordWrap(false)
+        row:SetScript("OnClick", function(self)
+            if self.item then UI.Click(); c:OpenEdition(self.item.index) end
+        end)
+    end, function(row, item)
+        local e = item.edition
+        local color = item.index == c.edition and RED or INK
+        row.number:SetText("N° " .. e.number)
+        row.number:SetTextColor(color[1], color[2], color[3])
+        row.date:SetText(e.label)
+        local letters = e.letters and #e.letters or 0
+        row.count:SetText(plural(#e.articles, "article") .. (letters > 0 and ("  ·  " .. plural(letters, "lettre")) or ""))
+        local first = e.articles[1]
+        row.headline:SetText(first and ("« " .. tostring(first.title or "") .. " »") or "")
+    end)
+    r.list:SetPoint("TOPLEFT", x, -70)
+    r.list.empty:SetTextColor(INK_DIM[1], INK_DIM[2], INK_DIM[3])
+    r.list.empty:SetShadowOffset(0, 0)
+end
+
+local function refreshArchive(c)
+    local items = {}
+    for i, e in ipairs(c.editions or {}) do items[i] = { index = i, edition = e } end
+    c.archive.list:SetItems(items, "Aucun numéro paru pour l'instant.")
+end
+
+------------------------------------------------------------------------
 -- Tab
 ------------------------------------------------------------------------
 local function build(c)
@@ -228,22 +289,20 @@ local function build(c)
     c.paper = page
     buildFront(c, page)
     buildReader(c, page)
+    buildArchive(c, page)
     UI.gazette = c
 
     -- Toolbar under the page.
     local barY = -(PAGE_H + 8)
-    c.prev = UI.Button(c, "‹", 30, 22, function() c.edition = c.edition + 1; c.page = 1; c.reading = nil; c:Refresh() end)
-    c.prev:SetPoint("TOPLEFT", 0, barY)
-    UI.Tooltip(c.prev, "Édition précédente")
-    c.next = UI.Button(c, "›", 30, 22, function() c.edition = c.edition - 1; c.page = 1; c.reading = nil; c:Refresh() end)
-    c.next:SetPoint("LEFT", c.prev, "RIGHT", 4, 0)
-    UI.Tooltip(c.next, "Édition suivante")
+    c.archives = UI.Button(c, "Archives", 90, 22, function() c:OpenArchive() end)
+    c.archives:SetPoint("TOPLEFT", 0, barY)
+    UI.Tooltip(c.archives, "Archives", { "Tous les numéros parus, avec leur date." })
     c.pagePrev = UI.Button(c, "‹ Page", 70, 22, function() c.page = c.page - 1; c:Refresh() end)
-    c.pagePrev:SetPoint("LEFT", c.next, "RIGHT", 12, 0)
+    c.pagePrev:SetPoint("LEFT", c.archives, "RIGHT", 12, 0)
     c.pageNext = UI.Button(c, "Page ›", 70, 22, function() c.page = c.page + 1; c:Refresh() end)
     c.pageNext:SetPoint("LEFT", c.pagePrev, "RIGHT", 4, 0)
     c.back = UI.Button(c, "‹ Retour au journal", 150, 22, function()
-        c.reading = nil; c.showSources = false; c.mail = false; c:Refresh()
+        c.reading = nil; c.showSources = false; c.mail = false; c.browsing = false; c:Refresh()
     end)
     c.back:SetPoint("TOPLEFT", 0, barY)
     c.endPreview = UI.Button(c, "Quitter l'aperçu", 130, 22, function() c:SetPreview(nil) end)
@@ -272,20 +331,34 @@ local function build(c)
         self.reading = a.id
         self.showSources = false
         self.mail = false
+        self.browsing = false
+        self:Refresh()
+    end
+
+    -- Archives: the list of issues; picking one shows its first page.
+    function c:OpenArchive()
+        if self.preview then return end
+        self.browsing, self.reading, self.mail, self.showSources = true, nil, false, false
+        self:Refresh()
+    end
+
+    function c:OpenEdition(i)
+        self.edition, self.page = i, 1
+        self.browsing, self.reading, self.mail, self.showSources = false, nil, false, false
         self:Refresh()
     end
 
     -- Readers' letters of the issue on display.
     function c:OpenMail()
         if self.preview then return end
-        self.mail, self.reading, self.showSources = true, nil, false
+        self.mail, self.reading, self.showSources, self.browsing = true, nil, false, false
         self:Refresh()
     end
 
     -- Preview of an unpublished edition: { articles = {...}, layout = EDITION payload }, or nil.
     function c:SetPreview(p)
         self.preview = p
-        self.edition, self.page, self.reading, self.showSources, self.mail = 1, 1, nil, false, false
+        self.edition, self.page, self.reading, self.showSources, self.mail, self.browsing = 1, 1, nil, false, false, false
         self:Refresh()
     end
 
@@ -340,19 +413,20 @@ local function build(c)
         self.current = reading or (edition and edition.articles[1]) or nil
         local mail = self.mail and edition ~= nil and not reading and not self.preview
         if not mail then self.mail = false end
+        local archive = self.browsing and not reading and not mail and not self.preview
+        if not archive then self.browsing = false end
 
-        self.front:SetShown(not reading and not mail)
+        self.front:SetShown(not reading and not mail and not archive)
         self.reader:SetShown(reading ~= nil or mail)
-        self.back:SetShown(reading ~= nil or mail)
+        self.archive:SetShown(archive)
+        self.back:SetShown(reading ~= nil or mail or archive)
         self.endPreview:SetShown(self.preview ~= nil and not reading)
-        local browse = not reading and not mail and not self.preview
-        self.prev:SetShown(browse)
-        self.next:SetShown(browse)
-        self.prev:SetDisabled(self.edition >= #list)
-        self.next:SetDisabled(self.edition <= 1)
+        self.archives:SetShown(not reading and not mail and not archive and not self.preview)
         page.sources:SetDisabled(self.current == nil)
         page.sources:SetLabel(self.showSources and reading and "Article" or "Sources")
-        if mail then
+        if archive then
+            refreshArchive(self)
+        elseif mail then
             refreshMail(self, edition)
         elseif reading then
             refreshReader(self, ds, edition, reading)
@@ -362,10 +436,10 @@ local function build(c)
         local letters = edition and edition.letters and #edition.letters or 0
         page.letter:SetLabel(mail and "Écrire à la rédaction"
             or (letters > 0 and ("Courrier des lecteurs (" .. letters .. ")") or "Courrier des lecteurs"))
-        page.letter:SetShown(not self.preview)
-        page.sources:SetShown(not mail)
+        page.letter:SetShown(not self.preview and not archive)
+        page.sources:SetShown(not mail and not archive)
         local pages = self.pages and #self.pages or 1
-        local paging = not reading and not mail and pages > 1
+        local paging = not reading and not mail and not archive and pages > 1
         self.pagePrev:SetShown(paging)
         self.pageNext:SetShown(paging)
         self.pagePrev:SetDisabled(self.page <= 1)
@@ -374,7 +448,7 @@ local function build(c)
         if self.preview then
             self.pagePrev:SetPoint("LEFT", self.endPreview, "RIGHT", 12, 0)
         else
-            self.pagePrev:SetPoint("LEFT", self.next, "RIGHT", 12, 0)
+            self.pagePrev:SetPoint("LEFT", self.archives, "RIGHT", 12, 0)
         end
     end
 end
