@@ -38,12 +38,33 @@ function Context.Me()
     return guid, name, class
 end
 
+local function nonEmpty(s) return type(s) == "string" and s ~= "" and s or nil end
+
+-- Realm of the player. The game sometimes answers "" (seen on WoW Forever since
+-- 2026-11-20): the last realm seen is then used, so keys stay the same.
+function Context.Realm()
+    local realm = nonEmpty(try(GetNormalizedRealmName)) or nonEmpty(try(GetRealmName))
+    if realm and ns.db then ns.db.realm = realm end
+    return realm or (ns.db and nonEmpty(ns.db.realm)) or ""
+end
+
 function Context.GuildKey()
     if not try(IsInGuild) then return nil end
     local guildName = try(GetGuildInfo, "player")
     if not guildName then return nil end
-    local realm = try(GetNormalizedRealmName) or try(GetRealmName) or ""
-    return guildName .. "-" .. realm, guildName
+    return guildName .. "-" .. Context.Realm(), guildName
+end
+
+-- Do two guild keys ("Name-Realm") designate the same guild? Same name, and same realm
+-- or one of them without realm (keys written while the game gave an empty realm).
+-- Guild names cannot contain "-": the first one separates the realm.
+function Context.SameGuild(a, b)
+    if type(a) ~= "string" or type(b) ~= "string" then return false end
+    if a == b then return true end
+    local na, ra = a:match("^([^%-]*)%-(.*)$")
+    local nb, rb = b:match("^([^%-]*)%-(.*)$")
+    if not na or not nb or na ~= nb then return false end
+    return ra == "" or rb == ""
 end
 
 function Context.Location()

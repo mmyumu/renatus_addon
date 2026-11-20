@@ -137,18 +137,40 @@ impl Chronicle {
 
     /// Public events of the guild most events belong to.
     pub fn main_guild(&self) -> Option<String> {
-        let mut counts: BTreeMap<&str, usize> = BTreeMap::new();
+        // Keys of the same guild (see same_guild) count together; the full key wins.
+        let mut counts: BTreeMap<&str, (usize, &str)> = BTreeMap::new();
         for e in self.all() {
             if str_of(e, "vis") == Some("G") {
                 if let Some(g) = str_of(e, "g") {
-                    *counts.entry(g).or_default() += 1;
+                    let entry = counts.entry(guild_name(g)).or_insert((0, g));
+                    entry.0 += 1;
+                    if entry.1.ends_with('-') {
+                        entry.1 = g;
+                    }
                 }
             }
         }
         counts
-            .into_iter()
-            .max_by_key(|(_, n)| *n)
-            .map(|(g, _)| g.to_string())
+            .into_values()
+            .max_by_key(|(n, _)| *n)
+            .map(|(_, g)| g.to_string())
+    }
+}
+
+fn guild_name(key: &str) -> &str {
+    key.split_once('-').map_or(key, |(name, _)| name)
+}
+
+/// Do two guild keys ("Name-Realm") designate the same guild? Same name, and same realm
+/// or one without realm: the game sometimes gives an empty realm (WoW Forever,
+/// 2026-11-20), and the addon then wrote "Name-". Guild names cannot contain "-".
+pub fn same_guild(a: &str, b: &str) -> bool {
+    if a == b {
+        return true;
+    }
+    match (a.split_once('-'), b.split_once('-')) {
+        (Some((na, ra)), Some((nb, rb))) => na == nb && (ra.is_empty() || rb.is_empty()),
+        _ => false,
     }
 }
 
@@ -308,6 +330,9 @@ mod tests {
             Some("Gorbash")
         );
         assert_eq!(ch.press_done.len(), 1);
+        assert!(same_guild("Renatûs-", "Renatûs-Realm"));
+        assert!(!same_guild("Renatûs-A", "Renatûs-B"));
+        assert!(!same_guild("Autre-", "Renatûs-Realm"));
     }
 
     #[test]

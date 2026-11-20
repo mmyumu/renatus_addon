@@ -24,7 +24,7 @@ function Views.Filter(events, f)
         local keep = true
         if f.author and ev.a ~= f.author then keep = false end
         if keep and f.authorName and ev.n ~= f.authorName then keep = false end
-        if keep and f.guild and ev.g ~= f.guild then keep = false end
+        if keep and f.guild and not ns.Context.SameGuild(ev.g, f.guild) then keep = false end
         if keep and f.kind and ev.k ~= f.kind then keep = false end
         if keep and not f.kind and ns.Types.Get(ev.k).hidden then keep = false end
         if keep and f.category and ns.Types.Get(ev.k).cat ~= f.category then keep = false end

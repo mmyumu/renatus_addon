@@ -371,7 +371,10 @@ pub fn build_split(ch: &Chronicle, since: f64, until: f64, split: f64) -> Brief 
         .all()
         .filter(|e| {
             str_of(e, "vis") == Some("G")
-                && str_of(e, "g").map(str::to_string) == guild
+                && guild
+                    .as_deref()
+                    .zip(str_of(e, "g"))
+                    .is_some_and(|(main, g)| crate::chronicle::same_guild(main, g))
                 && (since..until).contains(&num_of(e, "t"))
                 && !HIDDEN.contains(&str_of(e, "k").unwrap_or(""))
         })

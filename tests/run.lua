@@ -1922,5 +1922,31 @@ test("icone de la gazette : nouvel article, boosters, pastilles du menu", functi
     eq(w:IsShown(), false, "masquable")
 end)
 
+test("royaume vide renvoye par le jeu : cle de guilde inchangee, anciennes cles sans royaume acceptees", function()
+    local ns, S = boot(OFFICER)
+    eq(ns.Context.GuildKey(), "Les Testeurs-Forever")
+    S.realm = ""
+    eq(ns.Context.GuildKey(), "Les Testeurs-Forever", "dernier royaume connu")
+    local C = ns.Context
+    eq(C.SameGuild("Les Testeurs-", "Les Testeurs-Forever"), true)
+    eq(C.SameGuild("Les Testeurs-Forever", "Les Testeurs-Autre"), false)
+    eq(C.SameGuild("Autres-Forever", "Les Testeurs-"), false)
+    -- an event written with the empty realm is still from this guild
+    local t = GetServerTime()
+    local ev = { v = 1, id = "Player-1-BOB:1", a = "Player-1-BOB", n = "Bob", s = 1, t = t, k = "ANECDOTE",
+        g = "Les Testeurs-", vis = "G", prov = "MAN", p = { title = "x" } }
+    assert(ns.Sync.Validate(ev, ns.Context.GuildKey()), "synchro : meme guilde")
+    ns.Store.Insert(ev)
+    eq(#ns.Views.Filter(ns.Store.Dataset().events, { guild = ns.Context.GuildKey(), kind = "ANECDOTE" }), 1, "onglet Guilde")
+    -- guild settings published under the key without realm still apply
+    ns.Store.Insert({ v = 1, id = "Player-1-ABC:99", a = "Player-1-ABC", n = "Testeur", s = 99, t = t, k = "GUILD_CONFIG",
+        g = "Les Testeurs-", vis = "G", prov = "MAN", p = { rival = "Les Crocs" } })
+    ns.GuildConfig.Invalidate()
+    eq(ns.GuildConfig.Rival(), "Les Crocs")
+    -- a fresh install whose game answers "" from the start: no realm to fall back on
+    local ns2 = boot({ realm = "" })
+    eq(ns2.Context.GuildKey(), "Les Testeurs-")
+end)
+
 print(string.format("\n%d ok, %d echec(s)", passed, failed))
 os.exit(failed == 0 and 0 or 1)

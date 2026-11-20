@@ -97,6 +97,7 @@ function Stub.reset(opts)
         inCombat = false, dead = false, randomValue = opts.randomValue or 0.99,
         printed = {}, unknown = opts.unknownEvents or {},
         guild = opts.guild == nil and "Les Testeurs" or opts.guild,
+        realm = opts.realm == nil and "Forever" or opts.realm,
         mapID = opts.mapID or 1429, zone = "Forêt d'Elwynn", level = 20,
         sent = {}, units = opts.units or {}, group = opts.group or {}, roster = opts.roster or {},
         instance = opts.instance, -- { type = "party", name = "Mortemines", iid = 36 }
@@ -185,7 +186,7 @@ function Stub.reset(opts)
         end
         if S.guild then return S.guild, "Membre", S.rank end
     end
-    function GetNormalizedRealmName() return "Forever" end
+    function GetNormalizedRealmName() return S.realm end
     function GetRealZoneText() return S.zone end
     function GetSubZoneText() return "" end
     function IsInInstance()

@@ -47,7 +47,7 @@ local function computeVector()
     local guildKey = ns.Context.GuildKey()
     local seqs = {}
     for _, ev in pairs(ns.db.events) do
-        if ev.vis == "G" and ev.s and ev.g == guildKey then
+        if ev.vis == "G" and ev.s and ns.Context.SameGuild(ev.g, guildKey) then
             seqs[ev.a] = seqs[ev.a] or {}
             seqs[ev.a][ev.s] = true
         end
@@ -82,7 +82,7 @@ function Sync.Validate(ev, guildKey)
     if type(ev.t) ~= "number" then return nil, "date" end
     if type(ev.k) ~= "string" or #ev.k > 24 or not ev.k:match("^[%u_]+$") then return nil, "type" end
     if ev.vis ~= "G" then return nil, "visibilite" end
-    if not guildKey or ev.g ~= guildKey then return nil, "autre guilde" end
+    if not guildKey or not ns.Context.SameGuild(ev.g, guildKey) then return nil, "autre guilde" end
     if type(ev.p) ~= "table" then return nil, "contenu" end
     if ev.prov ~= nil and not PROVS[ev.prov] then return nil, "provenance" end
     local clean = {}
@@ -217,7 +217,7 @@ local function onMessage(sender, text)
     local msg = Ser.Decode(text)
     if type(msg) ~= "table" or type(msg.o) ~= "string" then return end
     local guildKey = ns.Context.GuildKey()
-    if not guildKey or msg.g ~= guildKey then return end
+    if not guildKey or not ns.Context.SameGuild(msg.g, guildKey) then return end
     local name = Transport.ShortName(sender)
     Sync.peers[name] = { seen = now(), proto = msg.pr or (Sync.peers[name] and Sync.peers[name].proto) }
     local h = handlers[msg.o]

@@ -49,7 +49,7 @@ function GuildConfig.Current()
     local guildKey = ns.Context.GuildKey()
     local best
     for _, ev in pairs(ns.db.events) do
-        if ev.k == "GUILD_CONFIG" and ev.vis == "G" and not ev.del and ev.g == guildKey
+        if ev.k == "GUILD_CONFIG" and ev.vis == "G" and not ev.del and ns.Context.SameGuild(ev.g, guildKey)
             and type(ev.p) == "table" and GuildConfig.IsOfficerRank(rankOf(ev.n, ev.a))
             and (not best or ev.t > best.t or (ev.t == best.t and ev.id > best.id)) then
             best = ev
@@ -82,7 +82,7 @@ function GuildConfig.Diagnose()
             local why
             if ev.vis ~= "G" then why = "non partagé"
             elseif ev.del then why = "supprimé"
-            elseif ev.g ~= guildKey then why = ("autre guilde (%s)"):format(tostring(ev.g))
+            elseif not ns.Context.SameGuild(ev.g, guildKey) then why = ("autre guilde (%s)"):format(tostring(ev.g))
             elseif type(ev.p) ~= "table" then why = "contenu invalide"
             else
                 local r = rankOf(ev.n, ev.a)
@@ -134,7 +134,7 @@ function GuildConfig.Roster()
     local guildKey = ns.Context.GuildKey()
     local best
     for _, ev in pairs(ns.db.events) do
-        if ev.k == "RIVAL_ROSTER" and ev.vis == "G" and not ev.del and ev.g == guildKey
+        if ev.k == "RIVAL_ROSTER" and ev.vis == "G" and not ev.del and ns.Context.SameGuild(ev.g, guildKey)
             and type(ev.p) == "table" and type(ev.p.members) == "table"
             and type(ev.p.guild) == "string" and ev.p.guild:lower() == rival
             and GuildConfig.IsOfficerRank(rankOf(ev.n, ev.a))
