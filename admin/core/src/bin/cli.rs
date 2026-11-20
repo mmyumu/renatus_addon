@@ -260,7 +260,11 @@ fn run() -> Result<(), String> {
             if args.show {
                 for c in &sel.candidates {
                     let mark = if c.checked { "[x]" } else { "[ ]" };
-                    let used = c.used.as_deref().map(|u| format!("  ({u})")).unwrap_or_default();
+                    let used = c
+                        .used
+                        .as_deref()
+                        .map(|u| format!("  ({u})"))
+                        .unwrap_or_default();
                     println!("{mark} {}. {}{used}", c.key, c.text);
                 }
                 let b = sel.brief_for(&keys);

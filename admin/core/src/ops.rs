@@ -255,7 +255,8 @@ pub fn gazette(
             Ok(answer) => {
                 let (ai, notes) = gazette::check(&b, &answer, edition);
                 out.notes.extend(notes);
-                out.notes.push(format!("{} article(s) de l'IA retenu(s).", ai.len()));
+                out.notes
+                    .push(format!("{} article(s) de l'IA retenu(s).", ai.len()));
                 if wanted.is_none() {
                     wanted = gazette::requested_template(&answer);
                 }
@@ -382,7 +383,15 @@ mod tests {
         )
         .unwrap();
         let sel = prepare(&paths, &ch);
-        let p = gazette(&ch, &sel, &[], Some(&md), &[], Duration::from_secs(1), "auto");
+        let p = gazette(
+            &ch,
+            &sel,
+            &[],
+            Some(&md),
+            &[],
+            Duration::from_secs(1),
+            "auto",
+        );
         assert_eq!(p.items.len(), 2, "{:?}", p.notes);
         assert_eq!(p.items[0]["p"]["edition"], sel.edition.as_str());
         assert_eq!(p.items[0]["p"]["order"], 1);

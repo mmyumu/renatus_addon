@@ -79,7 +79,11 @@ pub fn cited(ch: &Chronicle, pending: &[Value]) -> HashMap<String, Use> {
 pub fn last_issue_end(ch: &Chronicle, pending: &[Value]) -> Option<f64> {
     let editions = ch
         .of_kind("EDITION")
-        .chain(pending.iter().filter(|i| str_of(i, "kind") == Some("EDITION")))
+        .chain(
+            pending
+                .iter()
+                .filter(|i| str_of(i, "kind") == Some("EDITION")),
+        )
         .map(|e| {
             let till = num_of(payload(e), "till");
             if till > 0.0 {
@@ -92,7 +96,10 @@ pub fn last_issue_end(ch: &Chronicle, pending: &[Value]) -> Option<f64> {
         .of_kind("ARTICLE")
         .filter(|e| str_of(payload(e), "edition").is_some())
         .map(|e| num_of(e, "t"));
-    editions.chain(articles).filter(|t| *t > 0.0).reduce(f64::max)
+    editions
+        .chain(articles)
+        .filter(|t| *t > 0.0)
+        .reduce(f64::max)
 }
 
 /// A fact offered for the next issue.
@@ -163,7 +170,11 @@ pub fn prepare(ch: &Chronicle, pending: &[Value], now: f64) -> Selection {
                 text: f.text.clone(),
                 when: f.when,
                 recent,
-                used: if all { uses.first().map(|u| u.label()) } else { None },
+                used: if all {
+                    uses.first().map(|u| u.label())
+                } else {
+                    None
+                },
                 partly: !all && !uses.is_empty(),
                 checked: recent && !all,
             }
@@ -200,7 +211,12 @@ mod tests {
     #[test]
     fn new_facts_are_ticked_told_ones_are_not() {
         let now = 100.0 * DAY;
-        let mut art = ev("A:9", "ARTICLE", now - 5.0 * DAY, json!({"title": "Le lac", "edition": "E1"}));
+        let mut art = ev(
+            "A:9",
+            "ARTICLE",
+            now - 5.0 * DAY,
+            json!({"title": "Le lac", "edition": "E1"}),
+        );
         art["refs"] = json!(["A:2"]);
         let mut layout = ev("A:10", "EDITION", now - 4.0 * DAY, json!({"edition": "E1"}));
         layout["p"]["till"] = json!(now - 5.0 * DAY);
@@ -212,10 +228,16 @@ mod tests {
             art,
             layout,
         ]);
-        let pending = vec![json!({"id": "x", "kind": "ARTICLE", "refs": ["A:3"], "p": {"title": "En attente"}})];
+        let pending = vec![
+            json!({"id": "x", "kind": "ARTICLE", "refs": ["A:3"], "p": {"title": "En attente"}}),
+        ];
         let s = prepare(&ch, &pending, now);
         assert!(s.after_issue);
-        assert_eq!(s.since, now - 5.0 * DAY, "since the previous issue was written");
+        assert_eq!(
+            s.since,
+            now - 5.0 * DAY,
+            "since the previous issue was written"
+        );
         let by_text = |lvl: &str| {
             s.candidates
                 .iter()
@@ -234,7 +256,11 @@ mod tests {
         let b = s.brief_for(&s.checked_keys());
         assert_eq!(b.facts.len(), 1);
         assert_eq!(b.since, s.since, "period: since the previous issue");
-        assert_eq!(s.brief_for(&[told.key.clone()]).since, told.when, "or from an older fact ticked");
+        assert_eq!(
+            s.brief_for(std::slice::from_ref(&told.key)).since,
+            told.when,
+            "or from an older fact ticked"
+        );
     }
 
     #[test]

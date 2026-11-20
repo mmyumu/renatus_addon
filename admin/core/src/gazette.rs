@@ -986,7 +986,9 @@ mod tests {
         let texts: Vec<&str> = brief.facts.iter().map(|f| f.text.as_str()).collect();
         assert_eq!(texts.len(), 3, "{texts:#?}");
         assert!(texts[0].ends_with("Alice atteint le niveau 20"));
-        assert!(texts[1].contains("a croisé 1 fois des membres de la guilde rivale Les Crocs : Rival A (voleur Orc)"));
+        assert!(texts[1].contains(
+            "a croisé 1 fois des membres de la guilde rivale Les Crocs : Rival A (voleur Orc)"
+        ));
         assert!(
             texts[2].contains("Alice tombe face à Rival A (voleur Orc)"),
             "{texts:#?}"
@@ -1016,7 +1018,10 @@ mod tests {
         assert_eq!(items.len(), 2, "{notes:?}");
         assert_eq!(items[0]["refs"], json!(["A:2"]));
         assert_eq!(items[0]["p"]["ia"], true);
-        assert!(items[0]["id"].as_str().unwrap().starts_with("ia:2026-11-20-2147:"));
+        assert!(items[0]["id"]
+            .as_str()
+            .unwrap()
+            .starts_with("ia:2026-11-20-2147:"));
         assert!(notes[0].contains("F9"));
         assert!(notes[1].contains("« Gorbash »"));
         assert!(check(&brief, "pas de json", "x").1[0].contains("illisible"));

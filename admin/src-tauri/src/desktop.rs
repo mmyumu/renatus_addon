@@ -316,7 +316,10 @@ async fn write_gazette(app: AppHandle, keys: Vec<String>) -> Result<View, String
         Ok(proposal) => {
             let mut lines = vec!["— Gazette (brouillon)".to_string()];
             lines.extend(proposal.notes.iter().cloned());
-            lines.push("Brouillon à relire dans l'onglet Gazette, rien n'est encore dans Press.lua.".into());
+            lines.push(
+                "Brouillon à relire dans l'onglet Gazette, rien n'est encore dans Press.lua."
+                    .into(),
+            );
             log(&app, lines);
             app.state::<Shared>().state.lock().unwrap().draft = Some(Draft {
                 at: ops::now(),
