@@ -220,7 +220,10 @@ function Store.Dataset()
         founders = {},
         legends = {},
         roster = Store.Roster(),
+        rival = ns.GuildConfig.Rival(),
     }
+    local rivalRoster = ns.GuildConfig.Roster()
+    ds.rivalRoster = rivalRoster and rivalRoster.p or nil
     local opened, collection = ns.Album.Opened(events, guid)
     ds.collection = collection
     ds.boostersOpened = opened

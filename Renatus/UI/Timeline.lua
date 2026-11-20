@@ -168,7 +168,7 @@ function UI.BuildTimeline(c, mode)
         local member = UI.Dropdown(c, 130, function()
             local opts = { { value = "all", label = "Tous les membres" } }
             for _, m in ipairs(Views.Members(ns.Store.Dataset())) do
-                if m.hasAddon then table.insert(opts, { value = m.name, label = m.name }) end
+                if m.hasAddon then table.insert(opts, { value = m.name, label = m.display }) end
             end
             return opts
         end, function(v) state.member = v; refresh() end)

@@ -92,7 +92,7 @@ function Album.Catalogue(ds)
         if m.hasAddon and m.guid and not (ds.optOut and ds.optOut[m.guid]) then
             for _, variant in ipairs(MEMBER_VARIANTS) do
                 add({ id = "M:" .. m.guid .. ":" .. variant.rarity, series = "members", rarity = variant.rarity,
-                    name = m.name, class = m.class, flavor = variant.flavor(m) })
+                    name = m.display or m.name, class = m.class, flavor = variant.flavor(m) })
             end
             local top = 0
             for _, ev in ipairs(m.events) do
@@ -100,7 +100,7 @@ function Album.Catalogue(ds)
             end
             for lvl = 10, top, 10 do
                 add({ id = "L:" .. m.guid .. ":" .. lvl, series = "members", rarity = levelRarity(lvl),
-                    name = m.name .. ", niveau " .. lvl, class = m.class,
+                    name = (m.display or m.name) .. ", niveau " .. lvl, class = m.class,
                     flavor = lvl >= 60 and "Le sommet. La guilde s'incline (un peu)."
                         or ("Niveau " .. lvl .. " atteint. Le plus dur reste à venir, comme toujours.") })
             end

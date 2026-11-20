@@ -154,6 +154,7 @@ local function build()
 
     dataset = {
         isDemo = true,
+        rival = RIVALS,
         me = meGuid,
         guildKey = guildKey,
         events = events,

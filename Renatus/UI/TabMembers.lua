@@ -34,7 +34,7 @@ local function build(c)
         row:SetScript("OnClick", function(self) c.selected = self.item.name; c:Refresh() end)
     end, function(row, m)
         UI.SetClassIcon(row.icon, m.class)
-        row.name:SetText(UI.ClassName(m.name, m.class))
+        row.name:SetText(UI.ClassName(m.display, m.class))
         local sub = m.level and ("Niveau " .. m.level) or "Niveau ?"
         if not m.hasAddon then sub = sub .. " · sans l'addon"
         elseif m.titles[1] then sub = sub .. " · " .. m.titles[1].title end
@@ -105,7 +105,7 @@ local function build(c)
         if not m then p:Hide() return end
         p:Show()
         UI.SetClassIcon(p.portrait, m.class)
-        p.name:SetText(UI.ClassName(m.name, m.class))
+        p.name:SetText(UI.ClassName(m.display, m.class))
         local sub = (m.level and ("Niveau " .. m.level) or "Niveau inconnu")
         if m.last then sub = sub .. " · dernier fait " .. UI.Ago(m.last) end
         if not m.hasAddon then sub = sub .. " · n'utilise pas l'addon" end

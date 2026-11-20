@@ -939,6 +939,16 @@ test("WoW Forever : prenom + nom dans la liste de guilde, prenom seul ailleurs",
         "GUID connus : un homonyme ne compte pas")
 end)
 
+test("WoW Forever : onglet Membres, prenom + nom, sans doublon", function()
+    local ns = boot({ specIndex = 1, roster = { { name = "Testeur", full = "Testeur Dupont", rank = 1 }, { name = "Bob", full = "Bob Martin" } } })
+    ns.char.privacy.progression = "G"
+    Stub.fire("PLAYER_LEVEL_UP", 21)
+    local list = ns.Views.Members(ns.Store.Dataset())
+    eq(#list, 2, "pas de Testeur + Testeur Dupont")
+    eq(list[1].display, "Testeur Dupont"); eq(list[1].hasAddon, true); eq(list[1].name, "Testeur")
+    eq(list[2].display, "Bob Martin")
+end)
+
 test("reglage d'un non-officier ignore ; le plus recent gagne ; officier retrogade ignore", function()
     local S = Stub.reset({ specIndex = 1, roster = OFFICERS })
     local ns = Stub.loadAddon(ROOT, NAME)
@@ -991,6 +1001,16 @@ test("armurerie : effectif publie (EXT) et affiche sur la fiche de l'ennemi", fu
     c:ShowDetail(ns.Views.Enemies(ns.Store.Dataset())[1])
     local left = c.detailFrame.left.fontString:GetText()
     assert(left:find("Armurerie") and left:find("score d'équipement 159") and left:find("rang 2"), left)
+    -- the whole rival guild is in the registry, met or not
+    local list = ns.Views.Enemies(ns.Store.Dataset())
+    eq(#list, 2, "Ladou (croise) + Inoups (armurerie seulement), pas de doublon Ladou / Ladou Pipø")
+    eq(list[1].name, "Ladou"); eq(list[1].rival, true)
+    eq(list[2].name, "Inoups"); eq(list[2].rival, true); eq(list[2].lastSeen, nil); eq(list[2].level, 21)
+    c:Refresh()
+    c.detail = nil; c.view = "registry"; c:Refresh()
+    local row2 = c.registry.rows[2]
+    assert(row2.name:GetText():find("GUILDE RIVALE"), row2.name:GetText())
+    assert(row2.sub:GetText():find("jamais croisé") and row2.sub:GetText():find("chef de guilde"), row2.sub:GetText())
     RenatusPress = nil
 end)
 

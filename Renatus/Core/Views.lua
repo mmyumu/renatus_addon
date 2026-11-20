@@ -123,9 +123,12 @@ function Views.Members(ds)
         if ev.k == "LEVEL_UP" and (ev.p.lvl or 0) > (m.level or 0) then m.level = ev.p.lvl end
         if not m.last or ev.t > m.last then m.last = ev.t end
     end
+    -- Roster: "Dakey Dak" on WoW Forever, "Dakey" in events. Matched by GUID, then
+    -- name, then first name; the full roster name is kept for display (m.display).
     for _, r in ipairs(ds.roster or {}) do
-        local m = byName[r.name]
+        local m = (r.guid and byGuid[r.guid]) or byName[r.name] or (not r.guid and r.first and byName[r.first]) or nil
         if m then
+            m.display = r.name
             m.level = r.level or m.level
             m.rank, m.online = r.rank, r.online
             m.class = m.class or r.class
@@ -137,10 +140,13 @@ function Views.Members(ds)
             table.insert(list, m)
         end
     end
-    for _, m in ipairs(list) do m.titles = Views.TitlesOf(m) end
+    for _, m in ipairs(list) do
+        m.display = m.display or m.name
+        m.titles = Views.TitlesOf(m)
+    end
     table.sort(list, function(a, b)
         if a.hasAddon ~= b.hasAddon then return a.hasAddon end
-        return (a.name or "") < (b.name or "")
+        return (a.display or "") < (b.display or "")
     end)
     return list, byGuid
 end
@@ -249,6 +255,34 @@ function Views.Enemies(ds)
             end
         end
     end
+    -- Rival guild: every member known from the armory is listed, met or not
+    -- (in game "Ladou", on the armory "Ladou Pipø"); anyone seen in that guild is flagged.
+    if ds.rival then
+        local rival = lower(ds.rival)
+        for _, e in ipairs(list) do
+            if e.guild and lower(e.guild) == rival then e.rival = true end
+        end
+        local roster = ds.rivalRoster
+        if roster and type(roster.members) == "table" then
+            local at = roster.at or 0
+            for _, m in ipairs(roster.members) do
+                if type(m) == "table" and type(m.n) == "string" then
+                    local e
+                    for _, x in ipairs(list) do
+                        if ns.GuildConfig.SameCharacter(x.name, m.n) then e = x break end
+                    end
+                    e = e or get(m.n:match("^(%S+)") or m.n)
+                    e.rival, e.armory, e.fullName = true, m, m.n
+                    e.guild = e.guild or roster.guild
+                    e.class = e.class or m.cl
+                    e.race = e.race or m.ra
+                    if m.lvl and (not e.levelAt or at > e.levelAt) then
+                        e.level, e.levelAt, e.levelSrc = m.lvl, at, "armory"
+                    end
+                end
+            end
+        end
+    end
     for _, e in ipairs(list) do
         local votes, killed = 0, 0
         for _ in pairs(e.swornVotes) do votes = votes + 1 end
@@ -265,7 +299,12 @@ function Views.Enemies(ds)
         table.sort(names)
         e.memberList = names
     end
-    table.sort(list, function(a, b) return (a.lastSeen or 0) > (b.lastSeen or 0) end)
+    -- Met most recently first; then never met (rival guild), highest level first.
+    table.sort(list, function(a, b)
+        if (a.lastSeen or 0) ~= (b.lastSeen or 0) then return (a.lastSeen or 0) > (b.lastSeen or 0) end
+        if (a.level or 0) ~= (b.level or 0) then return (a.level or 0) > (b.level or 0) end
+        return a.key < b.key
+    end)
     return list, byKey
 end
 

@@ -139,12 +139,16 @@ local function build(c)
         row:SetScript("OnClick", function(self) c.detail = self.item.name; c:Refresh() end)
     end, function(row, e)
         UI.SetClassIcon(row.icon, e.class)
-        local sworn = e.sworn and "  |cffcc2a1aENNEMI JURÉ|r" or ""
-        row.name:SetText(UI.ClassName(e.name, e.class) .. (e.nickname and ("  |cff999999« " .. e.nickname .. " »|r") or "") .. sworn)
+        local badges = (e.sworn and "  |cffcc2a1aENNEMI JURÉ|r" or "") .. (e.rival and "  |cffe08a1eGUILDE RIVALE|r" or "")
+        row.name:SetText(UI.ClassName(e.name, e.class) .. (e.nickname and ("  |cff999999« " .. e.nickname .. " »|r") or "") .. badges)
         local bits = {}
         if e.guild then table.insert(bits, "<" .. e.guild .. ">") end
-        if e.level then table.insert(bits, "niv. " .. e.level .. " (vu " .. UI.Ago(e.levelAt) .. ")") end
-        if e.lastZone then table.insert(bits, "dernière rencontre : " .. e.lastZone) end
+        if e.armory and e.armory.rk then table.insert(bits, e.armory.rk == 0 and "chef de guilde" or ("rang " .. e.armory.rk)) end
+        if e.level then
+            table.insert(bits, "niv. " .. e.level .. (e.levelSrc == "armory" and " (armurerie)" or (" (vu " .. UI.Ago(e.levelAt) .. ")")))
+        end
+        if e.lastZone then table.insert(bits, "dernière rencontre : " .. e.lastZone)
+        elseif not e.lastSeen then table.insert(bits, "jamais croisé") end
         row.sub:SetText(table.concat(bits, "  ·  "))
         row.record:SetText("|cff66dd66V " .. Views.Total(e.wins) .. "|r   |cffdd5544D " .. Views.Total(e.losses) .. "|r")
     end)
@@ -189,9 +193,12 @@ local function build(c)
         local ident = {}
         if e.guild then table.insert(ident, "<" .. e.guild .. ">") end
         if e.race or e.class then table.insert(ident, (e.race or "?") .. " " .. string.lower(e.class or "?")) end
-        if e.level then table.insert(ident, "niveau " .. e.level .. " observé " .. UI.Ago(e.levelAt)) end
+        if e.level then
+            table.insert(ident, "niveau " .. e.level .. (e.levelSrc == "armory" and " (armurerie)" or (" observé " .. UI.Ago(e.levelAt))))
+        end
         d.ident:SetText(table.concat(ident, "  ·  "))
-        d.sworn:SetText(e.sworn and ("ENNEMI JURÉ — " .. (e.swornReason or "")) or "")
+        d.sworn:SetText(e.sworn and ("ENNEMI JURÉ — " .. (e.swornReason or ""))
+            or (e.rival and "MEMBRE DE LA GUILDE RIVALE") or "")
 
         local L = {}
         table.insert(L, "|cffffd100Bilan|r")
@@ -266,7 +273,7 @@ local function build(c)
         if detailEnemy then self:ShowDetail(detailEnemy) return end
 
         if self.view == "registry" then
-            self.registry:SetItems(enemies, "Aucun ennemi enregistré.\nLes joueurs de la guilde rivale croisés en jeu apparaîtront ici,\nou ajoute-les avec « + Ennemi ».")
+            self.registry:SetItems(enemies, "Aucun ennemi enregistré.\nLes membres de la guilde rivale (armurerie) et ceux croisés en jeu apparaîtront ici,\nou ajoute-les avec « + Ennemi ».")
             return
         end
         local pages = math.max(1, math.ceil(#postersList / PER_PAGE))
