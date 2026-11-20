@@ -1948,5 +1948,39 @@ test("royaume vide renvoye par le jeu : cle de guilde inchangee, anciennes cles 
     eq(ns2.Context.GuildKey(), "Les Testeurs-")
 end)
 
+test("courrier des lecteurs : la lettre parait dans le numero lu, page de courrier, encadre", function()
+    local ns = boot({ specIndex = 1, rank = 0, roster = { { name = "Testeur", rank = 0 } } })
+    local pub = { vis = "G", prov = "GEN", noExp = true }
+    ns.Store.Add("ARTICLE", { title = "Premier", body = "x", edition = "E1", order = 1 }, pub)
+    ns.Store.Add("EDITION", { edition = "E1", cells = { { pg = 1, r = 1, w = 8, b = { { t = "story", a = "@1" } } },
+        { pg = 1, r = 1, w = 4, b = { { t = "letters" } } } } }, pub)
+    -- an old letter without issue goes with the issue published before it
+    ns.Store.Add("LETTER", { title = "Ancienne", desc = "sans numero" }, { vis = "G", prov = "MAN" })
+    ns.UI.Open("gazette")
+    local c = RenatusMainFrame.containers.gazette
+    eq(#c.editions[1].letters, 1)
+    eq(c.paper.letter.label:GetText(), "Courrier des lecteurs (1)")
+    assert(canvasText(c):find("1 lettre%. La dernière, de Testeur"), "encadre : nombre et extrait")
+    -- the mail page, then writing from it
+    c.paper.letter:Click()
+    eq(c.mail, true)
+    assert(c.reader:IsShown() and c.reader.kind:GetText() == "COURRIER DES LECTEURS")
+    assert(c.reader.body.fontString:GetText():find("sans numero"), "lettre affichee")
+    assert(c.reader.body.fontString:GetText():find("— Testeur, le "), "signee et datee")
+    eq(c.paper.letter.label:GetText(), "Écrire à la rédaction")
+    c.paper.letter:Click() -- opens the letter dialog
+    local dialog = ns.UI.Dialogs.Letter(c.editions[1].key)
+    dialog.inputs.title.input:SetText("Démenti")
+    dialog.inputs.desc.input:SetText("Je n'étais pas au lac.")
+    dialog.save:Click()
+    local ev
+    for _, e in ipairs(eventsOf(ns, "LETTER")) do if e.p.title == "Démenti" then ev = e end end
+    eq(ev.vis, "G", "toujours partagee"); eq(ev.p.edition, "E1")
+    eq(#c.editions[1].letters, 2)
+    assert(c.reader.body.fontString:GetText():find("pas au lac"), "nouvelle lettre dans le meme numero")
+    c.back:Click()
+    eq(c.mail, false); eq(c.front:IsShown(), true)
+end)
+
 print(string.format("\n%d ok, %d echec(s)", passed, failed))
 os.exit(failed == 0 and 0 or 1)

@@ -395,7 +395,9 @@ end
 -- trusted EDITION of the same key, dated by it (else by its latest article). Articles
 -- published before issues existed are grouped by week. Inside an issue, articles follow
 -- the editorial order ("@1" is the front page). Each issue covers the period since the
--- previous one (its "In brief", its figure).
+-- previous one (its "In brief", its figure). Readers' letters (LETTER events) go with the
+-- issue that was being read when they were written (p.edition), else with the latest issue
+-- published before them; each issue lists its letters oldest first (e.letters).
 function Views.Editions(ds)
     local groups, list = {}, {}
     for _, a in ipairs(ds.articles or {}) do
@@ -428,6 +430,27 @@ function Views.Editions(ds)
         if x.t ~= y.t then return x.t > y.t end
         return x.key > y.key
     end)
+    -- Readers' letters
+    for _, e in ipairs(list) do e.letters = {} end
+    for _, ev in ipairs(ds.events or {}) do
+        if ev.k == "LETTER" and not ev.del and type(ev.p) == "table" then
+            local e = type(ev.p.edition) == "string" and groups[ev.p.edition] or nil
+            if not e then
+                for _, cand in ipairs(list) do
+                    if cand.t <= (ev.t or 0) then e = cand break end
+                end
+            end
+            if e then
+                table.insert(e.letters, { id = ev.id, t = ev.t, author = who(ev), title = ev.p.title, body = ev.p.desc, ev = ev })
+            end
+        end
+    end
+    for _, e in ipairs(list) do
+        table.sort(e.letters, function(x, y)
+            if (x.t or 0) ~= (y.t or 0) then return (x.t or 0) < (y.t or 0) end
+            return tostring(x.id) < tostring(y.id)
+        end)
+    end
     local cited = {}
     for i = #list, 1, -1 do
         local e, previous = list[i], list[i + 1]

@@ -891,24 +891,40 @@ BLOCKS.wanted = {
     end,
 }
 
--- Readers' letters: invitation and link to the letter dialog.
-local LETTER = "Une remarque, un démenti, une rumeur ? La rédaction lit tout, et publie ce qui l'arrange."
+-- Readers' letters of the issue: how many, an excerpt of the latest one, and a link to
+-- the mail page (ctx.openMail) or, without letters, to the letter dialog.
+local LETTER = "Une remarque, un démenti, une rumeur ? Écris à la rédaction : ta lettre paraît dans ce numéro."
+local function letterText(ctx, b)
+    if b.text then return b.text end
+    local letters = ctx.edition and ctx.edition.letters or {}
+    local last = letters[#letters]
+    if not last then return LETTER end
+    local excerpt = tostring(last.body or "")
+    if #excerpt > 90 then excerpt = excerpt:sub(1, 90):gsub("[\192-\255][\128-\191]*$", ""):gsub("%s+%S*$", "") .. "…" end
+    return ("%d lettre%s. La dernière, de %s : « %s »"):format(#letters, #letters > 1 and "s" or "",
+        tostring(last.author), excerpt)
+end
+
 BLOCKS.letters = {
     kind = "fixed",
     measure = function(cv, ctx, b, w)
-        return 20 + cv:Measure("text", 10, w, b.text or LETTER) + 6 + 14
+        return 20 + cv:Measure("text", 10, w, letterText(ctx, b)) + 6 + 14
     end,
     draw = function(cv, ctx, b, x, y, w)
         local top = y + sectionTitle(cv, b.title or "Courrier des lecteurs", x, y, w)
         local t = cv:Text("text", 10, INK, w)
         t:SetPoint("TOPLEFT", x, -top)
-        t:SetText(b.text or LETTER)
+        t:SetText(letterText(ctx, b))
         local ly = top + (t:GetStringHeight() or 28) + 6
-        local link = cv:Hit(x, ly, w, 14, nil, "Écrire à la rédaction")
-        link.text:SetText("Écrire à la rédaction ›")
+        local n = ctx.edition and ctx.edition.letters and #ctx.edition.letters or 0
+        local label = n > 0 and ("Lire le courrier (" .. n .. ") ›") or "Écrire à la rédaction ›"
+        local link = cv:Hit(x, ly, w, 14, nil, label)
+        link.text:SetText(label)
         link.text:SetTextColor(RED[1], RED[2], RED[3])
         link.text:SetShadowOffset(0, 0)
-        link:SetScript("OnClick", function() UI.Dialogs.Letter() end)
+        link:SetScript("OnClick", function()
+            if n > 0 and ctx.openMail then ctx.openMail() else UI.Dialogs.Letter(ctx.edition and ctx.edition.key) end
+        end)
         cv.letterLink = link
     end,
 }

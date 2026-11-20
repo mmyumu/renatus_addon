@@ -99,6 +99,7 @@ local function open(title, fields, onSave, opts)
         UI.Refresh()
     end)
     save:SetPoint("RIGHT", cancel, "LEFT", -8, 0)
+    f.inputs, f.save = inputs, save
     f:Show()
     return f
 end
@@ -175,15 +176,17 @@ function UI.Dialogs.Wanted(name)
     end)
 end
 
-function UI.Dialogs.Letter()
-    open("Courrier des lecteurs", {
+-- A letter to the editor about an issue (its key, nil = the latest one): published at
+-- once, signed, at the end of that issue for every member.
+function UI.Dialogs.Letter(edition)
+    return open("Courrier des lecteurs", {
         { key = "title", label = "Objet", required = true, max = 80 },
         { key = "desc", label = "Votre lettre à la rédaction", kind = "multi", required = true, max = 400 },
     }, function(v)
-        ns.Store.AddManual("LETTER", { title = v.title, desc = v.desc })
+        ns.Store.AddManual("LETTER", { title = v.title, desc = v.desc, edition = edition }, { vis = "G" })
     end, {
         save = "Envoyer",
-        hint = "La rédaction lit tout, et publie ce qui l'arrange. Signé de ton nom.",
+        hint = "Publiée aussitôt, signée de ton nom, dans le courrier des lecteurs de ce numéro.",
     })
 end
 

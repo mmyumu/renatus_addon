@@ -123,6 +123,7 @@ local function refreshFront(c, ds, edition)
     if edition and not c.preview then since, till = edition.since, edition.till end
     local ctx = NP.Context(ds, edition, since, till, placed)
     ctx.placeholder = PLACEHOLDER
+    if not c.preview then ctx.openMail = function() c:OpenMail() end end
     local top = c.page == 1 and (BODY_TOP + 4) or (BODY_TOP_INNER + 4)
     NP.Draw(f.canvas, ctx, pg, X0, top, PAGE_W - 2 * X0, BODY_BOTTOM - 2)
     -- Shortcuts (tests, keyboard-free navigation): first headline and story of the page.
@@ -169,6 +170,25 @@ local function buildReader(c, page)
     r.notice = ink(UI.Text(r, 9), INK_DIM)
     r.notice:SetPoint("TOPLEFT", X0, -(BODY_BOTTOM + 10))
     r.notice:SetText("Article généré à partir d'événements réels. Le ton est inventé, les faits ne le sont pas : consulte les sources.")
+end
+
+-- Readers' letters of an issue, on the reading page.
+local function refreshMail(c, edition)
+    local r = c.reader
+    local letters = edition.letters or {}
+    r.edition:SetText("Édition n° " .. edition.number .. "  ·  " .. edition.label)
+    r.kind:SetText("COURRIER DES LECTEURS")
+    r.title:SetText(#letters > 0 and "Vos lettres à la rédaction" or "Pas encore de courrier")
+    r.meta:SetText(#letters .. " lettre" .. (#letters > 1 and "s" or "") .. "  ·  publiées telles quelles, signées de leur auteur")
+    local parts = {}
+    for _, l in ipairs(letters) do
+        parts[#parts + 1] = "## " .. tostring(l.title or "Sans objet") .. "\n" .. tostring(l.body or "")
+            .. "\n— " .. tostring(l.author) .. ", le " .. ns.Views.DateLabel(l.t or 0)
+    end
+    if #parts == 0 then
+        parts[1] = "Une remarque, un démenti, une rumeur ? Écris à la rédaction : ta lettre paraîtra ici, dans ce numéro."
+    end
+    r.body:SetText(NP.Markup(table.concat(parts, "\n\n")))
 end
 
 local function refreshReader(c, ds, edition, a)
@@ -223,13 +243,21 @@ local function build(c)
     c.pageNext = UI.Button(c, "Page ›", 70, 22, function() c.page = c.page + 1; c:Refresh() end)
     c.pageNext:SetPoint("LEFT", c.pagePrev, "RIGHT", 4, 0)
     c.back = UI.Button(c, "‹ Retour au journal", 150, 22, function()
-        c.reading = nil; c.showSources = false; c:Refresh()
+        c.reading = nil; c.showSources = false; c.mail = false; c:Refresh()
     end)
     c.back:SetPoint("TOPLEFT", 0, barY)
     c.endPreview = UI.Button(c, "Quitter l'aperçu", 130, 22, function() c:SetPreview(nil) end)
     c.endPreview:SetPoint("TOPLEFT", 0, barY)
 
-    page.letter = UI.Button(c, "Courrier des lecteurs", 160, 22, function() UI.Dialogs.Letter() end)
+    -- Readers' letters: the issue's mail page, and from there, writing one.
+    page.letter = UI.Button(c, "Courrier des lecteurs", 190, 22, function()
+        local e = c.editions and c.editions[c.edition]
+        if c.mail or not e then
+            UI.Dialogs.Letter(e and e.key)
+        else
+            c:OpenMail()
+        end
+    end)
     page.sources = UI.Button(c, "Sources", 90, 22, function()
         if not c.current then return end
         c.showSources = not c.showSources
@@ -243,13 +271,21 @@ local function build(c)
         if not a or a.placeholder then return end
         self.reading = a.id
         self.showSources = false
+        self.mail = false
+        self:Refresh()
+    end
+
+    -- Readers' letters of the issue on display.
+    function c:OpenMail()
+        if self.preview then return end
+        self.mail, self.reading, self.showSources = true, nil, false
         self:Refresh()
     end
 
     -- Preview of an unpublished edition: { articles = {...}, layout = EDITION payload }, or nil.
     function c:SetPreview(p)
         self.preview = p
-        self.edition, self.page, self.reading, self.showSources = 1, 1, nil, false
+        self.edition, self.page, self.reading, self.showSources, self.mail = 1, 1, nil, false, false
         self:Refresh()
     end
 
@@ -302,21 +338,34 @@ local function build(c)
             if not reading then self.reading = nil end
         end
         self.current = reading or (edition and edition.articles[1]) or nil
+        local mail = self.mail and edition ~= nil and not reading and not self.preview
+        if not mail then self.mail = false end
 
-        self.front:SetShown(not reading)
-        self.reader:SetShown(reading ~= nil)
-        self.back:SetShown(reading ~= nil)
+        self.front:SetShown(not reading and not mail)
+        self.reader:SetShown(reading ~= nil or mail)
+        self.back:SetShown(reading ~= nil or mail)
         self.endPreview:SetShown(self.preview ~= nil and not reading)
-        local browse = not reading and not self.preview
+        local browse = not reading and not mail and not self.preview
         self.prev:SetShown(browse)
         self.next:SetShown(browse)
         self.prev:SetDisabled(self.edition >= #list)
         self.next:SetDisabled(self.edition <= 1)
         page.sources:SetDisabled(self.current == nil)
         page.sources:SetLabel(self.showSources and reading and "Article" or "Sources")
-        if reading then refreshReader(self, ds, edition, reading) else refreshFront(self, ds, edition) end
+        if mail then
+            refreshMail(self, edition)
+        elseif reading then
+            refreshReader(self, ds, edition, reading)
+        else
+            refreshFront(self, ds, edition)
+        end
+        local letters = edition and edition.letters and #edition.letters or 0
+        page.letter:SetLabel(mail and "Écrire à la rédaction"
+            or (letters > 0 and ("Courrier des lecteurs (" .. letters .. ")") or "Courrier des lecteurs"))
+        page.letter:SetShown(not self.preview)
+        page.sources:SetShown(not mail)
         local pages = self.pages and #self.pages or 1
-        local paging = not reading and pages > 1
+        local paging = not reading and not mail and pages > 1
         self.pagePrev:SetShown(paging)
         self.pageNext:SetShown(paging)
         self.pagePrev:SetDisabled(self.page <= 1)

@@ -124,6 +124,13 @@ local function build()
     E("pis", "QUEST_DONE", 6, 20, { q = 1, title = "Le familier perdu" }, { zone = "Loch Modan" })
     E("pis", "LEVEL_UP", 6, 21, { lvl = 21 }, { zone = "Loch Modan" })
 
+    -- Readers' letters about this week's issue.
+    E("tob", "LETTER", 0, 0, { edition = "demo-2", title = "Droit de réponse",
+        desc = "Onze morts, c'est faux : la douzième ne compte pas, j'étais déjà fantôme. Je demande un rectificatif." },
+        { prov = "MAN", zone = "Bois de la Pénombre" })
+    E("mel", "LETTER", 0, 0, { edition = "demo-2", title = "Au sujet du mouton",
+        desc = "Le mouton allait très bien grâce à moi. Je ne regrette rien." }, { prov = "MAN", zone = "Hurlevent" })
+
     table.sort(events, function(a, b)
         if a.t ~= b.t then return a.t > b.t end
         return a.id > b.id
