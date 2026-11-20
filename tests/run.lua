@@ -947,6 +947,8 @@ test("WoW Forever : onglet Membres, prenom + nom, sans doublon", function()
     eq(#list, 2, "pas de Testeur + Testeur Dupont")
     eq(list[1].display, "Testeur Dupont"); eq(list[1].hasAddon, true); eq(list[1].name, "Testeur")
     eq(list[2].display, "Bob Martin")
+    local ev = eventsOf(ns, "LEVEL_UP")[1]
+    assert(ns.Types.Describe(ev, true):find("^Testeur Dupont "), ns.Types.Describe(ev, true))
 end)
 
 test("reglage d'un non-officier ignore ; le plus recent gagne ; officier retrogade ignore", function()

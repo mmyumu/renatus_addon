@@ -166,7 +166,7 @@ function GuildConfig:OnLogin()
     ns.EventBus.Subscribe("CHRONICLE_EVENT", function(ev)
         if ev.k == "GUILD_CONFIG" then cache = nil end
     end)
-    ns:RegisterGameEvent("GUILD_ROSTER_UPDATE", function() cache = nil end)
+    ns:RegisterGameEvent("GUILD_ROSTER_UPDATE", function() cache = nil; ns.Store.InvalidateNames() end)
     -- Officer checks need the roster: ask for it now rather than wait for the guild window.
     ns.Store.RequestRoster()
 end

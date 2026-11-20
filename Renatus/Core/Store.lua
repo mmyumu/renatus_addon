@@ -302,6 +302,26 @@ function Store.Roster()
     return roster
 end
 
+-- Name to display for an event author: the roster's full name on WoW Forever
+-- ("Dakey Dak" for "Dakey"), the recorded name otherwise. Cached until the roster changes.
+local nameCache
+function Store.InvalidateNames() nameCache = nil end
+function Store.DisplayName(guid, name)
+    if not nameCache then
+        local roster = Store.Roster()
+        if #roster == 0 then return name end
+        nameCache = { roster = roster, byKey = {} }
+    end
+    local key = tostring(guid) .. "|" .. tostring(name)
+    local hit = nameCache.byKey[key]
+    if hit == nil then
+        local m = Store.FindInRoster(nameCache.roster, guid, name)
+        hit = m and m.name or false
+        nameCache.byKey[key] = hit
+    end
+    return hit or name
+end
+
 -- Roster entry of a character. On WoW Forever characters have a first and a last name:
 -- the roster says "Dakey Dak" while UnitName and events say "Dakey". The GUID settles it
 -- when the client gives one; otherwise the exact name, then the first name.

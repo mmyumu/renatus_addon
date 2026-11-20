@@ -175,7 +175,10 @@ end
 -- Descriptive sentence. withName: "Brisépée atteint le niveau 20"; otherwise "Atteint le niveau 20".
 function Types.Describe(ev, withName)
     local text = Types.Raw(ev)
-    if withName then return (ev.n or "?") .. " " .. text end
+    if withName then
+        local name = ev.n and ns.Store and ns.Store.DisplayName and ns.Store.DisplayName(ev.a, ev.n) or ev.n
+        return (name or "?") .. " " .. text
+    end
     return (text:gsub("^%l", string.upper))
 end
 
