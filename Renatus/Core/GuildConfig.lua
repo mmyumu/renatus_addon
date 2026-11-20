@@ -25,12 +25,10 @@ local function trim(s)
 end
 GuildConfig.Trim = trim
 
--- Rank index of a guild member by short name (nil if not in the roster).
-local function rankOf(name)
-    for _, m in ipairs(ns.Store.Roster()) do
-        if m.name == name then return m.rank end
-    end
-    return nil
+-- Rank index of a guild member (nil if not in the roster), by GUID then name.
+local function rankOf(name, guid)
+    local m = ns.Store.FindInRoster(ns.Store.Roster(), guid, name)
+    return m and m.rank
 end
 GuildConfig.RankOf = rankOf
 
@@ -52,7 +50,7 @@ function GuildConfig.Current()
     local best
     for _, ev in pairs(ns.db.events) do
         if ev.k == "GUILD_CONFIG" and ev.vis == "G" and not ev.del and ev.g == guildKey
-            and type(ev.p) == "table" and GuildConfig.IsOfficerRank(rankOf(ev.n))
+            and type(ev.p) == "table" and GuildConfig.IsOfficerRank(rankOf(ev.n, ev.a))
             and (not best or ev.t > best.t or (ev.t == best.t and ev.id > best.id)) then
             best = ev
         end
@@ -70,12 +68,13 @@ function GuildConfig.Diagnose()
     local guildKey = ns.Context.GuildKey()
     local roster = ns.Store.Roster()
     local _, _, myRank = ns.Try(GetGuildInfo, "player")
-    local _, me = ns.Context.Me()
+    local myGuid, me = ns.Context.Me()
+    local mine = ns.Store.FindInRoster(roster, myGuid, me)
     table.insert(lines, ("Guilde : %s"):format(tostring(guildKey)))
     table.insert(lines, ("Liste de guilde : %d membre(s)%s"):format(#roster,
         #roster == 0 and " (pas encore reçue du jeu)" or ""))
-    table.insert(lines, ("Ton rang (jeu) : %s  ·  dans la liste : %s"):format(tostring(myRank),
-        tostring(me and rankOf(me))))
+    table.insert(lines, ("Ton rang (jeu) : %s  ·  dans la liste : %s (%s)"):format(tostring(myRank),
+        tostring(mine and mine.rank), mine and mine.name or "introuvable"))
     local n = 0
     for _, ev in pairs(ns.db.events) do
         if ev.k == "GUILD_CONFIG" then
@@ -86,7 +85,7 @@ function GuildConfig.Diagnose()
             elseif ev.g ~= guildKey then why = ("autre guilde (%s)"):format(tostring(ev.g))
             elseif type(ev.p) ~= "table" then why = "contenu invalide"
             else
-                local r = rankOf(ev.n)
+                local r = rankOf(ev.n, ev.a)
                 if r == nil then why = ("%s absent de la liste de guilde"):format(tostring(ev.n))
                 elseif not GuildConfig.IsOfficerRank(r) then why = ("%s est de rang %d"):format(tostring(ev.n), r)
                 else why = "valable" end
@@ -138,7 +137,7 @@ function GuildConfig.Roster()
         if ev.k == "RIVAL_ROSTER" and ev.vis == "G" and not ev.del and ev.g == guildKey
             and type(ev.p) == "table" and type(ev.p.members) == "table"
             and type(ev.p.guild) == "string" and ev.p.guild:lower() == rival
-            and GuildConfig.IsOfficerRank(rankOf(ev.n))
+            and GuildConfig.IsOfficerRank(rankOf(ev.n, ev.a))
             and (not best or (ev.p.at or ev.t) > (best.p.at or best.t)) then
             best = ev
         end

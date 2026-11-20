@@ -213,7 +213,11 @@ function Stub.reset(opts)
     end }
     function GetGuildRosterInfo(i)
         local r = S.roster[i]
-        if r then return r.name .. "-Forever", "Membre", r.rank or 2, r.level or 20, "", "", "", "", true, 0, r.class or "WARRIOR" end
+        -- r.full: WoW Forever "first last" name; r.guid: 17th value, as on recent clients.
+        if r then
+            return (r.full or r.name) .. "-Forever", "Membre", r.rank or 2, r.level or 20, "", "", "", "", true, 0,
+                r.class or "WARRIOR", 0, 0, false, false, 0, r.guid
+        end
     end
     C_ChatInfo = {
         RegisterAddonMessagePrefix = function(prefix) S.prefix = prefix; return true end,

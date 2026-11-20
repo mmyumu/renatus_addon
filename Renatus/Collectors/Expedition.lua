@@ -22,9 +22,15 @@ local idle = false       -- QUESTING closed for inactivity: no restart without n
 local function now() return (GetServerTime and GetServerTime()) or time() end
 local function state() return ns.char.expedition end
 
+-- Guild members by name, first name (WoW Forever: "Dakey Dak" in the roster, "Dakey"
+-- in the group) and GUID.
 local function refreshGuildNames()
     local names = {}
-    for _, r in ipairs(ns.Store.Roster()) do names[r.name] = true end
+    for _, r in ipairs(ns.Store.Roster()) do
+        names[r.name] = true
+        if r.first then names[r.first] = true end
+        if r.guid then names[r.guid] = true end
+    end
     if next(names) then guildNames = names end
 end
 
@@ -33,7 +39,7 @@ local function groupInfo()
     local guild, others = {}, 0
     for _, p in ipairs(all) do
         local short = p.n:gsub("%-.*$", "")
-        if guildNames[short] then table.insert(guild, { g = p.g, n = short }) else others = others + 1 end
+        if guildNames[short] or guildNames[p.g] then table.insert(guild, { g = p.g, n = short }) else others = others + 1 end
     end
     return guild, others, #all
 end

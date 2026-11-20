@@ -921,6 +921,24 @@ test("liste de guilde demandee au jeu : le reglage d'un officier s'applique sans
     assert(diag:find("Liste de guilde : 3 membre") and diag:find("valable") and diag:find("dans la liste : 1"), diag)
 end)
 
+test("WoW Forever : prenom + nom dans la liste de guilde, prenom seul ailleurs", function()
+    -- by first name (no GUID from the client)
+    local ns, A = bootAdmin({ specIndex = 1, rank = 1, roster = { { name = "Testeur", full = "Testeur Dupont", rank = 1 } } })
+    ns.GuildConfig.Publish({ rival = "Les Crocs" })
+    eq(ns.GuildConfig.Rival(), "Les Crocs")
+    A.Open("diag")
+    local diag = A.window.pages.diag.guildInfo:GetText()
+    assert(diag:find("valable") and diag:find("Testeur Dupont"), diag)
+    -- by GUID, even if the first name differs
+    local ns2 = bootAdmin({ specIndex = 1, rank = 1, roster = { { name = "x", full = "Autre Nom", rank = 1, guid = "Player-1-ABC" } } })
+    ns2.GuildConfig.Publish({ rival = "Les Crocs" })
+    eq(ns2.GuildConfig.Rival(), "Les Crocs")
+    -- a rank-4 member with the same first name as an officer does not count as officer
+    eq(ns.Store.FindInRoster({ { name = "Bob Un", first = "Bob", rank = 4 } }, "G2", "Bob").rank, 4)
+    eq(ns.Store.FindInRoster({ { name = "Bob Un", first = "Bob", rank = 1, guid = "G1" } }, "G2", "Bob"), nil,
+        "GUID connus : un homonyme ne compte pas")
+end)
+
 test("reglage d'un non-officier ignore ; le plus recent gagne ; officier retrogade ignore", function()
     local S = Stub.reset({ specIndex = 1, roster = OFFICERS })
     local ns = Stub.loadAddon(ROOT, NAME)

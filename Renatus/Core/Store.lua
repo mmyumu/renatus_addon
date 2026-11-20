@@ -289,12 +289,31 @@ function Store.Roster()
         return roster
     end
     for i = 1, n do
-        local name, _, rankIndex, level, _, _, _, _, online, _, class = try(GetGuildRosterInfo, i)
+        local name, _, rankIndex, level, _, _, _, _, online, _, class, _, _, _, _, _, guid = try(GetGuildRosterInfo, i)
         if name then
-            table.insert(roster, { name = (name:gsub("%-.*$", "")), rank = rankIndex, level = level, class = class, online = online })
+            name = name:gsub("%-.*$", "")
+            table.insert(roster, { name = name, first = name:match("^(%S+)"), rank = rankIndex, level = level,
+                class = class, online = online, guid = type(guid) == "string" and guid or nil })
         end
     end
     return roster
+end
+
+-- Roster entry of a character. On WoW Forever characters have a first and a last name:
+-- the roster says "Dakey Dak" while UnitName and events say "Dakey". The GUID settles it
+-- when the client gives one; otherwise the exact name, then the first name.
+function Store.FindInRoster(roster, guid, name)
+    if guid and roster[1] and roster[1].guid then
+        -- The client gives GUIDs: they alone count (no impersonation by first name).
+        for _, m in ipairs(roster) do if m.guid == guid then return m end end
+        return nil
+    end
+    if type(name) ~= "string" then return nil end
+    name = name:gsub("%-.*$", "")
+    for _, m in ipairs(roster) do if m.name == name then return m end end
+    local first = name:lower()
+    for _, m in ipairs(roster) do if m.first and m.first:lower() == first then return m end end
+    return nil
 end
 
 function Store.Count()
