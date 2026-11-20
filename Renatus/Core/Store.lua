@@ -214,6 +214,7 @@ function Store.Dataset()
         guildKey = Context.GuildKey(),
         events = events,
         articles = ns.Views.Articles(events, guid),
+        layouts = ns.Views.Layouts(events),
         causes = ns.Views.DeathCauses(events),
         collection = nil,   -- filled below from BOOSTER_OPEN events
         boosters = 0,

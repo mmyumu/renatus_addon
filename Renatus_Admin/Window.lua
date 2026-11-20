@@ -36,6 +36,24 @@ local function preview(item)
         if #meta > 0 then table.insert(lines, "|cff999999" .. table.concat(meta, " · ") .. "|r") end
         table.insert(lines, "")
         table.insert(lines, tostring(p.body or ""))
+    elseif item.kind == "EDITION" then
+        table.insert(lines, "|cffd4a017" .. Press.Label(item) .. "|r")
+        table.insert(lines, "|cff999999Publier la mise en page publie aussi ses articles en attente.|r")
+        local layout = R.UI.Newsprint.Sanitize(p)
+        for i, pg in ipairs(layout and layout.pages or {}) do
+            table.insert(lines, "")
+            table.insert(lines, ("Page %d%s"):format(i, pg.title and (" : " .. pg.title) or ""))
+            for _, row in ipairs(pg.rows) do
+                local cells = {}
+                for _, cell in ipairs(row.cells) do
+                    local blocks = {}
+                    for _, b in ipairs(cell.blocks) do table.insert(blocks, b.t .. (b.a and (" " .. b.a) or "")) end
+                    table.insert(cells, ("[%d/12 : %s]"):format(cell.w, table.concat(blocks, ", ")))
+                end
+                table.insert(lines, "  " .. table.concat(cells, " "))
+            end
+        end
+        table.insert(lines, "\n|cff999999« Aperçu dans la gazette » montre les pages telles que la guilde les verra.|r")
     else
         table.insert(lines, Press.Label(item))
     end
@@ -88,12 +106,20 @@ local function buildPress(f, page)
         function() page.selected = nil; f:Refresh() end,
         function(item) page.selected = item; f:Refresh() end)
     page.list:SetPoint("TOPLEFT", 0, -34)
-    page.preview = UI.ScrollText(page, BODY_W - 456, 360, 12)
+    page.preview = UI.ScrollText(page, BODY_W - 456, 330, 12)
     page.preview:SetPoint("TOPLEFT", 456, -34)
+    page.look = UI.Button(page, "Aperçu dans la gazette", 190, 22, function()
+        if page.selected then Press.Preview(page.selected) end
+    end)
+    page.look:SetPoint("TOPLEFT", 456, -372)
+    UI.Tooltip(page.look, "Aperçu dans la gazette", { "Ouvre la gazette des membres sur cet élément, comme s'il était publié.",
+        "Rien n'est diffusé." })
     function page:Refresh()
         self.list:Update()
         if self.selected and R.db.pressDone[self.selected.id] then self.selected = nil end
         self.preview:SetText(preview(self.selected))
+        local k = self.selected and self.selected.kind
+        self.look:SetDisabled(k ~= "ARTICLE" and k ~= "EDITION")
     end
 end
 

@@ -341,6 +341,17 @@ Ces rivalités alimentent le journal (événements `DED`) et la gazette (rubriqu
 - `Renatus_Admin/Press.lua` ne contient qu'une table Lua (`RenatusPress`). Il est réécrit par le compagnon pendant que le jeu tourne et relu au `/reload` (un `/reload` relit les fichiers Lua listés dans les TOC ; seul un **nouveau** fichier exige un redémarrage du client). C'est un mécanisme de fichiers standard, sans injection.
 - Chaque article stocke `refs` (identifiants des événements sources) et `style`. Dans le jeu, un bouton « Sources » affiche les faits d'origine.
 
+### 7.1 bis Mise en page des éditions
+
+- La mise en page est une **donnée**, pas du code : un événement `EDITION` (masqué, provenance `GEN`) publié avec les articles de la semaine. L'addon des membres la dessine (`UI/Newsprint.lua`). Une nouvelle maquette ne demande donc qu'une mise à jour de l'application ; seul un **nouveau type de bloc** demande une nouvelle version de l'addon.
+- Format (à plat, car la synchro refuse plus de 8 niveaux de tables imbriquées) : `p = { template, edition, titles = { "", "Titre page 2" }, cells = { { pg, r, w, h, b = { blocs } } } }`. `pg` et `r` numérotent la page et la rangée, `w` est la largeur relative (grille de 12), `h` la part de hauteur de la rangée (facultative).
+- Blocs : `story` (article en 1 à 4 colonnes, lettrine, taille du titre), `teaser` (titre et chapeau), `contents` (sommaire des articles non placés), `brief` (en bref de la semaine), `quote` (exergue), `figure` (chiffre de la semaine), `portrait` (médaillon gravé : emblème de classe, nom, classe et niveau tirés du roster et du journal, identique pour tous), `picture` (texture du jeu, gravée), `notice` (petite annonce encadrée), `wanted` (avis de recherche), `letters` (courrier). Un type inconnu est ignoré.
+- Articles : `@n` = n-ième article de l'édition (votes, puis ordre éditorial `p.order`), donc les votes peuvent toujours changer la une ; ou la clé `p.key` (exergue et portrait restent ainsi attachés à leur article). Un article qu'aucun bloc ne montre va au sommaire, ou sur une page « Suite » : rien n'est perdu.
+- Hauteurs : les rangées se partagent la page ; dans une case, les blocs fixes prennent leur hauteur, les blocs souples (en bref, sommaire) au plus la leur, l'article remplit le reste et se coupe sur « Lire la suite ».
+- Confiance : une mise en page n'est retenue que si son auteur est officier dans le roster actuel (comme `GUILD_CONFIG`) ; la plus récente de la semaine gagne. Sans `EDITION`, la une classique.
+- Côté application (`admin/core/src/edition.rs`) : maquettes `classique`, `grande_une`, `trois_colonnes`, `portrait`. L'IA choisit (champ `maquette`), ou le réglage « Maquette de la gazette » l'impose. Elle peut proposer pour chaque article une **exergue** (recopiée mot pour mot du texte, sinon ignorée) et un **portrait** (un membre consentant nommé dans l'article, sinon ignoré), et des intertitres (`## `).
+- Dans `Renatus_Admin`, publier la mise en page publie aussi ses articles en attente ; « Aperçu dans la gazette » montre l'édition dans la fenêtre des membres sans rien diffuser.
+
 ### 7.2 Garde-fous anti-invention
 
 - Le prompt reçoit des **faits numérotés**. Chaque phrase factuelle du texte doit pouvoir citer un numéro. Les tournures (« la rédaction salue sa persévérance ») sont libres ; les faits (« il est mort trois fois ») doivent exister.

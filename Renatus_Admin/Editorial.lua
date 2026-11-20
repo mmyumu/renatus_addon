@@ -6,6 +6,8 @@
 -- Once published, the item becomes an event signed by the editor:
 --   DEATH_CAUSE, PVP_CLASH -> provenance LOG ("according to X's combat log")
 --   ARTICLE                -> provenance GEN (editorial; facts are in refs)
+--   EDITION                -> provenance GEN: page layout of an edition (Renatus/UI/Newsprint.lua);
+--                             publishing it also publishes its pending articles (same p.edition)
 --   GUILD_CONFIG           -> guild settings (officers only, see Renatus/Core/GuildConfig.lua)
 --   RIVAL_ROSTER           -> provenance EXT: the rival guild's roster from the armory
 local _, A = ...
@@ -30,6 +32,7 @@ local KINDS = {
     DEATH_CAUSE = { prov = "LOG", label = "Cause de mort" },
     PVP_CLASH = { prov = "LOG", label = "Affrontement (journal de combat)" },
     ARTICLE = { prov = "GEN", label = "Article" },
+    EDITION = { prov = "GEN", label = "Mise en page" },
     GUILD_CONFIG = { label = "Réglage de guilde" },
     RIVAL_ROSTER = { prov = "EXT", label = "Armurerie" },
 }
@@ -64,6 +67,12 @@ function Press.Label(item)
     local k = KINDS[item.kind]
     local p = item.p
     if item.kind == "ARTICLE" then return (p.ia == true and "Article (IA)" or k.label) .. " : " .. tostring(p.title) end
+    if item.kind == "EDITION" then
+        local n = #Press.EditionArticles(item)
+        local layout = R.UI.Newsprint.Sanitize(p)
+        local pages = layout and #layout.pages or 0
+        return ("Mise en page « %s » : %d page(s), %d article(s)"):format(tostring(p.template or "libre"), pages, n)
+    end
     if item.kind == "DEATH_CAUSE" then return ("Mort de %s : %s"):format(tostring(p.victim), tostring(p.cause)) end
     if item.kind == "PVP_CLASH" then
         return ("%s %s %s"):format(tostring(p.member), p.result == "win" and "a vaincu" or "a été vaincu par", tostring(p.name))
@@ -78,11 +87,44 @@ function Press.Label(item)
     return k.label
 end
 
+-- Pending articles of an edition (same p.edition), in editorial order.
+function Press.EditionArticles(edition)
+    local tag = edition.p and edition.p.edition
+    if not tag then return {} end
+    local out = Press.Pending(function(i) return i.kind == "ARTICLE" and i.p.edition == tag end)
+    table.sort(out, function(x, y) return (tonumber(x.p.order) or 99) < (tonumber(y.p.order) or 99) end)
+    return out
+end
+
+-- Article as the gazette shows it (preview of an unpublished edition).
+local function previewArticle(item)
+    local p = item.p
+    local _, me = R.Context.Me()
+    return { id = item.id, key = p.key, order = tonumber(p.order), title = p.title, body = p.body, kind = p.format,
+        style = p.style, quote = p.quote, portrait = p.portrait, ia = (p.ia == true) or nil, author = me, refs = item.refs }
+end
+
+-- Opens the members' gazette on the edition (or the article) as it would look once published.
+function Press.Preview(item)
+    if not valid(item) then return end
+    if item.kind == "EDITION" then
+        local arts = {}
+        for _, a in ipairs(Press.EditionArticles(item)) do arts[#arts + 1] = previewArticle(a) end
+        R.UI.GazettePreview(arts, item.p)
+    elseif item.kind == "ARTICLE" then
+        R.UI.GazettePreview({ previewArticle(item) }, nil)
+    end
+end
+
 -- Returns the published event, or nil and a reason.
 function Press.Publish(item)
     if not valid(item) or R.db.pressDone[item.id] then return nil, "deja traite" end
     if not A.IsOfficer() then return nil, "rang" end
     local ev, why
+    if item.kind == "EDITION" then
+        -- Articles first: the layout refers to them.
+        for _, a in ipairs(Press.EditionArticles(item)) do Press.Publish(a) end
+    end
     if item.kind == "GUILD_CONFIG" then
         ev, why = R.GuildConfig.Publish({ rival = item.p.rival or false })
     else

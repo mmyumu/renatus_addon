@@ -21,6 +21,8 @@ pub struct Config {
     pub llm_timeout_secs: u64,
     /// Write the week's AI gazette by itself (once per week).
     pub auto_gazette: bool,
+    /// Gazette layout: a name from edition::TEMPLATES, or "auto" (the AI chooses).
+    pub gazette_template: String,
     /// After each /reload: combat-log deaths, then the armory once a day.
     pub auto: bool,
     /// Last armory refresh (Unix seconds).
@@ -39,6 +41,7 @@ impl Default for Config {
             llm_command: crate::llm::default_command(),
             llm_timeout_secs: 600,
             auto_gazette: false,
+            gazette_template: "auto".into(),
             auto: true,
             last_armory: None,
             test_channel: false,

@@ -697,12 +697,18 @@ Règles impératives :
 4. Humour bienveillant : on taquine les personnages et leurs exploits ou déboires en jeu, jamais
    les joueurs réels (physique, vie privée, origine, etc.). Pas d'insulte ni de contenu choquant.
 5. Chaque article cite dans « refs » les numéros des faits qu'il utilise (au moins un).
-6. Titre : 80 caractères au plus. Corps : 1200 caractères au plus, texte brut sans Markdown.
+6. Titre : 80 caractères au plus. Corps : 1200 caractères au plus, texte brut sans Markdown,
+   sauf des intertitres : une ligne qui commence par « ## ».
 7. Varie les formats (Une, Brève, Nécrologie, Chronique PvP, Carnet mondain…) et les styles
    (journaliste sarcastique, chroniqueur épique, rédacteur de faits divers…).
+8. L'ordre des articles compte : le premier fait la une.
+9. Facultatif, pour la mise en page : « exergue » = une phrase courte (120 caractères au plus)
+   recopiée MOT POUR MOT du corps de l'article ; « portrait » = le nom d'UN personnage nommé
+   dans l'article, si l'article tourne autour de lui.
+10. Choisis la maquette de l'édition parmi : {templates}.
 {guild_line}
 Réponds par un unique objet JSON, sans texte autour :
-{\"articles\": [{\"title\": \"...\", \"format\": \"...\", \"style\": \"...\", \"body\": \"...\", \"refs\": [\"F1\", \"F4\"]}]}
+{\"maquette\": \"...\", \"articles\": [{\"title\": \"...\", \"format\": \"...\", \"style\": \"...\", \"body\": \"...\", \"refs\": [\"F1\", \"F4\"], \"exergue\": \"...\", \"portrait\": \"...\"}]}
 
 Faits de la semaine :
 {facts}
@@ -722,8 +728,13 @@ pub fn prompt(brief: &Brief) -> String {
         .iter()
         .map(|f| format!("{}. {}", f.key, f.text))
         .collect();
+    let templates: Vec<String> = crate::edition::TEMPLATES
+        .iter()
+        .map(|(n, d)| format!("« {n} » ({d})"))
+        .collect();
     PROMPT
         .replace("{max_articles}", &MAX_ARTICLES.to_string())
+        .replace("{templates}", &templates.join(", "))
         .replace("{start}", &date(brief.since))
         .replace("{end}", &date(brief.until))
         .replace("{guild_line}", &guild_line)
@@ -740,7 +751,23 @@ fn extract_json(text: &str) -> Result<Value, String> {
     serde_json::from_str(&text[start..=end]).map_err(|e| e.to_string())
 }
 
-/// AI answer -> (Press.lua items, problems). A dubious article is rejected.
+/// Layout template the AI asked for ("maquette"), if any (checked by edition::choose).
+pub fn requested_template(answer: &str) -> Option<String> {
+    extract_json(answer)
+        .ok()?
+        .get("maquette")
+        .and_then(Value::as_str)
+        .map(|t| t.trim().to_lowercase())
+}
+
+fn squash(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+pub const MAX_QUOTE: usize = 140;
+
+/// AI answer -> (Press.lua items, problems). A dubious article is rejected; a dubious
+/// pull quote or portrait is only dropped (the article stands without it).
 pub fn check(brief: &Brief, answer: &str, edition: &str) -> (Vec<Value>, Vec<String>) {
     let data = match extract_json(answer) {
         Ok(d) => d,
@@ -820,6 +847,39 @@ pub fn check(brief: &Brief, answer: &str, edition: &str) -> (Vec<Value>, Vec<Str
             }
         }
         event_ids.truncate(40);
+        // Pull quote: verbatim from the body, or nothing (never an invented quotation).
+        let quote = squash(text_of(a, "exergue").trim_matches(|c: char| "«»\"“” ".contains(c)));
+        let quote = if quote.is_empty() {
+            None
+        } else if quote.chars().count() > MAX_QUOTE || !squash(&body).contains(&quote) {
+            notes.push(format!(
+                "{label} : exergue absent du texte ou trop long — ignoré"
+            ));
+            None
+        } else {
+            Some(quote)
+        };
+        // Portrait: a consenting member, named in the article.
+        let portrait = text_of(a, "portrait");
+        let portrait = if portrait.is_empty() {
+            None
+        } else {
+            let known = brief
+                .allowed
+                .iter()
+                .find(|n| n.to_lowercase() == portrait.to_lowercase());
+            match known {
+                Some(n) if Names::new([n]).find(&format!("{title}\n{body}")).is_some() => {
+                    Some(n.clone())
+                }
+                _ => {
+                    notes.push(format!(
+                        "{label} : portrait de « {portrait} » refusé (pas nommé dans l'article ou sans consentement)"
+                    ));
+                    None
+                }
+            }
+        };
         let digest = sha1_hex(&format!("{title}\0{body}"), 10);
         let format: String = Some(text_of(a, "format"))
             .filter(|x| !x.is_empty())
@@ -833,9 +893,16 @@ pub fn check(brief: &Brief, answer: &str, edition: &str) -> (Vec<Value>, Vec<Str
             .chars()
             .take(60)
             .collect();
+        let mut p = json!({"title": title, "body": body, "format": format, "style": style, "ia": true,
+            "edition": edition, "key": digest, "order": items.len() + 1});
+        if let Some(q) = quote {
+            p["quote"] = json!(q);
+        }
+        if let Some(n) = portrait {
+            p["portrait"] = json!(n);
+        }
         items.push(json!({
-            "id": format!("ia:{edition}:{digest}"), "kind": "ARTICLE", "refs": event_ids,
-            "p": {"title": title, "body": body, "format": format, "style": style, "ia": true, "edition": edition},
+            "id": format!("ia:{edition}:{digest}"), "kind": "ARTICLE", "refs": event_ids, "p": p,
         }));
     }
     (items, notes)
@@ -937,6 +1004,29 @@ mod tests {
         assert!(notes[0].contains("F9"));
         assert!(notes[1].contains("« Gorbash »"));
         assert!(check(&brief, "pas de json", "x").1[0].contains("illisible"));
+    }
+
+    #[test]
+    fn quotes_must_be_verbatim_and_portraits_consented() {
+        let brief = build(&chronicle(), 0.0, 2000.0);
+        let answer = r#"{"maquette": " Grande_Une ", "articles": [
+            {"title": "Alice grimpe", "body": "Alice atteint le niveau 20.\nLa  montagne tremble.", "refs": ["F1"],
+             "exergue": "« La montagne tremble. »", "portrait": "alice"},
+            {"title": "Encore Alice", "body": "Alice monte.", "refs": ["F1"],
+             "exergue": "Une phrase inventée", "portrait": "Bob"}
+        ]}"#;
+        let (items, notes) = check(&brief, answer, "E");
+        assert_eq!(items.len(), 2, "{notes:?}");
+        let p = &items[0]["p"];
+        assert_eq!(p["quote"], "La montagne tremble.");
+        assert_eq!(p["portrait"], "Alice");
+        assert_eq!(p["order"], 1);
+        assert_eq!(items[1]["p"]["order"], 2);
+        assert!(items[0]["p"]["key"].as_str().is_some());
+        assert!(items[1]["p"].get("quote").is_none() && items[1]["p"].get("portrait").is_none());
+        assert_eq!(notes.len(), 2, "{notes:?}");
+        assert_eq!(requested_template(answer).as_deref(), Some("grande_une"));
+        assert!(prompt(&brief).contains("« portrait »"));
     }
 
     #[test]

@@ -126,6 +126,9 @@ local TYPES = {
         text = function(ev) return "lève l'avis de recherche contre " .. tostring(ev.p.name) end },
     ARTICLE = { cat = "gazette", icon = "Interface\\Icons\\INV_Misc_Note_06", importance = 3,
         text = function(ev) return "publie dans la gazette : « " .. tostring(ev.p.title) .. " »" end },
+    -- Page layout of a gazette edition (UI/Newsprint.lua), published with its articles.
+    EDITION = { cat = "gazette", icon = "Interface\\Icons\\INV_Misc_Note_06", importance = 0, hidden = true,
+        text = function() return "met en page la gazette" end },
     VOTE = { cat = "gazette", icon = "Interface\\Icons\\INV_Misc_Coin_01", importance = 0, hidden = true,
         text = function() return "vote pour la une" end },
     AI_CONSENT = { cat = "gazette", icon = "Interface\\Icons\\INV_Misc_Note_06", importance = 0, hidden = true,

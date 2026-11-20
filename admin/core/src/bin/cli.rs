@@ -269,6 +269,7 @@ fn run() -> Result<(), String> {
                 7,
                 &cfg.llm_command,
                 Duration::from_secs(cfg.llm_timeout_secs),
+                &cfg.gazette_template,
             );
             publish(&p, &ch, prop, args.dry_run)?;
         }
@@ -310,6 +311,7 @@ fn run() -> Result<(), String> {
                     7,
                     &cfg.llm_command,
                     Duration::from_secs(cfg.llm_timeout_secs),
+                    &cfg.gazette_template,
                 ));
             }
             publish(&p, &ch, prop, args.dry_run)?;

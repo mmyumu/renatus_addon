@@ -12,7 +12,7 @@ use std::time::{Duration, SystemTime};
 use renatus_admin_core::config::Config;
 use renatus_admin_core::ops::{self, Proposal, Status};
 use renatus_admin_core::paths::WowPaths;
-use renatus_admin_core::{addon, armory, chronicle::Chronicle, gazette};
+use renatus_admin_core::{addon, armory, chronicle::Chronicle, edition, gazette};
 use renatus_launcher_core::wow;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager};
@@ -276,6 +276,7 @@ async fn write_gazette(app: AppHandle) -> Result<View, String> {
             7,
             &cfg.llm_command,
             Duration::from_secs(cfg.llm_timeout_secs),
+            &cfg.gazette_template,
         ))
     })
     .await
@@ -310,6 +311,7 @@ struct Settings {
     account: Option<String>,
     llm_command: String,
     llm_timeout_secs: u64,
+    gazette_template: String,
     auto: bool,
     auto_gazette: bool,
     test_channel: bool,
@@ -327,6 +329,11 @@ fn save_settings(app: AppHandle, settings: Settings) -> Result<View, String> {
         c.account = settings.account.filter(|a| !a.is_empty());
         c.llm_command = command;
         c.llm_timeout_secs = settings.llm_timeout_secs.clamp(30, 3600);
+        c.gazette_template = if edition::is_template(&settings.gazette_template) {
+            settings.gazette_template.clone()
+        } else {
+            "auto".into()
+        };
         c.auto = settings.auto;
         c.auto_gazette = settings.auto_gazette;
         c.test_channel = settings.test_channel;
@@ -489,6 +496,7 @@ async fn watch(app: AppHandle) {
                         7,
                         &cfg.llm_command,
                         Duration::from_secs(cfg.llm_timeout_secs),
+                        &cfg.gazette_template,
                     ))
                 })
                 .await;

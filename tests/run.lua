@@ -1572,5 +1572,162 @@ test("album : booster distribue face cachee, cartes retournees une a une ; filtr
     Stub.advance(2)
 end)
 
+print("Mise en page de la gazette (Newsprint)")
+
+-- Texts currently drawn on the gazette canvas.
+local function canvasText(c)
+    local cv, out = c.front.canvas, {}
+    for i = 1, cv.nfs do table.insert(out, tostring(cv.fs[i]:GetText())) end
+    return table.concat(out, "\n")
+end
+
+test("mise en page : donnees du reseau bornees, blocs inconnus ignores", function()
+    local ns = boot({ specIndex = 1 })
+    local NP = ns.UI.Newsprint
+    eq(NP.Sanitize(nil), nil); eq(NP.Sanitize({ cells = "x" }), nil); eq(NP.Sanitize({ cells = { { pg = 0, r = 1 } } }), nil)
+    local cells = {}
+    for pg = 9, 1, -1 do
+        for r = 1, 6 do
+            for _ = 1, 6 do
+                table.insert(cells, { pg = pg, r = r, w = 40, h = 5, b = {
+                    { t = "story", a = "@1", cols = "2", evil = function() end }, { t = 42 }, { t = "hologramme", text = string.rep("x", 5000) } } })
+            end
+        end
+    end
+    local l = NP.Sanitize({ titles = { string.rep("t", 200) }, cells = cells })
+    eq(#l.pages, NP.LIMITS.pages)
+    local pg = l.pages[1]
+    eq(#pg.rows, NP.LIMITS.rows); eq(#pg.rows[1].cells, NP.LIMITS.cells)
+    eq(pg.title, nil, "pages lues dans l'ordre des cases (ici 9, 8...), puis triees")
+    eq(pg.rows[1].h, 1); eq(pg.rows[1].cells[1].w, 12)
+    local blocks = pg.rows[1].cells[1].blocks
+    eq(#blocks, 2, "bloc sans type ecarte"); eq(blocks[1].cols, 2); eq(blocks[1].evil, nil)
+    eq(#blocks[2].text, NP.LIMITS.text, "type inconnu garde mais jamais dessine")
+    eq(NP.BLOCKS[blocks[2].t], nil)
+    -- titles, row order and heights
+    local l2 = NP.Sanitize({ titles = { "", "Deux" }, cells = { { pg = 2, r = 2, w = 6, b = {} }, { pg = 2, r = 1, w = 6, h = 0.3, b = {} },
+        { pg = 1, r = 1, w = 12, b = {} } } })
+    eq(#l2.pages, 2); eq(l2.pages[1].title, nil); eq(l2.pages[2].title, "Deux"); eq(l2.pages[2].rows[1].h, 0.3)
+    -- markup: subheadings coloured word by word, accents in capitals
+    local m = NP.Markup("Intro\n## Le verdict été\nFin")
+    assert(m:find("|c%x+LE|r |c%x+VERDICT|r |c%x+ÉTÉ|r"), m)
+end)
+
+test("mise en page : une EDITION passe par la synchro (profondeur, taille)", function()
+    local ns = boot({ specIndex = 1 })
+    local cells = {}
+    for r = 1, 4 do for c = 1, 3 do
+        table.insert(cells, { pg = 1, r = r, w = 4, h = 0.25, b = { { t = "story", a = "@1", cols = 2, head = "xl", drop = true },
+            { t = "quote", a = "0123456789" }, { t = "portrait", a = "0123456789" } } })
+    end end
+    local ev = ns.Store.Add("EDITION", { edition = "2026-S47", template = "grande_une", titles = { "", "Suite" }, cells = cells },
+        { vis = "G", prov = "GEN", noExp = true })
+    local text = ns.Serialize.Encode({ o = "E", g = "x", e = ev })
+    assert(text, "encodable")
+    assert(#text < ns.Sync.MAX_EVENT_BYTES, #text)
+    local back = ns.Serialize.Decode(text)
+    eq(back.e.p.cells[12].b[3].t, "portrait")
+    assert(ns.UI.Newsprint.Sanitize(back.e.p), "relu par les autres membres")
+end)
+
+test("mise en page de demo : pages, portrait, citation, avis, sommaire", function()
+    local ns = boot({ specIndex = 1 })
+    SlashCmdList.RENATUS("demo")
+    ns.UI.Open("gazette")
+    local c = RenatusMainFrame.containers.gazette
+    local e = c.editions[1]
+    assert(e.layout and e.layout.template == "grande_une", "mise en page de la semaine")
+    eq(e.articles[1].key, "demo-tobias", "@1 = la plus votee")
+    eq(#c.pages, 2)
+    eq(c.pageNext:IsShown(), true); eq(c.pagePrev.gcDisabled, true)
+    local p1 = canvasText(c)
+    assert(p1:find("Tobias, onze fois regretté"), "une")
+    assert(p1:find("LE PORTRAIT") and p1:find("Voleur"), "portrait : classe tiree du journal")
+    assert(p1:find("Il avait l'air si vulnérable"), "citation de @3")
+    eq(c.front.mast:IsShown(), true)
+    c.front.storyHit:Click()
+    eq(c.reader.title:GetText(), "Tobias, onze fois regretté")
+    c.back:Click()
+    c.pageNext:Click()
+    eq(c.page, 2)
+    eq(c.front.running:IsShown(), true); eq(c.front.mast:IsShown(), false)
+    eq(c.front.runTitle:GetText(), "DIPLOMATIE ET FAITS DIVERS")
+    local p2 = canvasText(c)
+    assert(p2:find("RECHERCHÉ") and p2:find("Mortefeuille"), "avis de recherche")
+    assert(p2:find("DANS CETTE ÉDITION") and p2:find("Le mouton de la discorde"), "sommaire : article non place")
+    assert(c.front.footRight:GetText():find("Page 2 sur 2"))
+    c.prev:Click()
+    eq(c.page, 1, "autre edition : retour en page 1")
+    eq(c.editions[2].layout, nil, "edition sans mise en page : la une classique")
+    eq(#c.pages, 1)
+end)
+
+test("mise en page : un article qu'aucun bloc ne montre part sur une page de suite", function()
+    local ns = boot({ specIndex = 1 })
+    local NP = ns.UI.Newsprint
+    local e = { articles = { { title = "A" }, { title = "B" }, { title = "C" } },
+        layout = NP.Sanitize({ cells = { { pg = 1, r = 1, w = 12, b = { { t = "story", a = "@2" } } } } }) }
+    local pages, placed = NP.Pages(e)
+    eq(#pages, 2); eq(pages[2].title, "Suite de l'édition")
+    eq(placed[e.articles[2]], true)
+    eq(pages[2].rows[1].cells[1].blocks[1].a, "@1"); eq(pages[2].rows[1].cells[2].blocks[1].a, "@3")
+    eq(NP.Resolve(e, "@9"), nil)
+end)
+
+local function editionItems()
+    return {
+        { id = "ia:E1:a", kind = "ARTICLE", refs = {}, p = { title = "Seconde", body = "Deux", edition = "E1", order = 2, key = "a" } },
+        { id = "ia:E1:b", kind = "ARTICLE", refs = {}, p = { title = "Premiere", body = "Un", edition = "E1", order = 1, key = "b",
+            quote = "Un", portrait = "Testeur" } },
+        { id = "ia:E1:maquette", kind = "EDITION", p = { edition = "E1", template = "test", cells = {
+            { pg = 1, r = 1, w = 8, b = { { t = "story", a = "@1" } } },
+            { pg = 1, r = 1, w = 4, b = { { t = "portrait", a = "@1" }, { t = "quote", a = "b" }, { t = "teaser", a = "a" } } } } } },
+    }
+end
+
+test("edition : publier la mise en page publie ses articles ; ordre editorial ; apercu", function()
+    local ns, A = bootAdmin(OFFICER)
+    withPress(editionItems())
+    local Press = A.Press
+    local ed = Press.Pending(function(i) return i.kind == "EDITION" end)[1]
+    assert(Press.Label(ed):find("2 article"), Press.Label(ed))
+    -- preview: nothing published, vote disabled
+    Press.Preview(ed)
+    local c = RenatusMainFrame.containers.gazette
+    eq(#eventsOf(ns, "ARTICLE"), 0)
+    eq(c.front.topRight:GetText(), "APERÇU, NON PUBLIÉ")
+    eq(c.current.title, "Premiere", "@1 = premier dans l'ordre editorial")
+    eq(c.paper.vote.gcDisabled, true); eq(c.endPreview:IsShown(), true); eq(c.prev:IsShown(), false)
+    assert(canvasText(c):find("LE PORTRAIT"), "portrait dans l'apercu")
+    c.endPreview:Click()
+    eq(c.preview, nil)
+    -- publication
+    local ev = Press.Publish(ed)
+    eq(ev.k, "EDITION"); eq(ev.prov, "GEN")
+    eq(#eventsOf(ns, "ARTICLE"), 2, "articles publies avec la mise en page")
+    eq(#Press.Pending(), 0)
+    c:Refresh()
+    local e = c.editions[1]
+    eq(e.layout.template, "test")
+    eq(e.articles[1].title, "Premiere")
+    local text = canvasText(c)
+    assert(text:find("Seconde") and text:find("« Un »"), "teaser et citation")
+    RenatusPress = nil
+end)
+
+test("edition : la mise en page d'un non-officier est ignoree", function()
+    local ns = boot({ specIndex = 1, rank = 0, roster = { { name = "Testeur", rank = 0 }, { name = "Bob", rank = 4 } } })
+    ns.Store.Add("ARTICLE", { title = "Vraie une", body = "x" }, { vis = "G", prov = "GEN", noExp = true })
+    local t = GetServerTime and GetServerTime() or time()
+    ns.Store.Insert({ v = 1, id = "Player-1-BOB:1", a = "Player-1-BOB", n = "Bob", s = 1, t = t, k = "EDITION",
+        g = ns.Context.GuildKey(), vis = "G", prov = "GEN", p = { cells = { { pg = 1, r = 1, w = 12, b = {
+            { t = "notice", title = "Pirate" } } } } } })
+    ns.UI.Open("gazette")
+    local c = RenatusMainFrame.containers.gazette
+    eq(#ns.Store.Dataset().layouts, 1)
+    eq(c.editions[1].layout, nil)
+    assert(not canvasText(c):find("Pirate"))
+end)
+
 print(string.format("\n%d ok, %d echec(s)", passed, failed))
 os.exit(failed == 0 and 0 or 1)

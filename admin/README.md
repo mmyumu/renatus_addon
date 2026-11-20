@@ -17,8 +17,9 @@ Rien n'est diffusé à la guilde sans ce clic.
   Propose en jeu le réglage de guilde (la guilde rivale de tous les membres) et l'effectif relevé
   (niveau, classe, race, rang ; score d'équipement, niveau d'objet et dernière connexion pour les
   ennemis déjà connus de la guilde). En jeu, provenance « Armurerie ».
-- **Gazette** : aperçu exact de ce qui serait envoyé à l'IA, rédaction de la semaine, articles
-  écrits à la main (`.md`, voir `exemple-article.md.txt`).
+- **Gazette** : aperçu exact de ce qui serait envoyé à l'IA, rédaction de la semaine et sa
+  mise en page (maquette au choix de l'IA ou imposée dans les Réglages, voir
+  `docs/ARCHITECTURE.md` §7.1 bis), articles écrits à la main (`.md`, voir `exemple-article.md.txt`).
 - **Automatique** : fenêtre ouverte, après chaque `/reload` ou déconnexion, elle analyse les
   journaux de combat s'il y en a, relève l'armurerie une fois par jour et, si coché,
   rédige la gazette une fois par semaine, puis le signale par une notification.

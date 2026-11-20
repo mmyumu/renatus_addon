@@ -338,7 +338,11 @@ function Views.Articles(events, meGuid)
         if ev.k == "ARTICLE" then
             local p = ev.p or {}
             local a = { id = ev.id, t = ev.t, kind = p.format, title = p.title, body = p.body, style = p.style,
-                refs = ev.refs, author = who(ev), ia = (p.ia == true) or nil, week = Views.WeekKey(ev.t), votes = 0, ev = ev }
+                refs = ev.refs, author = who(ev), ia = (p.ia == true) or nil, week = Views.WeekKey(ev.t), votes = 0, ev = ev,
+                -- layout (UI/Newsprint.lua): key for EDITION blocks, editorial order, pull quote, portrait
+                key = type(p.key) == "string" and p.key or nil, order = tonumber(p.order),
+                quote = type(p.quote) == "string" and p.quote or nil,
+                portrait = type(p.portrait) == "string" and p.portrait or nil }
             byId[ev.id] = a
             table.insert(list, a)
         end
@@ -359,6 +363,22 @@ function Views.Articles(events, meGuid)
         end
     end
     return list
+end
+
+-- Page layouts of the gazette (EDITION events), most recent first. An edition uses the
+-- latest layout published during its week (see UI/TabGazette.lua).
+function Views.Layouts(events)
+    local out = {}
+    for _, ev in ipairs(events) do
+        if ev.k == "EDITION" and type(ev.p) == "table" then
+            local layout = ns.UI and ns.UI.Newsprint and ns.UI.Newsprint.Sanitize(ev.p)
+            if layout then
+                layout.t, layout.n, layout.a, layout.id = ev.t, ev.n, ev.a, ev.id
+                table.insert(out, layout)
+            end
+        end
+    end
+    return out
 end
 
 -- Death causes from combat logs: [death id] = DEATH_CAUSE event.

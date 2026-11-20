@@ -28,6 +28,7 @@ Collectors\Expedition.lua
 Voice\Voice.lua
 UI\Widgets.lua
 UI\MainWindow.lua
+UI\Newsprint.lua
 UI\Timeline.lua
 UI\TabMembers.lua
 UI\TabWanted.lua

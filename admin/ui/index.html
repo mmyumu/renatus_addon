@@ -120,6 +120,15 @@
           <textarea id="llm-command" rows="3" spellcheck="false"></textarea>
         </div>
         <div class="field"><span>Délai maximum (secondes)</span><input id="llm-timeout" type="number" min="30" max="3600"></div>
+        <div class="field"><span>Maquette de la gazette</span>
+          <select id="gazette-template">
+            <option value="auto">Au choix de la rédaction IA</option>
+            <option value="classique">Classique : une en deux colonnes, autres articles à droite</option>
+            <option value="grande_une">Grande une : sur toute la largeur, page 2 pour la suite</option>
+            <option value="trois_colonnes">Trois colonnes : en bref, une, sommaire</option>
+            <option value="portrait">Portrait : un personnage à l'honneur</option>
+          </select>
+        </div>
       </div>
       <div class="card">
         <label><input type="checkbox" id="auto"> Automatique : après chaque /reload, analyser les journaux de combat et relever l'armurerie une fois par jour</label>

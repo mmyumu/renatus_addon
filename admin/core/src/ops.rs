@@ -12,7 +12,7 @@ use serde_json::Value;
 
 use crate::chronicle::{num_of, str_of, Chronicle};
 use crate::paths::{WowPaths, ADMIN_ADDON};
-use crate::{armory, articles, combatlog, gazette, llm, press};
+use crate::{armory, articles, combatlog, edition, gazette, llm, press};
 
 pub fn now() -> i64 {
     chrono::Utc::now().timestamp()
@@ -186,8 +186,16 @@ pub fn brief_summary(b: &gazette::Brief, authors: usize) -> Vec<String> {
     notes
 }
 
-/// Writes this week's gazette with the AI (blocking: one or two minutes).
-pub fn gazette(ch: &Chronicle, days: u32, command: &[String], timeout: Duration) -> Proposal {
+/// Writes this week's gazette with the AI (blocking: one or two minutes): the articles,
+/// then the edition's page layout. `template`: a name from edition::TEMPLATES, or
+/// "auto" for the AI's choice (checked, with a fallback).
+pub fn gazette(
+    ch: &Chronicle,
+    days: u32,
+    command: &[String],
+    timeout: Duration,
+    template: &str,
+) -> Proposal {
     let until = now();
     let edition = gazette::edition_key(until as f64);
     let b = brief(ch, days, until);
@@ -206,7 +214,24 @@ pub fn gazette(ch: &Chronicle, days: u32, command: &[String], timeout: Duration)
             out.notes.extend(notes);
             out.notes
                 .push(format!("{} article(s) proposé(s).", items.len()));
-            out.items = items;
+            if !items.is_empty() {
+                let wanted = if template == "auto" {
+                    gazette::requested_template(&answer)
+                } else {
+                    Some(template.to_string())
+                };
+                let layout = edition::item(
+                    edition::choose(wanted.as_deref(), &items, &edition),
+                    &items,
+                    &edition,
+                );
+                out.notes.push(format!(
+                    "Mise en page : {}.",
+                    str_of(&layout["p"], "template").unwrap_or("?")
+                ));
+                out.items = items;
+                out.items.push(layout);
+            }
         }
     }
     out
