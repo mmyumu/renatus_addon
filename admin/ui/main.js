@@ -22,7 +22,7 @@ function render(s) {
   const st = s.status;
   const busy = !!s.busy;
   $("busy").textContent = busy ? `${s.busy}…` : "";
-  for (const id of ["deaths", "refresh-rival", "write-gazette", "articles", "install-admin", "app-update", "propose-gazette", "discard-gazette"]) $(id).disabled = busy;
+  for (const id of ["deaths", "refresh-rival", "prepare-gazette", "write-gazette", "install-admin", "app-update", "propose-gazette", "discard-gazette"]) $(id).disabled = busy;
 
   // Home
   $("app-version").textContent = s.appVersion;
@@ -72,6 +72,7 @@ function render(s) {
   }
 
   // Gazette
+  renderSelection(s.selection, busy);
   renderDraft(s.draft, busy);
   $("articles-dir").textContent = s.config.articlesDir ?? "non choisi";
   $("open-articles").disabled = !s.config.articlesDir;
@@ -98,7 +99,90 @@ const TEMPLATES = {
   classique: "Classique", grande_une: "Grande une", trois_colonnes: "Trois colonnes", portrait: "Portrait",
 };
 
-// AI gazette draft: what came back, what the checks rejected, the articles as written.
+// Facts offered for the next issue. The ticks live here (render runs at every state
+// push); the list is rebuilt only for a new selection.
+let selectionKey = null;
+let selection = null;
+const ticked = new Set();
+
+function day(t) {
+  return new Date(t * 1000).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" });
+}
+
+function factRow(c) {
+  const row = document.createElement("label");
+  row.className = "fact" + (c.used ? " told" : "");
+  const box = document.createElement("input");
+  box.type = "checkbox";
+  box.checked = ticked.has(c.key);
+  box.dataset.key = c.key;
+  box.addEventListener("change", () => {
+    if (box.checked) ticked.add(c.key); else ticked.delete(c.key);
+    countFacts();
+  });
+  const text = document.createElement("span");
+  text.className = "text";
+  text.textContent = c.text;
+  row.append(box, text);
+  const note = c.used ?? (c.partly ? "en partie déjà paru" : null);
+  if (note) {
+    const u = document.createElement("span");
+    u.className = "used";
+    u.textContent = note;
+    row.appendChild(u);
+  }
+  return row;
+}
+
+function countFacts() {
+  const n = ticked.size;
+  $("facts-count").textContent = `${n} fait(s) coché(s)`;
+  $("preview").disabled = n === 0;
+}
+
+function fillFacts() {
+  const recent = selection.candidates.filter((c) => c.recent).reverse();
+  const older = selection.candidates.filter((c) => !c.recent).reverse();
+  for (const [box, list] of [[$("facts-recent"), recent], [$("facts-older"), older]]) {
+    box.textContent = "";
+    for (const c of list) box.appendChild(factRow(c));
+    if (list.length === 0) {
+      const empty = document.createElement("p");
+      empty.className = "hint fact";
+      empty.textContent = "Aucun fait.";
+      box.appendChild(empty);
+    }
+  }
+  $("selection-title").textContent = selection.afterIssue
+    ? `Depuis le dernier numéro (écrit le ${day(selection.since)}) : ${recent.length} fait(s)`
+    : `7 derniers jours (pas encore de numéro) : ${recent.length} fait(s)`;
+  $("facts-older-title").textContent = `Plus anciens (jusqu'à 30 jours) : ${older.length} fait(s)`;
+  countFacts();
+}
+
+function renderSelection(sel, busy) {
+  $("selection").hidden = !sel;
+  $("prepare-gazette").textContent = sel ? "Actualiser la liste" : "Choisir les faits";
+  if (!sel) { selectionKey = null; return; }
+  if (sel.edition !== selectionKey) {
+    selectionKey = sel.edition;
+    selection = sel;
+    ticked.clear();
+    for (const c of sel.candidates) if (c.checked) ticked.add(c.key);
+    $("preview-summary").textContent = "";
+    $("preview-prompt").hidden = true;
+    fillFacts();
+  }
+  $("write-gazette").disabled = busy;
+}
+
+function tick(which) {
+  ticked.clear();
+  for (const c of selection.candidates) if (which(c)) ticked.add(c.key);
+  fillFacts();
+}
+
+// Gazette draft: what came back, what the checks rejected, the articles as written.
 function renderDraft(d, busy) {
   $("draft").hidden = !d;
   if (!d) return;
@@ -164,17 +248,20 @@ $("reload").addEventListener("click", () => call("reload"));
 $("install-admin").addEventListener("click", () => call("install_admin_addon"));
 $("app-update").addEventListener("click", () => call("update_app"));
 $("refresh-rival").addEventListener("click", () => call("refresh_rival", { rival: $("rival").value }));
-$("write-gazette").addEventListener("click", () => call("write_gazette"));
+$("prepare-gazette").addEventListener("click", () => { selectionKey = null; call("prepare_gazette"); });
+$("facts-all").addEventListener("click", () => tick(() => true));
+$("facts-none").addEventListener("click", () => tick(() => false));
+$("facts-default").addEventListener("click", () => tick((c) => c.checked));
+$("write-gazette").addEventListener("click", () => call("write_gazette", { keys: [...ticked] }));
 $("propose-gazette").addEventListener("click", () => call("propose_gazette"));
 $("discard-gazette").addEventListener("click", () => call("discard_gazette"));
-$("articles").addEventListener("click", () => call("propose_articles"));
 $("pick-articles").addEventListener("click", () => call("pick_articles_dir"));
 $("open-articles").addEventListener("click", () => call("open_folder", { which: "articles" }));
 $("pick-wow").addEventListener("click", () => { settingsShown = false; call("pick_wow_folder"); });
 $("open-addons").addEventListener("click", () => call("open_folder", { which: "addons" }));
 $("preview").addEventListener("click", async () => {
   try {
-    const p = await invoke("preview_gazette");
+    const p = await invoke("preview_gazette", { keys: [...ticked] });
     $("preview-summary").textContent = p.summary.join("\n");
     $("preview-prompt").textContent = p.prompt;
     $("preview-prompt").hidden = false;

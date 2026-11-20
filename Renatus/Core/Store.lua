@@ -213,7 +213,7 @@ function Store.Dataset()
         me = guid,
         guildKey = Context.GuildKey(),
         events = events,
-        articles = ns.Views.Articles(events, guid),
+        articles = ns.Views.Articles(events),
         layouts = ns.Views.Layouts(events),
         causes = ns.Views.DeathCauses(events),
         collection = nil,   -- filled below from BOOSTER_OPEN events

@@ -6,9 +6,8 @@
 //! layout travels flat (`titles` + `cells` with page and row numbers): the addon's
 //! sync refuses tables nested deeper than 8 levels.
 //!
-//! Stories refer to articles by rank ("@1" = the front page: most votes, then the
-//! editorial order given here), so the guild's votes can still change the front page.
-//! Quotes and portraits refer to their article by key: they stay with it.
+//! Stories refer to articles by rank ("@1" = the front page, in the editorial order
+//! given here). Quotes and portraits refer to their article by key: they stay with it.
 
 use serde_json::{json, Value};
 
@@ -287,7 +286,7 @@ mod tests {
             .map(|i| art(&format!("k{i}"), i == 2, i == 1))
             .collect();
         for (name, _) in TEMPLATES {
-            let it = item(name, &arts, "2026-S47");
+            let it = item(name, &arts, "2026-11-20-2147");
             assert_eq!(it["p"]["template"], *name);
             let size = serde_json::to_string(&it["p"]).unwrap().len();
             assert!(size < MAX_BYTES, "{name}: {size}");

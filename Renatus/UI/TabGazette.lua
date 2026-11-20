@@ -1,7 +1,8 @@
 -- UI/TabGazette.lua: the satirical gazette, laid out as a newspaper.
--- One edition per week. Its pages follow the layout published with it (EDITION event,
--- drawn by UI/Newsprint.lua), or the classic front page: the most voted article in two
--- columns with a drop cap, "In brief", the other articles in a side column.
+-- One issue per publication (Views.Editions), dated, browsable with ‹ ›. Its pages follow
+-- the layout published with it (EDITION event, drawn by UI/Newsprint.lua), or the classic
+-- front page: the first article in two columns with a drop cap, "In brief", the other
+-- articles in a side column.
 -- Clicking an article opens it in full. The admin addon can show an unpublished
 -- edition here as a preview (UI.GazettePreview).
 local _, ns = ...
@@ -16,65 +17,7 @@ local BODY_BOTTOM = PAGE_H - 34     -- above the footer
 
 local NP = UI.Newsprint
 local INK, INK_DIM, RED = NP.INK, NP.INK_DIM, NP.RED
-local MONTHS = { "janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août",
-    "septembre", "octobre", "novembre", "décembre" }
 local DAY = 86400
-
--- Monday 00:00 of the week containing t, and a French label for that week.
-local function weekOf(t)
-    local d = date("*t", t)
-    local monday = t - ((d.wday + 5) % 7) * DAY - d.hour * 3600 - d.min * 60 - d.sec
-    local a, b = date("*t", monday), date("*t", monday + 6 * DAY)
-    local label
-    if a.month == b.month then
-        label = ("Semaine du %d au %d %s %d"):format(a.day, b.day, MONTHS[b.month], b.year)
-    else
-        label = ("Semaine du %d %s au %d %s %d"):format(a.day, MONTHS[a.month], b.day, MONTHS[b.month], b.year)
-    end
-    return monday, label
-end
-
--- A layout counts if an officer published it (same rule as guild settings). Without a
--- roster (not loaded yet, or demo/preview data) it is accepted: it only arranges articles.
-local function trusted(ds, layout)
-    if ds.isDemo or ds.preview or not layout.a then return true end
-    local roster = ds.roster or {}
-    if #roster == 0 then return true end
-    return ns.GuildConfig.IsOfficerRank(ns.GuildConfig.RankOf(layout.n, layout.a))
-end
-
--- Editions: articles grouped by week, most recent first. Inside an edition, articles
--- are ranked by votes, then editorial order, then most recent: "@1" is the front page.
--- Each edition takes the latest trusted layout published during its week.
-local function editions(ds)
-    local byWeek, list = {}, {}
-    for _, a in ipairs(ds.articles or {}) do
-        local monday, label = weekOf(a.t or 0)
-        local e = byWeek[monday]
-        if not e then
-            e = { monday = monday, label = label, articles = {} }
-            byWeek[monday] = e
-            table.insert(list, e)
-        end
-        table.insert(e.articles, a)
-    end
-    table.sort(list, function(x, y) return x.monday > y.monday end)
-    for i, e in ipairs(list) do
-        e.number = #list - i + 1
-        table.sort(e.articles, function(x, y)
-            if (x.votes or 0) ~= (y.votes or 0) then return (x.votes or 0) > (y.votes or 0) end
-            if (x.order or 99) ~= (y.order or 99) then return (x.order or 99) < (y.order or 99) end
-            return (x.t or 0) > (y.t or 0)
-        end)
-    end
-    for _, layout in ipairs(ds.layouts or {}) do
-        local e = byWeek[(weekOf(layout.t or 0))]
-        if e and (not e.layout or (layout.t or 0) > (e.layout.t or 0)) and trusted(ds, layout) then
-            e.layout = layout
-        end
-    end
-    return list
-end
 
 local function ink(fs, c) fs:SetTextColor(c[1], c[2], c[3]); fs:SetShadowOffset(0, 0); return fs end
 
@@ -156,7 +99,8 @@ local function refreshFront(c, ds, edition)
     local _, guildName = ns.Context.GuildKey()
     local guild = ds.isDemo and ds.guildKey or guildName
     local now = ns.Views.Now()
-    local monday, weekLabel = weekOf(edition and edition.monday or now)
+    local label = edition and edition.label or ns.Views.DateLabel(now)
+    if c.preview then label = ns.Views.DateLabel(now) end
     local pages, placed = NP.Pages(edition)
     c.pages = pages
     if c.page > #pages then c.page = #pages end
@@ -167,15 +111,17 @@ local function refreshFront(c, ds, edition)
 
     f.topLeft:SetText(guild and ("Le journal de <" .. guild .. ">") or "Le journal de la guilde")
     f.topRight:SetText(number)
-    f.info:SetText(weekLabel .. "   ·   " .. (edition and (#edition.articles .. " article" .. (#edition.articles > 1 and "s" or "")) or "Numéro zéro")
+    f.info:SetText(label .. "   ·   " .. (edition and (#edition.articles .. " article" .. (#edition.articles > 1 and "s" or "")) or "Numéro zéro")
         .. "   ·   Prix : un sou de cuivre")
-    f.runInfo:SetText(number .. "  ·  " .. weekLabel)
+    f.runInfo:SetText(number .. "  ·  " .. label)
     f.runTitle:SetText(NP.Upper(pg.title or ("Page " .. c.page)))
     f.mast:SetShown(c.page == 1)
     f.running:SetShown(c.page > 1)
     f.footRight:SetText(#pages > 1 and ("Page " .. c.page .. " sur " .. #pages) or (edition and "Page 1" or ""))
 
-    local ctx = NP.Context(ds, edition, monday, placed)
+    local since, till = now - 7 * DAY, now
+    if edition and not c.preview then since, till = edition.since, edition.till end
+    local ctx = NP.Context(ds, edition, since, till, placed)
     ctx.placeholder = PLACEHOLDER
     local top = c.page == 1 and (BODY_TOP + 4) or (BODY_TOP_INNER + 4)
     NP.Draw(f.canvas, ctx, pg, X0, top, PAGE_W - 2 * X0, BODY_BOTTOM - 2)
@@ -284,18 +230,6 @@ local function build(c)
     c.endPreview:SetPoint("TOPLEFT", 0, barY)
 
     page.letter = UI.Button(c, "Courrier des lecteurs", 160, 22, function() UI.Dialogs.Letter() end)
-    page.vote = UI.Button(c, "Voter pour la une", 140, 22, function()
-        local a = c.current
-        if not a or a.voted or c.preview then return end
-        if ns.Store.Dataset().isDemo then
-            a.votes = (a.votes or 0) + 1; a.voted = true
-        else
-            -- One vote per member per week: the latest counts (computed in Views.Articles).
-            ns.Store.Add("VOTE", { week = ns.Views.WeekKey(ns.Views.Now()) },
-                { refs = { a.id }, vis = "G", prov = "MAN", noExp = true, loc = {} })
-        end
-        c:Refresh()
-    end)
     page.sources = UI.Button(c, "Sources", 90, 22, function()
         if not c.current then return end
         c.showSources = not c.showSources
@@ -324,15 +258,16 @@ local function build(c)
         if not self.preview then return ds end
         local layout = NP.Sanitize(self.preview.layout)
         local t = ns.Views.Now()
-        if layout then layout.t = t end
+        if layout then layout.t, layout.edition = t, "preview" end
         local view = {}
         for k, v in pairs(ds) do view[k] = v end
         view.preview = true
         view.articles, view.layouts = {}, { layout }
         for i, a in ipairs(self.preview.articles or {}) do
-            local copy = { votes = 0 }
+            local copy = {}
             for k, v in pairs(a) do copy[k] = v end
             copy.t = t
+            copy.edition = "preview"
             copy.id = copy.id or ("preview:" .. i)
             copy.order = copy.order or i
             view.articles[i] = copy
@@ -344,13 +279,13 @@ local function build(c)
         local ds = self:Dataset()
         -- right-aligned buttons, from the right
         local right
-        for _, b in ipairs({ page.letter, page.vote, page.sources }) do
+        for _, b in ipairs({ page.letter, page.sources }) do
             b:ClearAllPoints()
             if right then b:SetPoint("RIGHT", right, "LEFT", -6, 0) else b:SetPoint("TOPRIGHT", 0, -(PAGE_H + 8)) end
             right = b
         end
 
-        local list = editions(ds)
+        local list = ns.Views.Editions(ds)
         self.editions = list
         if self.edition > #list then self.edition = math.max(1, #list) end
         if self.edition < 1 then self.edition = 1 end
@@ -379,7 +314,6 @@ local function build(c)
         self.next:SetDisabled(self.edition <= 1)
         page.sources:SetDisabled(self.current == nil)
         page.sources:SetLabel(self.showSources and reading and "Article" or "Sources")
-        page.vote:SetDisabled(self.current == nil or self.current.voted or self.preview ~= nil)
         if reading then refreshReader(self, ds, edition, reading) else refreshFront(self, ds, edition) end
         local pages = self.pages and #self.pages or 1
         local paging = not reading and pages > 1

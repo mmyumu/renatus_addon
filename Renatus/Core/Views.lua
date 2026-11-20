@@ -328,45 +328,42 @@ function Views.Wanted(ds)
 end
 
 ------------------------------------------------------------------------
--- Gazette: articles (ARTICLE events) and votes (VOTE, one per member per week)
+-- Gazette: articles (ARTICLE events), page layouts (EDITION events) and issues
 ------------------------------------------------------------------------
-function Views.WeekKey(t) return date("%Y-%W", t) end
+local MONTHS = { "janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août",
+    "septembre", "octobre", "novembre", "décembre" }
 
-function Views.Articles(events, meGuid)
-    local list, byId = {}, {}
+-- "20 novembre 2026"
+function Views.DateLabel(t)
+    local d = date("*t", t)
+    return ("%d %s %d"):format(d.day, MONTHS[d.month], d.year)
+end
+
+-- Monday 00:00 of the week containing t.
+local function weekStart(t)
+    local d = date("*t", t)
+    return t - ((d.wday + 5) % 7) * DAY - d.hour * 3600 - d.min * 60 - d.sec
+end
+
+function Views.Articles(events)
+    local list = {}
     for _, ev in ipairs(events) do
         if ev.k == "ARTICLE" then
             local p = ev.p or {}
-            local a = { id = ev.id, t = ev.t, kind = p.format, title = p.title, body = p.body, style = p.style,
-                refs = ev.refs, author = who(ev), ia = (p.ia == true) or nil, week = Views.WeekKey(ev.t), votes = 0, ev = ev,
+            table.insert(list, { id = ev.id, t = ev.t, kind = p.format, title = p.title, body = p.body, style = p.style,
+                refs = ev.refs, author = who(ev), ia = (p.ia == true) or nil, ev = ev,
+                -- issue it belongs to (absent on articles published before issues existed)
+                edition = type(p.edition) == "string" and p.edition or nil,
                 -- layout (UI/Newsprint.lua): key for EDITION blocks, editorial order, pull quote, portrait
                 key = type(p.key) == "string" and p.key or nil, order = tonumber(p.order),
                 quote = type(p.quote) == "string" and p.quote or nil,
-                portrait = type(p.portrait) == "string" and p.portrait or nil }
-            byId[ev.id] = a
-            table.insert(list, a)
-        end
-    end
-    -- Each member's latest vote for a given week wins (events: most recent first).
-    local counted = {}
-    for _, ev in ipairs(events) do
-        if ev.k == "VOTE" and ev.refs and ev.refs[1] then
-            local key = ev.a .. "|" .. tostring(ev.p.week)
-            if not counted[key] then
-                counted[key] = true
-                local a = byId[ev.refs[1]]
-                if a then
-                    a.votes = a.votes + 1
-                    if ev.a == meGuid then a.voted = true end
-                end
-            end
+                portrait = type(p.portrait) == "string" and p.portrait or nil })
         end
     end
     return list
 end
 
--- Page layouts of the gazette (EDITION events), most recent first. An edition uses the
--- latest layout published during its week (see UI/TabGazette.lua).
+-- Page layouts of the gazette (EDITION events), most recent first.
 function Views.Layouts(events)
     local out = {}
     for _, ev in ipairs(events) do
@@ -374,11 +371,76 @@ function Views.Layouts(events)
             local layout = ns.UI and ns.UI.Newsprint and ns.UI.Newsprint.Sanitize(ev.p)
             if layout then
                 layout.t, layout.n, layout.a, layout.id = ev.t, ev.n, ev.a, ev.id
+                layout.edition = type(ev.p.edition) == "string" and ev.p.edition or nil
+                -- end of the period the issue covers (when it was written)
+                layout.till = tonumber(ev.p.till)
                 table.insert(out, layout)
             end
         end
     end
     return out
+end
+
+-- A layout counts if an officer published it (same rule as guild settings). Without a
+-- roster (not loaded yet, or demo/preview data) it is accepted: it only arranges articles.
+local function trustedLayout(ds, layout)
+    if ds.isDemo or ds.preview or not layout.a then return true end
+    local roster = ds.roster or {}
+    if #roster == 0 then return true end
+    return ns.GuildConfig.IsOfficerRank(ns.GuildConfig.RankOf(layout.n, layout.a))
+end
+
+-- Issues of the gazette, most recent first, and [event id] = issue citing that event.
+-- An issue is one publication: the articles sharing p.edition, laid out by the latest
+-- trusted EDITION of the same key, dated by it (else by its latest article). Articles
+-- published before issues existed are grouped by week. Inside an issue, articles follow
+-- the editorial order ("@1" is the front page). Each issue covers the period since the
+-- previous one (its "In brief", its figure).
+function Views.Editions(ds)
+    local groups, list = {}, {}
+    for _, a in ipairs(ds.articles or {}) do
+        local key = a.edition or ("semaine:" .. weekStart(a.t or 0))
+        local e = groups[key]
+        if not e then
+            e = { key = key, articles = {}, t = 0 }
+            groups[key] = e
+            table.insert(list, e)
+        end
+        table.insert(e.articles, a)
+        if (a.t or 0) > e.t then e.t = a.t or 0 end
+    end
+    for _, layout in ipairs(ds.layouts or {}) do
+        local e = layout.edition and groups[layout.edition]
+        if e and (not e.layout or (layout.t or 0) > (e.layout.t or 0)) and trustedLayout(ds, layout) then
+            e.layout = layout
+        end
+    end
+    for _, e in ipairs(list) do
+        if e.layout then e.t = e.layout.t or e.t end
+        e.till = e.layout and e.layout.till or e.t
+        table.sort(e.articles, function(x, y)
+            if (x.order or 99) ~= (y.order or 99) then return (x.order or 99) < (y.order or 99) end
+            if (x.t or 0) ~= (y.t or 0) then return (x.t or 0) > (y.t or 0) end
+            return tostring(x.id) < tostring(y.id)
+        end)
+    end
+    table.sort(list, function(x, y)
+        if x.t ~= y.t then return x.t > y.t end
+        return x.key > y.key
+    end)
+    local cited = {}
+    for i = #list, 1, -1 do
+        local e, previous = list[i], list[i + 1]
+        e.number = #list - i + 1
+        e.label = "Paru le " .. Views.DateLabel(e.t)
+        e.since = previous and previous.till or (e.till - 7 * DAY)
+        for _, a in ipairs(e.articles) do
+            for _, id in ipairs(a.refs or {}) do
+                if cited[id] == nil then cited[id] = e end
+            end
+        end
+    end
+    return list, cited
 end
 
 -- Death causes from combat logs: [death id] = DEATH_CAUSE event.

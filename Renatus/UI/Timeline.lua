@@ -24,6 +24,7 @@ local IMPORTANCE = {
 }
 
 local causes = {}   -- death causes (combat log) of the displayed dataset
+local cited = {}    -- [event id] = gazette issue whose articles cite it (Views.Editions)
 
 local function hasMissing(ev, what)
     for _, m in ipairs(ev.miss or {}) do if m == what then return true end end
@@ -76,6 +77,10 @@ local function rowTooltip(row)
     if ev.rx then
         table.insert(lines, { ev.rx.direct and ("Reçu directement de " .. tostring(ev.rx.by))
             or ("Relayé par " .. tostring(ev.rx.by) .. " (copie de l'original de " .. Types.Who(ev) .. ")"), 0.6, 0.6, 0.6 })
+    end
+    local issue = cited[ev.id]
+    if issue then
+        table.insert(lines, { "Paru dans la gazette n° " .. issue.number .. " (" .. string.lower(issue.label) .. ")", 0.83, 0.63, 0.09 })
     end
     if ev.vis == "P" then table.insert(lines, { "Privé : visible uniquement par toi.", 0.6, 0.6, 0.6 }) end
     if ns.Store.CanDelete(ev) then table.insert(lines, { "Clic droit : supprimer", 1, 0.82, 0 }) end
@@ -135,6 +140,7 @@ local function updateRow(row, item, mode)
     if ev.k == "ANECDOTE" and ev.p.cat then table.insert(bits, ev.p.cat) end
     if causes[ev.id] then table.insert(bits, "|cff73b3ff" .. tostring(causes[ev.id].p.cause) .. "|r")
     elseif hasMissing(ev, "killer") and not (ev.p and ev.p.cause) then table.insert(bits, "cause inconnue") end
+    if cited[ev.id] then table.insert(bits, "|cffd4a017Paru dans le n° " .. cited[ev.id].number .. "|r") end
     row.line2:SetText(table.concat(bits, "  ·  "))
     local prov = Types.PROVENANCE[ev.prov] or Types.PROVENANCE.OBS
     row.badge:SetText(prov.label .. (ev.vis == "P" and "  |cff999999(privé)|r" or ""))
@@ -198,6 +204,7 @@ function UI.BuildTimeline(c, mode)
     function c:Refresh()
         local ds = ns.Store.Dataset()
         causes = ds.causes or {}
+        cited = select(2, Views.Editions(ds))
         local f = {
             category = state.category ~= "all" and state.category or nil,
             since = Views.PeriodStart(state.period),

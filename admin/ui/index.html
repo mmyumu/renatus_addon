@@ -84,14 +84,33 @@
     <!-- Gazette -->
     <section class="page" id="page-gazette" hidden>
       <div class="card">
-        <div class="label">Gazette IA de la semaine</div>
-        <p class="hint">Seuls les événements partagés des membres qui ont coché « La gazette rédigée par IA peut parler de moi » sont envoyés. Les rivaux sont anonymisés. Les articles douteux sont rejetés.</p>
+        <div class="label">Prochain numéro</div>
+        <p class="hint">Chaque gazette publiée est un numéro. Les faits déjà parus dans un numéro (ou en attente en jeu) sont décochés, tu peux les recocher. Seuls les événements partagés des membres qui ont coché « La gazette rédigée par IA peut parler de moi » sont proposés ; les rivaux sont anonymisés, les articles douteux rejetés.</p>
         <div class="buttons">
-          <button id="preview">Voir ce qui serait envoyé</button>
-          <button id="write-gazette">Rédiger avec l'IA</button>
+          <button id="prepare-gazette">Choisir les faits</button>
         </div>
-        <pre id="preview-summary"></pre>
-        <pre id="preview-prompt" class="prompt" hidden></pre>
+        <div id="selection" hidden>
+          <div class="facts-head">
+            <span id="selection-title"></span>
+            <span class="facts-tools">
+              <button id="facts-all" class="small">Tout cocher</button>
+              <button id="facts-none" class="small">Tout décocher</button>
+              <button id="facts-default" class="small">Par défaut</button>
+            </span>
+          </div>
+          <div id="facts-recent" class="facts"></div>
+          <details id="facts-older-box">
+            <summary id="facts-older-title">Plus anciens</summary>
+            <div id="facts-older" class="facts"></div>
+          </details>
+          <div class="buttons">
+            <span id="facts-count" class="hint"></span>
+            <button id="preview">Voir la demande</button>
+            <button id="write-gazette">Rédiger</button>
+          </div>
+          <pre id="preview-summary"></pre>
+          <pre id="preview-prompt" class="prompt" hidden></pre>
+        </div>
       </div>
       <div class="card" id="draft" hidden>
         <div class="label" id="draft-title">Brouillon</div>
@@ -113,9 +132,8 @@
         <div class="buttons">
           <button id="pick-articles">Choisir le dossier</button>
           <button id="open-articles">Ouvrir</button>
-          <button id="articles">Proposer les articles</button>
         </div>
-        <p class="hint">Un fichier .md par article : un en-tête <code>title:</code>, <code>format:</code>, <code>style:</code>, <code>refs:</code> entre deux lignes <code>---</code>, puis le texte.</p>
+        <p class="hint">Les articles du dossier entrent dans le prochain numéro, à la suite de ceux de l'IA (une fois parus, ils ne reviennent plus). Un fichier .md par article : un en-tête <code>title:</code>, <code>format:</code>, <code>style:</code>, <code>refs:</code> entre deux lignes <code>---</code>, puis le texte.</p>
       </div>
     </section>
 

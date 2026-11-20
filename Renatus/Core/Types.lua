@@ -12,7 +12,7 @@ Types.CATEGORIES = {
     { key = "social", label = "Vie sociale" },
     { key = "pvp", label = "PvP" },
     { key = "anecdote", label = "Anecdotes" },
-    { key = "gazette", label = "Gazette (votes, courrier)" },
+    { key = "gazette", label = "Gazette (courrier)" },
     { key = "album", label = "Album (boosters ouverts)" },
 }
 
@@ -129,6 +129,7 @@ local TYPES = {
     -- Page layout of a gazette edition (UI/Newsprint.lua), published with its articles.
     EDITION = { cat = "gazette", icon = "Interface\\Icons\\INV_Misc_Note_06", importance = 0, hidden = true,
         text = function() return "met en page la gazette" end },
+    -- Front-page vote: no longer offered, kept so that old events stay hidden.
     VOTE = { cat = "gazette", icon = "Interface\\Icons\\INV_Misc_Coin_01", importance = 0, hidden = true,
         text = function() return "vote pour la une" end },
     AI_CONSENT = { cat = "gazette", icon = "Interface\\Icons\\INV_Misc_Note_06", importance = 0, hidden = true,

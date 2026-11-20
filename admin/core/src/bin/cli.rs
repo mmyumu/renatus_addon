@@ -16,10 +16,11 @@ Commandes :
   status            ce que l'app voit (journal de l'addon, journaux de combat, presse en attente)
   facts [jours]     faits partagés de la période, avec leurs identifiants (défaut : 7 jours)
   deaths [fichier]  causes de mort et affrontements PvP des journaux de combat -> Press.lua
-  articles [dossier] articles .md écrits à la main -> Press.lua
-  gazette [--show]  gazette IA de la semaine -> Press.lua (--show : affiche la demande, n'appelle rien)
+  articles [dossier] articles .md écrits à la main -> Press.lua, hors numéro
+  gazette [--show]  nouveau numéro : faits pas encore parus + articles .md -> Press.lua
+                    (--show : affiche les faits et la demande, n'appelle rien)
   rival [guilde]    guilde rivale depuis l'armurerie (nom ou lien) -> Press.lua
-  run               deaths + articles (+ rival une fois par jour, + gazette si autoGazette)
+  run               deaths (+ rival une fois par jour, + gazette chaque semaine si autoGazette)
   install-admin     installe ou met à jour l'addon Renatus_Admin depuis GitHub
   config [clé valeur]  affiche ou change un réglage (wowPath, account, rival, articlesDir,
                     llmCommand (JSON), llmTimeoutSecs, autoGazette, testChannel)
@@ -254,8 +255,15 @@ fn run() -> Result<(), String> {
         "gazette" => {
             let p = paths(&args, &cfg)?;
             let (_, ch) = ops::load(&p)?;
+            let sel = ops::prepare(&p, &ch);
+            let keys = sel.checked_keys();
             if args.show {
-                let b = ops::brief(&ch, 7, ops::now());
+                for c in &sel.candidates {
+                    let mark = if c.checked { "[x]" } else { "[ ]" };
+                    let used = c.used.as_deref().map(|u| format!("  ({u})")).unwrap_or_default();
+                    println!("{mark} {}. {}{used}", c.key, c.text);
+                }
+                let b = sel.brief_for(&keys);
                 print_notes(&ops::brief_summary(&b, ch.members().len()));
                 println!(
                     "\n----- demande qui serait envoyée à l'IA -----\n{}",
@@ -264,9 +272,12 @@ fn run() -> Result<(), String> {
                 return Ok(());
             }
             println!("Rédaction en cours (une ou deux minutes)…");
+            let dir = articles_dir(&cfg, None);
             let prop = ops::gazette(
                 &ch,
-                7,
+                &sel,
+                &keys,
+                dir.as_deref(),
                 &cfg.llm_command,
                 Duration::from_secs(cfg.llm_timeout_secs),
                 &cfg.gazette_template,
@@ -291,9 +302,6 @@ fn run() -> Result<(), String> {
             let p = paths(&args, &cfg)?;
             let (_, ch) = ops::load(&p)?;
             let mut prop = ops::deaths(&p, &ch, None);
-            if let Some(dir) = articles_dir(&cfg, None) {
-                prop.extend(ops::articles(&dir, &ch));
-            }
             let stale = cfg.last_armory.is_none_or(|t| ops::now() - t > 86400);
             if !cfg.rival.trim().is_empty() && stale {
                 match ops::rival(&cfg.rival, &ch) {
@@ -304,11 +312,14 @@ fn run() -> Result<(), String> {
                     Err(e) => prop.notes.push(format!("Armurerie : {e}")),
                 }
             }
-            let edition = gazette::edition_key(ops::now() as f64);
-            if cfg.auto_gazette && !ops::edition_done(&p, &ch, &edition) {
+            if cfg.auto_gazette && ops::issue_due(&p, &ch) {
+                let sel = ops::prepare(&p, &ch);
+                let dir = articles_dir(&cfg, None);
                 prop.extend(ops::gazette(
                     &ch,
-                    7,
+                    &sel,
+                    &sel.checked_keys(),
+                    dir.as_deref(),
                     &cfg.llm_command,
                     Duration::from_secs(cfg.llm_timeout_secs),
                     &cfg.gazette_template,

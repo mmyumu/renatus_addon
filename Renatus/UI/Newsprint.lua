@@ -12,8 +12,7 @@
 -- It becomes pages -> rows -> cells -> blocks here (N.Sanitize).
 -- Block types (t) are a fixed vocabulary, see BLOCKS below. Unknown types are skipped,
 -- so a layout written for a newer addon still shows what this version understands.
--- Articles are referenced by "@n" (n-th article of the edition: votes, then editorial
--- order) or by their key (p.key). An article that no block shows ends up in the
+-- Articles are referenced by "@n" (n-th article of the edition in editorial order) or by their key (p.key). An article that no block shows ends up in the
 -- "contents" block, or on an extra page: nothing is ever lost.
 --
 -- Geometry: rows share the page height (fixed h first, the rest evenly). Inside a cell,
@@ -30,8 +29,6 @@ N.INK = { 0.13, 0.08, 0.05 }
 N.INK_DIM = { 0.38, 0.27, 0.17 }
 N.RED = { 0.55, 0.08, 0.05 }
 local INK, INK_DIM, RED = N.INK, N.INK_DIM, N.RED
-local DAY = 86400
-
 local GUTTER = 26        -- between cells (a vertical rule in the middle)
 local ROW_GAP = 14       -- between rows (a horizontal rule in the middle)
 local BLOCK_GAP = 12     -- between blocks of a cell
@@ -245,7 +242,6 @@ local function byline(a)
         table.insert(bits, a.ia and ("Rédigé par IA, relu par " .. a.author) or ("Par " .. a.author))
     end
     if a.t then table.insert(bits, UI.Date(a.t)) end
-    if (a.votes or 0) > 0 then table.insert(bits, a.votes .. " vote" .. (a.votes > 1 and "s" or "") .. " pour la une") end
     return table.concat(bits, "  ·  ")
 end
 N.Byline = byline
@@ -586,14 +582,14 @@ BLOCKS.contents = {
     end,
 }
 
--- In brief: the week's notable events.
+-- In brief: notable events of the period the issue covers (since the previous one).
 local function briefLines(ctx, max)
     local lines = {}
-    local ds, monday = ctx.ds, ctx.monday
+    local ds = ctx.ds
     if not (ctx.edition or ds.isDemo) then return lines end
-    local events = ns.Views.Filter(ds.events or {}, { since = monday, minImportance = 3 })
+    local events = ns.Views.Filter(ds.events or {}, { since = ctx.since, minImportance = 3 })
     for _, ev in ipairs(events) do
-        if ev.t < monday + 7 * DAY and #lines < max then
+        if ev.t < ctx.till and #lines < max then
             lines[#lines + 1] = "• " .. Types.Describe(ev, true)
         end
     end
@@ -657,16 +653,16 @@ BLOCKS.quote = {
     end,
 }
 
--- Figure of the week: a value with a caption; by default, the week's deaths.
+-- Figure of the issue: a value with a caption; by default, the deaths since the previous issue.
 local function figureOf(ctx, b)
     if b.value and b.value ~= "deaths" then return b.value, b.label or "" end
     local deaths = 0
     for _, ev in ipairs(ctx.ds.events or {}) do
-        if ev.k == "DEATH" and ev.t >= ctx.monday and ev.t < ctx.monday + 7 * DAY then deaths = deaths + 1 end
+        if ev.k == "DEATH" and ev.t >= ctx.since and ev.t < ctx.till then deaths = deaths + 1 end
     end
     if deaths == 0 then return nil end
-    return tostring(deaths), b.label or (deaths == 1 and "décès dans la guilde cette semaine. Un seul : la rédaction s'ennuie."
-        or "décès dans la guilde cette semaine. Les esprits gardiens font des heures supplémentaires.")
+    return tostring(deaths), b.label or (deaths == 1 and "décès dans la guilde depuis le dernier numéro. Un seul : la rédaction s'ennuie."
+        or "décès dans la guilde depuis le dernier numéro. Les esprits gardiens font des heures supplémentaires.")
 end
 
 BLOCKS.figure = {
@@ -1021,9 +1017,9 @@ function N.Draw(cv, ctx, page, x0, top, width, bottom)
     end
 end
 
--- Rendering context of an edition.
-function N.Context(ds, edition, monday, placed)
-    local ctx = { ds = ds, edition = edition, monday = monday, placed = placed or {} }
+-- Rendering context of an edition: since/till = the period it covers.
+function N.Context(ds, edition, since, till, placed)
+    local ctx = { ds = ds, edition = edition, since = since, till = till, placed = placed or {} }
     function ctx.article(ref)
         if edition then return N.Resolve(edition, ref) end
         return ref == "@1" and ctx.placeholder or nil

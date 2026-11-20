@@ -45,6 +45,18 @@ pre.log { max-height: 260px; font-size: 12px; }
 .article .body { white-space: pre-wrap; user-select: text; line-height: 1.45; }
 .article blockquote { margin: 8px 0; padding-left: 10px; border-left: 3px solid var(--gold); font-style: italic; }
 details { margin-top: 8px; }
+
+/* Facts offered for the next issue */
+.facts-head { display: flex; align-items: center; gap: 10px; margin-top: 10px; font-weight: 600; }
+.facts-tools { margin-left: auto; display: flex; gap: 4px; }
+button.small { padding: 2px 8px; font-size: 12px; }
+.facts { max-height: 340px; overflow-y: auto; border: 1px solid var(--border); border-radius: 4px; margin-top: 6px; }
+.fact { display: flex; gap: 8px; align-items: flex-start; padding: 4px 8px; border-bottom: 1px solid var(--border); font-size: 13px; user-select: text; }
+.fact:last-child { border-bottom: 0; }
+.fact input { margin-top: 3px; }
+.fact .used { color: var(--gold); font-size: 12px; white-space: nowrap; }
+.fact.told .text { color: var(--muted); }
+.buttons .hint { margin-right: auto; align-self: center; }
 summary { cursor: pointer; color: var(--muted); }
 pre.prompt { max-height: 320px; font-family: Consolas, monospace; font-size: 12px; border-top: 1px solid var(--border); padding-top: 6px; }
 

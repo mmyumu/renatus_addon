@@ -1119,7 +1119,7 @@ test("elements du compagnon : en attente, publies signes LOG / GEN, jamais autom
     RenatusPress = nil
 end)
 
-test("gazette reelle : relue et publiee dans la fenetre d'administration, vote une fois par semaine", function()
+test("gazette reelle : relue et publiee dans la fenetre d'administration, plus de vote pour la une", function()
     local ns, A = bootAdmin(OFFICER)
     local Press = A.Press
     withPress({ { id = "a1", kind = "ARTICLE", p = { title = "Une", body = "Texte", style = "épique", format = "Hebdomadaire" } },
@@ -1138,10 +1138,7 @@ test("gazette reelle : relue et publiee dans la fenetre d'administration, vote u
     local c = RenatusMainFrame.containers.gazette
     eq(c.current.id, art.id)
     eq(c.current.author, "Testeur")
-    c.paper.vote:Click()
-    eq(c.current.votes, 1); eq(c.current.voted, true)
-    c.paper.vote:Click()
-    eq(c.current.votes, 1, "pas de double vote")
+    eq(c.paper.vote, nil, "plus de bouton de vote")
     eq(w.tabs.press.label:GetText(), "Rédaction")
     RenatusPress = nil
 end)
@@ -1307,18 +1304,19 @@ test("habillage : textures de l'addon sur la fenetre, les panneaux et la gazette
     eq(RenatusMainFrame.navButtons.journal.sel:IsShown(), false)
 end)
 
-test("gazette : une edition par semaine, la une est l'article le plus vote", function()
+test("gazette : un numero par parution, date de parution, la une suit l'ordre editorial", function()
     local ns = boot({ specIndex = 1 })
     SlashCmdList.RENATUS("demo")
     ns.UI.Open("gazette")
     local c = RenatusMainFrame.containers.gazette
-    assert(#c.editions >= 2, "editions par semaine")
-    eq(c.editions[1].number, #c.editions, "la plus recente porte le plus grand numero")
+    eq(#c.editions, 2, "deux numeros dans la demo")
+    eq(c.editions[1].number, #c.editions, "le plus recent porte le plus grand numero")
     local first = c.editions[1]
-    for _, a in ipairs(first.articles) do assert(a.votes <= first.articles[1].votes, "une = plus de votes") end
+    for i = 2, #first.articles do assert(first.articles[i - 1].order < first.articles[i].order, "ordre editorial") end
+    eq(first.articles[1].title, "Tobias, onze fois regretté")
     eq(c.current, first.articles[1])
     assert(c.front:IsShown() and not c.reader:IsShown(), "premiere page")
-    assert(c.front.info:GetText():find("Semaine du"), "semaine")
+    assert(c.front.info:GetText():find("Paru le"), "date de parution")
     eq(c.next.gcDisabled, true, "pas d'edition plus recente")
     -- older edition
     c.prev:Click()
@@ -1336,13 +1334,12 @@ test("gazette : une edition par semaine, la une est l'article le plus vote", fun
     assert(c.front:IsShown() and not c.showSources, "retour a la une")
 end)
 
-test("gazette vide : numero zero, rien a voter", function()
+test("gazette vide : numero zero", function()
     local ns = boot({ specIndex = 1 })
     ns.UI.Open("gazette")
     local c = RenatusMainFrame.containers.gazette
     eq(c.current, nil)
     eq(c.front.headline:GetText(), "Les rotatives sont à l'arrêt")
-    eq(c.paper.vote.gcDisabled, true)
     c.paper.sources:Click()
     assert(c.front:IsShown(), "pas de lecture sans article")
 end)
@@ -1691,13 +1688,13 @@ test("edition : publier la mise en page publie ses articles ; ordre editorial ; 
     local Press = A.Press
     local ed = Press.Pending(function(i) return i.kind == "EDITION" end)[1]
     assert(Press.Label(ed):find("2 article"), Press.Label(ed))
-    -- preview: nothing published, vote disabled
+    -- preview: nothing published
     Press.Preview(ed)
     local c = RenatusMainFrame.containers.gazette
     eq(#eventsOf(ns, "ARTICLE"), 0)
     eq(c.front.topRight:GetText(), "APERÇU, NON PUBLIÉ")
     eq(c.current.title, "Premiere", "@1 = premier dans l'ordre editorial")
-    eq(c.paper.vote.gcDisabled, true); eq(c.endPreview:IsShown(), true); eq(c.prev:IsShown(), false)
+    eq(c.endPreview:IsShown(), true); eq(c.prev:IsShown(), false)
     assert(canvasText(c):find("LE PORTRAIT"), "portrait dans l'apercu")
     c.endPreview:Click()
     eq(c.preview, nil)
@@ -1717,16 +1714,45 @@ end)
 
 test("edition : la mise en page d'un non-officier est ignoree", function()
     local ns = boot({ specIndex = 1, rank = 0, roster = { { name = "Testeur", rank = 0 }, { name = "Bob", rank = 4 } } })
-    ns.Store.Add("ARTICLE", { title = "Vraie une", body = "x" }, { vis = "G", prov = "GEN", noExp = true })
+    ns.Store.Add("ARTICLE", { title = "Vraie une", body = "x", edition = "E9" }, { vis = "G", prov = "GEN", noExp = true })
     local t = GetServerTime and GetServerTime() or time()
     ns.Store.Insert({ v = 1, id = "Player-1-BOB:1", a = "Player-1-BOB", n = "Bob", s = 1, t = t, k = "EDITION",
-        g = ns.Context.GuildKey(), vis = "G", prov = "GEN", p = { cells = { { pg = 1, r = 1, w = 12, b = {
+        g = ns.Context.GuildKey(), vis = "G", prov = "GEN", p = { edition = "E9", cells = { { pg = 1, r = 1, w = 12, b = {
             { t = "notice", title = "Pirate" } } } } } })
     ns.UI.Open("gazette")
     local c = RenatusMainFrame.containers.gazette
     eq(#ns.Store.Dataset().layouts, 1)
     eq(c.editions[1].layout, nil)
     assert(not canvasText(c):find("Pirate"))
+end)
+
+test("numeros : deux parutions la meme semaine = deux numeros ; evenements cites marques dans le journal", function()
+    local ns = boot({ specIndex = 1, rank = 0, roster = { { name = "Testeur", rank = 0 } } })
+    local opts = { vis = "G", prov = "MAN" }
+    local old = ns.Store.Add("ANECDOTE", { title = "Bob tombe dans le lac" }, opts)
+    local fresh = ns.Store.Add("ANECDOTE", { title = "Bob ressort du lac" }, opts)
+    local pub = { vis = "G", prov = "GEN", noExp = true }
+    -- an article from before issues: grouped by week
+    ns.Store.Add("ARTICLE", { title = "Ancien", body = "x" }, pub)
+    ns.Store.Add("ARTICLE", { title = "Lac 1", body = "x", edition = "E1", order = 1 }, { vis = "G", prov = "GEN", noExp = true, refs = { old.id } })
+    ns.Store.Add("EDITION", { edition = "E1", till = old.t + 1, cells = { { pg = 1, r = 1, w = 12, b = { { t = "story", a = "@1" } } } } }, pub)
+    ns.Store.Add("ARTICLE", { title = "Lac 2", body = "y", edition = "E2", order = 1 }, { vis = "G", prov = "GEN", noExp = true, refs = { fresh.id } })
+    ns.Store.Add("ARTICLE", { title = "Lac 2 bis", body = "z", edition = "E2", order = 2 }, pub)
+    local list, cited = ns.Views.Editions(ns.Store.Dataset())
+    eq(#list, 3, "E1, E2 et l'ancien article")
+    local byKey = {}
+    for _, e in ipairs(list) do byKey[e.key] = e end
+    eq(#byKey.E2.articles, 2); eq(byKey.E2.articles[1].title, "Lac 2")
+    eq(byKey.E1.layout ~= nil, true, "mise en page rattachee a son numero")
+    eq(byKey.E2.layout, nil)
+    eq(cited[old.id], byKey.E1); eq(cited[fresh.id], byKey.E2)
+    assert(byKey.E1.label:find("^Paru le "), byKey.E1.label)
+    ns.UI.Open("journal")
+    local marked = 0
+    for _, row in ipairs(RenatusMainFrame.containers.journal.list.rows) do
+        if row:IsShown() and row.item and (row.line2:GetText() or ""):find("Paru dans le n° " .. byKey.E1.number) then marked = marked + 1 end
+    end
+    eq(marked, 1, "l'evenement cite porte la mention")
 end)
 
 print(string.format("\n%d ok, %d echec(s)", passed, failed))

@@ -12,7 +12,7 @@ use std::time::{Duration, SystemTime};
 use renatus_admin_core::config::Config;
 use renatus_admin_core::ops::{self, Proposal, Status};
 use renatus_admin_core::paths::WowPaths;
-use renatus_admin_core::{addon, armory, chronicle::Chronicle, edition, gazette};
+use renatus_admin_core::{addon, armory, chronicle::Chronicle, edition, gazette, issues};
 use renatus_launcher_core::wow;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager};
@@ -42,6 +42,8 @@ struct State {
     /// Newer version of this app, found by the updater (installed on demand).
     app_update: Option<String>,
     draft: Option<Draft>,
+    /// Facts offered for the next issue (prepare_gazette), kept for write_gazette.
+    selection: Option<issues::Selection>,
 }
 
 /// AI gazette written from the window, kept here until the editor proposes or discards it.
@@ -91,6 +93,7 @@ struct View {
     busy: Option<String>,
     admin_available: Option<String>,
     draft: Option<Draft>,
+    selection: Option<issues::Selection>,
     app_version: String,
     app_update: Option<String>,
 }
@@ -138,6 +141,7 @@ fn view(app: &AppHandle) -> View {
         busy: s.busy.clone(),
         admin_available: s.admin_available.clone(),
         draft: s.draft.clone(),
+        selection: s.selection.clone(),
         app_version: app.package_info().version.to_string(),
         app_update: s.app_update.clone(),
     }
@@ -278,18 +282,6 @@ async fn propose_deaths(app: AppHandle) -> Result<View, String> {
 }
 
 #[tauri::command]
-async fn propose_articles(app: AppHandle) -> Result<View, String> {
-    job(app, "Articles écrits à la main", |cfg, _, ch| {
-        let dir = cfg
-            .articles_dir
-            .clone()
-            .ok_or("Choisis d'abord le dossier des articles (Réglages).")?;
-        Ok(ops::articles(&dir, ch))
-    })
-    .await
-}
-
-#[tauri::command]
 async fn refresh_rival(app: AppHandle, rival: String) -> Result<View, String> {
     save_config(&app, |c| c.rival = rival.trim().to_string())?;
     let work = rival_work(&app);
@@ -297,13 +289,23 @@ async fn refresh_rival(app: AppHandle, rival: String) -> Result<View, String> {
 }
 
 /// Writes the AI gazette as a draft shown in the Gazette tab: nothing goes to Press.lua
-/// before "Proposer en jeu" (propose_gazette).
+/// before "Proposer en jeu" (propose_gazette). `keys`: the facts ticked in the selection.
 #[tauri::command]
-async fn write_gazette(app: AppHandle) -> Result<View, String> {
-    let result = busy(&app, "Gazette IA", |cfg, _, ch| {
+async fn write_gazette(app: AppHandle, keys: Vec<String>) -> Result<View, String> {
+    let sel = app
+        .state::<Shared>()
+        .state
+        .lock()
+        .unwrap()
+        .selection
+        .clone()
+        .ok_or("Prépare d'abord la gazette (liste des faits).")?;
+    let result = busy(&app, "Gazette", move |cfg, _, ch| {
         Ok(ops::gazette(
             ch,
-            7,
+            &sel,
+            &keys,
+            cfg.articles_dir.as_deref(),
             &cfg.llm_command,
             Duration::from_secs(cfg.llm_timeout_secs),
             &cfg.gazette_template,
@@ -312,7 +314,7 @@ async fn write_gazette(app: AppHandle) -> Result<View, String> {
     .await;
     match result {
         Ok(proposal) => {
-            let mut lines = vec!["— Gazette IA (brouillon)".to_string()];
+            let mut lines = vec!["— Gazette (brouillon)".to_string()];
             lines.extend(proposal.notes.iter().cloned());
             lines.push("Brouillon à relire dans l'onglet Gazette, rien n'est encore dans Press.lua.".into());
             log(&app, lines);
@@ -322,7 +324,7 @@ async fn write_gazette(app: AppHandle) -> Result<View, String> {
             });
         }
         Err(e) => {
-            log(&app, [format!("— Gazette IA : {e}")]);
+            log(&app, [format!("— Gazette : {e}")]);
             publish_view(&app);
             return Err(e);
         }
@@ -342,7 +344,7 @@ async fn propose_gazette(app: AppHandle) -> Result<View, String> {
             _ => return Err("Aucun article à proposer.".into()),
         }
     };
-    let view = job(app.clone(), "Gazette IA", move |_, _, _| {
+    let view = job(app.clone(), "Gazette", move |_, _, _| {
         Ok(Proposal {
             items,
             notes: Vec::new(),
@@ -350,15 +352,25 @@ async fn propose_gazette(app: AppHandle) -> Result<View, String> {
         })
     })
     .await?;
-    app.state::<Shared>().state.lock().unwrap().draft = None;
+    {
+        // Its facts are now waiting in Press.lua: the next issue starts from a new selection.
+        let shared = app.state::<Shared>();
+        let mut s = shared.state.lock().unwrap();
+        s.draft = None;
+        s.selection = None;
+    }
     publish_view(&app);
-    Ok(View { draft: None, ..view })
+    Ok(View {
+        draft: None,
+        selection: None,
+        ..view
+    })
 }
 
 #[tauri::command]
 fn discard_gazette(app: AppHandle) -> View {
     app.state::<Shared>().state.lock().unwrap().draft = None;
-    log(&app, ["— Gazette IA : brouillon jeté.".to_string()]);
+    log(&app, ["— Gazette : brouillon jeté.".to_string()]);
     view(&app)
 }
 
@@ -369,13 +381,37 @@ struct Preview {
     prompt: String,
 }
 
+/// Lists the facts offered for the next issue (new ones ticked).
 #[tauri::command]
-async fn preview_gazette(app: AppHandle) -> Result<Preview, String> {
+async fn prepare_gazette(app: AppHandle) -> Result<View, String> {
+    let cfg = config(&app);
+    let sel = tauri::async_runtime::spawn_blocking(move || {
+        let paths = game_paths(&cfg)?;
+        let (_, ch) = ops::load(&paths)?;
+        Ok::<_, String>(ops::prepare(&paths, &ch))
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    app.state::<Shared>().state.lock().unwrap().selection = Some(sel);
+    Ok(view(&app))
+}
+
+/// What would be sent to the AI for these facts.
+#[tauri::command]
+async fn preview_gazette(app: AppHandle, keys: Vec<String>) -> Result<Preview, String> {
+    let sel = app
+        .state::<Shared>()
+        .state
+        .lock()
+        .unwrap()
+        .selection
+        .clone()
+        .ok_or("Prépare d'abord la gazette (liste des faits).")?;
     let cfg = config(&app);
     tauri::async_runtime::spawn_blocking(move || {
         let paths = game_paths(&cfg)?;
         let (_, ch) = ops::load(&paths)?;
-        let b = ops::brief(&ch, 7, ops::now());
+        let b = sel.brief_for(&keys);
         Ok(Preview {
             summary: ops::brief_summary(&b, ch.members().len()),
             prompt: gazette::prompt(&b),
@@ -559,21 +595,19 @@ async fn watch(app: AppHandle) {
             let _ = job(app.clone(), "Automatique : armurerie", work).await;
         }
         if cfg.auto_gazette {
-            let paths = cfg.paths();
-            let edition = gazette::edition_key(ops::now() as f64);
-            let done = paths
-                .as_ref()
-                .and_then(|p| {
-                    ops::load(p)
-                        .ok()
-                        .map(|(_, ch)| ops::edition_done(p, &ch, &edition))
-                })
-                .unwrap_or(true);
-            if !done {
-                let _ = job(app.clone(), "Automatique : gazette IA", |cfg, _, ch| {
+            let due = cfg
+                .paths()
+                .and_then(|p| ops::load(&p).ok().map(|(_, ch)| ops::issue_due(&p, &ch)))
+                .unwrap_or(false);
+            if due {
+                // New facts only (the default selection), plus the hand-written articles.
+                let _ = job(app.clone(), "Automatique : gazette", |cfg, paths, ch| {
+                    let sel = ops::prepare(paths, ch);
                     Ok(ops::gazette(
                         ch,
-                        7,
+                        &sel,
+                        &sel.checked_keys(),
+                        cfg.articles_dir.as_deref(),
                         &cfg.llm_command,
                         Duration::from_secs(cfg.llm_timeout_secs),
                         &cfg.gazette_template,
@@ -768,11 +802,11 @@ pub fn run() {
             get_state,
             reload,
             propose_deaths,
-            propose_articles,
             refresh_rival,
             write_gazette,
             propose_gazette,
             discard_gazette,
+            prepare_gazette,
             preview_gazette,
             save_settings,
             pick_wow_folder,

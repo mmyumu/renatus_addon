@@ -12,6 +12,7 @@ pub mod combatlog;
 pub mod config;
 pub mod edition;
 pub mod gazette;
+pub mod issues;
 pub mod llm;
 pub mod lua;
 pub mod ops;

@@ -73,6 +73,15 @@ pub struct Fact {
     pub refs: Vec<String>,
 }
 
+impl Brief {
+    /// The same brief restricted to the facts with these keys (the editor's selection).
+    pub fn select(&self, keys: &[String]) -> Brief {
+        let mut b = self.clone();
+        b.facts.retain(|f| keys.contains(&f.key));
+        b
+    }
+}
+
 /// Everything sent to the AI, plus what is needed to check the answer.
 #[derive(Debug, Clone, Serialize)]
 pub struct Brief {
@@ -274,7 +283,7 @@ impl Rivals {
     }
 }
 
-fn local(t: f64) -> chrono::DateTime<Local> {
+pub(crate) fn local(t: f64) -> chrono::DateTime<Local> {
     Local
         .timestamp_opt(t as i64, 0)
         .single()
@@ -296,10 +305,9 @@ fn when(t: f64) -> String {
     )
 }
 
-/// ISO week of `until`: "2026-S47".
+/// Key of an issue, from when it was written: "2026-11-20-2147" (one issue per draft).
 pub fn edition_key(until: f64) -> String {
-    let w = local(until).iso_week();
-    format!("{}-S{:02}", w.year(), w.week())
+    local(until).format("%Y-%m-%d-%H%M").to_string()
 }
 
 fn s(v: &Value, key: &str) -> String {
@@ -321,6 +329,12 @@ fn names_list(v: &Value) -> Vec<String> {
 }
 
 pub fn build(ch: &Chronicle, since: f64, until: f64) -> Brief {
+    build_split(ch, since, until, since)
+}
+
+/// Like `build`, but grouped facts (quests, rivals seen) never mix events from before and
+/// after `split`, so that each fact is either "recent" (t >= split) or older.
+pub fn build_split(ch: &Chronicle, since: f64, until: f64, split: f64) -> Brief {
     let guild = ch.main_guild();
     let choice = consent(ch);
     let authors = ch.members();
@@ -369,8 +383,9 @@ pub fn build(ch: &Chronicle, since: f64, until: f64) -> Brief {
     });
 
     let mut raw: Vec<(f64, String, Vec<String>)> = Vec::new();
-    let mut seen_rivals: BTreeMap<String, Vec<&Value>> = BTreeMap::new();
-    let mut quests: BTreeMap<String, Vec<&Value>> = BTreeMap::new();
+    // grouped per (author, recent?)
+    let mut seen_rivals: BTreeMap<(String, bool), Vec<&Value>> = BTreeMap::new();
+    let mut quests: BTreeMap<(String, bool), Vec<&Value>> = BTreeMap::new();
 
     for e in events {
         let author = str_of(e, "a").unwrap_or("").to_string();
@@ -392,12 +407,13 @@ pub fn build(ch: &Chronicle, since: f64, until: f64) -> Brief {
             format!(" à {zone}")
         };
         let prov = str_of(e, "prov").unwrap_or("OBS");
+        let recent = num_of(e, "t") >= split;
         if k == "ENEMY_SEEN" {
-            seen_rivals.entry(author).or_default().push(e);
+            seen_rivals.entry((author, recent)).or_default().push(e);
             continue;
         }
         if k == "QUEST_DONE" {
-            quests.entry(author).or_default().push(e);
+            quests.entry((author, recent)).or_default().push(e);
             continue;
         }
         let text: Option<String> = match k {
@@ -603,7 +619,7 @@ pub fn build(ch: &Chronicle, since: f64, until: f64) -> Brief {
         raw.push((num_of(e, "t"), text, vec![id]));
     }
 
-    for (author, evs) in &seen_rivals {
+    for ((author, _), evs) in &seen_rivals {
         let who = authors.get(author).cloned().unwrap_or_else(|| "?".into());
         let distinct: BTreeSet<String> = evs
             .iter()
@@ -615,7 +631,7 @@ pub fn build(ch: &Chronicle, since: f64, until: f64) -> Brief {
             .collect();
         let list: Vec<&str> = distinct.iter().take(8).map(String::as_str).collect();
         let text = format!(
-            "{who} a croisé {} fois des membres de la guilde rivale {} cette semaine : {}",
+            "{who} a croisé {} fois des membres de la guilde rivale {} : {}",
             evs.len(),
             guilds.into_iter().collect::<Vec<_>>().join("/"),
             list.join(", ")
@@ -627,7 +643,7 @@ pub fn build(ch: &Chronicle, since: f64, until: f64) -> Brief {
         let tail = ids[ids.len().saturating_sub(10)..].to_vec();
         raw.push((num_of(evs[evs.len() - 1], "t"), text, tail));
     }
-    for (author, evs) in &quests {
+    for ((author, _), evs) in &quests {
         let who = authors.get(author).cloned().unwrap_or_else(|| "?".into());
         let titles: Vec<&str> = evs
             .iter()
@@ -710,7 +726,7 @@ Règles impératives :
 Réponds par un unique objet JSON, sans texte autour :
 {\"maquette\": \"...\", \"articles\": [{\"title\": \"...\", \"format\": \"...\", \"style\": \"...\", \"body\": \"...\", \"refs\": [\"F1\", \"F4\"], \"exergue\": \"...\", \"portrait\": \"...\"}]}
 
-Faits de la semaine :
+Faits retenus pour cette édition :
 {facts}
 ";
 
@@ -970,7 +986,7 @@ mod tests {
         let texts: Vec<&str> = brief.facts.iter().map(|f| f.text.as_str()).collect();
         assert_eq!(texts.len(), 3, "{texts:#?}");
         assert!(texts[0].ends_with("Alice atteint le niveau 20"));
-        assert!(texts[1].contains("a croisé 1 fois des membres de la guilde rivale Les Crocs cette semaine : Rival A (voleur Orc)"));
+        assert!(texts[1].contains("a croisé 1 fois des membres de la guilde rivale Les Crocs : Rival A (voleur Orc)"));
         assert!(
             texts[2].contains("Alice tombe face à Rival A (voleur Orc)"),
             "{texts:#?}"
@@ -996,11 +1012,11 @@ mod tests {
             {"title": "Gorbash frappe", "body": "y", "refs": ["F2"]},
             {"title": "Bobby", "body": "Bobby n'est pas Bob-le-Rouge", "refs": ["F2"]}
         ]}"#;
-        let (items, notes) = check(&brief, answer, "2026-S47");
+        let (items, notes) = check(&brief, answer, "2026-11-20-2147");
         assert_eq!(items.len(), 2, "{notes:?}");
         assert_eq!(items[0]["refs"], json!(["A:2"]));
         assert_eq!(items[0]["p"]["ia"], true);
-        assert!(items[0]["id"].as_str().unwrap().starts_with("ia:2026-S47:"));
+        assert!(items[0]["id"].as_str().unwrap().starts_with("ia:2026-11-20-2147:"));
         assert!(notes[0].contains("F9"));
         assert!(notes[1].contains("« Gorbash »"));
         assert!(check(&brief, "pas de json", "x").1[0].contains("illisible"));

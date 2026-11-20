@@ -151,9 +151,13 @@ function Album.Catalogue(ds)
         end
     end
 
-    -- Front pages: every published article.
+    -- Front pages: every published article; the front page of an issue is epic.
+    local front = {}
+    for _, e in ipairs((ns.Views.Editions(ds))) do
+        if e.articles[1] then front[e.articles[1]] = true end
+    end
     for _, a in ipairs(ds.articles or {}) do
-        add({ id = "U:" .. a.id, series = "une", rarity = (a.votes or 0) >= 5 and "epic" or "rare",
+        add({ id = "U:" .. a.id, series = "une", rarity = front[a] and "epic" or "rare",
             name = a.title or "Article", icon = "Interface\\Icons\\INV_Misc_Note_06",
             flavor = (a.kind and (a.kind .. ". ") or "") .. "Paru le " .. date("%d/%m/%Y", a.t or 0) .. "." })
     end

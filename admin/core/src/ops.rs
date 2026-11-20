@@ -8,11 +8,11 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use serde::Serialize;
-use serde_json::Value;
+use serde_json::{json, Value};
 
 use crate::chronicle::{num_of, str_of, Chronicle};
 use crate::paths::{WowPaths, ADMIN_ADDON};
-use crate::{armory, articles, combatlog, edition, gazette, llm, press};
+use crate::{armory, articles, combatlog, edition, gazette, issues, llm, press};
 
 pub fn now() -> i64 {
     chrono::Utc::now().timestamp()
@@ -159,18 +159,28 @@ pub fn articles(dir: &Path, ch: &Chronicle) -> Proposal {
     }
 }
 
-pub fn brief(ch: &Chronicle, days: u32, until: i64) -> gazette::Brief {
-    let until = until as f64;
-    gazette::build(ch, until - f64::from(days) * 86400.0, until)
+/// Items waiting in Press.lua (not yet handled in game).
+pub fn pending(paths: &WowPaths, ch: &Chronicle) -> Vec<Value> {
+    press::read_items(&paths.press())
+        .into_iter()
+        .filter(|i| str_of(i, "id").is_none_or(|id| !ch.press_done.contains_key(id)))
+        .collect()
 }
 
-/// Is this week's AI edition already written (pending or handled in game)?
-pub fn edition_done(paths: &WowPaths, ch: &Chronicle, edition: &str) -> bool {
-    let prefix = format!("ia:{edition}:");
-    ch.press_done.keys().any(|i| i.starts_with(&prefix))
-        || press::read_items(&paths.press())
-            .iter()
-            .any(|i| str_of(i, "id").is_some_and(|id| id.starts_with(&prefix)))
+/// The facts offered for the next gazette issue (see issues.rs).
+pub fn prepare(paths: &WowPaths, ch: &Chronicle) -> issues::Selection {
+    issues::prepare(ch, &pending(paths, ch), now() as f64)
+}
+
+/// Is a new issue due (automatic mode)? None waiting in Press.lua, and the latest one
+/// covers up to a week ago or more.
+pub fn issue_due(paths: &WowPaths, ch: &Chronicle) -> bool {
+    let waiting = pending(paths, ch);
+    if waiting.iter().any(|i| str_of(i, "kind") == Some("EDITION")) {
+        return false;
+    }
+    issues::last_issue_end(ch, &waiting)
+        .is_none_or(|t| now() as f64 - t >= issues::FIRST_DAYS * 86400.0)
 }
 
 pub fn brief_summary(b: &gazette::Brief, authors: usize) -> Vec<String> {
@@ -193,56 +203,92 @@ pub fn brief_summary(b: &gazette::Brief, authors: usize) -> Vec<String> {
     notes
 }
 
-/// Writes this week's gazette with the AI (blocking: one or two minutes): the articles,
-/// then the edition's page layout. `template`: a name from edition::TEMPLATES, or
-/// "auto" for the AI's choice (checked, with a fallback).
+/// Hand-written articles (.md) not handled yet, for the issue being written.
+fn hand_written(dir: &Path, ch: &Chronicle) -> (Vec<Value>, Vec<String>) {
+    let public: BTreeSet<String> = ch
+        .events
+        .iter()
+        .filter(|(_, e)| str_of(e, "vis") == Some("G"))
+        .map(|(id, _)| id.clone())
+        .collect();
+    let (found, mut notes) = articles::load_dir(dir, &public);
+    let items: Vec<Value> = found
+        .iter()
+        .map(articles::Article::to_item)
+        .filter(|i| str_of(i, "id").is_none_or(|id| !ch.press_done.contains_key(id)))
+        .collect();
+    notes.push(format!(
+        "{} article(s) écrit(s) à la main ajouté(s) au numéro ({}).",
+        items.len(),
+        dir.display()
+    ));
+    (items, notes)
+}
+
+/// Writes a gazette issue (blocking: one or two minutes with the AI): the AI's articles
+/// from the facts `keys` of `sel`, the hand-written articles of `articles_dir`, then the
+/// issue's page layout. `template`: a name from edition::TEMPLATES, or "auto" for the
+/// AI's choice (checked, with a fallback).
+#[allow(clippy::too_many_arguments)]
 pub fn gazette(
     ch: &Chronicle,
-    days: u32,
+    sel: &issues::Selection,
+    keys: &[String],
+    articles_dir: Option<&Path>,
     command: &[String],
     timeout: Duration,
     template: &str,
 ) -> Proposal {
-    let until = now();
-    let edition = gazette::edition_key(until as f64);
-    let b = brief(ch, days, until);
+    let edition = &sel.edition;
+    let b = sel.brief_for(keys);
     let mut out = Proposal {
         items: Vec::new(),
         notes: brief_summary(&b, ch.members().len()),
         answer: None,
     };
-    out.notes.insert(0, format!("Gazette IA {edition}"));
-    if b.facts.is_empty() {
-        return out;
-    }
-    match llm::run(&gazette::prompt(&b), command, timeout) {
-        Err(e) => out.notes.push(format!("IA indisponible : {e}")),
-        Ok(answer) => {
-            let (items, notes) = gazette::check(&b, &answer, &edition);
-            out.answer = Some(answer.clone());
-            out.notes.extend(notes);
-            out.notes
-                .push(format!("{} article(s) proposé(s).", items.len()));
-            if !items.is_empty() {
-                let wanted = if template == "auto" {
-                    gazette::requested_template(&answer)
-                } else {
-                    Some(template.to_string())
-                };
-                let layout = edition::item(
-                    edition::choose(wanted.as_deref(), &items, &edition),
-                    &items,
-                    &edition,
-                );
-                out.notes.push(format!(
-                    "Mise en page : {}.",
-                    str_of(&layout["p"], "template").unwrap_or("?")
-                ));
-                out.items = items;
-                out.items.push(layout);
+    out.notes.insert(0, format!("Gazette {edition}"));
+    let mut items = Vec::new();
+    let mut wanted = (template != "auto").then(|| template.to_string());
+    if !b.facts.is_empty() {
+        match llm::run(&gazette::prompt(&b), command, timeout) {
+            Err(e) => out.notes.push(format!("IA indisponible : {e}")),
+            Ok(answer) => {
+                let (ai, notes) = gazette::check(&b, &answer, edition);
+                out.notes.extend(notes);
+                out.notes.push(format!("{} article(s) de l'IA retenu(s).", ai.len()));
+                if wanted.is_none() {
+                    wanted = gazette::requested_template(&answer);
+                }
+                out.answer = Some(answer);
+                items.extend(ai);
             }
         }
     }
+    if let Some(dir) = articles_dir {
+        let (mut mine, notes) = hand_written(dir, ch);
+        out.notes.extend(notes);
+        for a in &mut mine {
+            a["p"]["edition"] = json!(edition);
+            a["p"]["order"] = json!(items.len() + 1);
+            items.push(a.clone());
+        }
+    }
+    if items.is_empty() {
+        out.notes.push("Aucun article : pas de numéro.".into());
+        return out;
+    }
+    let mut layout = edition::item(
+        edition::choose(wanted.as_deref(), &items, edition),
+        &items,
+        edition,
+    );
+    layout["p"]["till"] = json!(sel.until);
+    out.notes.push(format!(
+        "Mise en page : {}.",
+        str_of(&layout["p"], "template").unwrap_or("?")
+    ));
+    out.items = items;
+    out.items.push(layout);
     out
 }
 
@@ -325,6 +371,24 @@ mod tests {
             "already handled items are dropped"
         );
         assert_eq!(status(&paths).pending, 1);
-        assert!(!edition_done(&paths, &ch, "2026-S47"));
+        assert!(issue_due(&paths, &ch), "no issue yet");
+
+        // An issue with only hand-written articles (no fact ticked: the AI is not called).
+        let md = dir.path().join("articles");
+        fs::create_dir_all(&md).unwrap();
+        fs::write(
+            md.join("edito.md"),
+            "---\ntitle: Édito\nformat: Éditorial\nstyle: Rédaction\n---\nBonjour.\n",
+        )
+        .unwrap();
+        let sel = prepare(&paths, &ch);
+        let p = gazette(&ch, &sel, &[], Some(&md), &[], Duration::from_secs(1), "auto");
+        assert_eq!(p.items.len(), 2, "{:?}", p.notes);
+        assert_eq!(p.items[0]["p"]["edition"], sel.edition.as_str());
+        assert_eq!(p.items[0]["p"]["order"], 1);
+        assert_eq!(p.items[1]["kind"], "EDITION");
+        assert_eq!(p.items[1]["p"]["till"], sel.until);
+        publish(&paths, &ch, p.items).unwrap();
+        assert!(!issue_due(&paths, &ch), "an issue is waiting in Press.lua");
     }
 }

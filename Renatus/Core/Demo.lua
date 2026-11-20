@@ -136,29 +136,30 @@ local function build()
                 .. "Tous sont finalement revenus victorieux, bien que %s ait insisté pour visiter deux fois les services funéraires locaux. "
                 .. "La rédaction salue cette persévérance.\n\nEdwin VanCleef, joint par nos services, n'a pas souhaité commenter. "
                 .. "Il faut dire qu'il n'est plus en état de le faire."):format(meName),
-            refs = { exp.id, d1.id, d2.id, boss.id }, votes = 4 },
+            refs = { exp.id, d1.id, d2.id, boss.id } },
+        { id = "demo-art-3", t = now - 120, kind = "Nécrologie", style = "Rédacteur de faits divers",
+            title = "Tobias, onze fois regretté",
+            body = "Tobias nous a quittés. Puis il est revenu. Puis il nous a quittés de nouveau. "
+                .. "Avec onze décès en vingt jours, Tobias pulvérise le record de la guilde et s'adjuge le titre convoité d'Habitué du cimetière. "
+                .. "Les esprits gardiens le reconnaissent désormais de loin et lui gardent sa place.\n\nNi fleurs ni couronnes : il en aura besoin la prochaine fois.",
+            refs = {}, key = "demo-tobias", portrait = "Tobias",
+            quote = "Les esprits gardiens le reconnaissent désormais de loin." },
         { id = "demo-art-2", t = now - 120, kind = "Diplomatie", style = "Propagandiste de guilde",
             title = "Les Crocs de Sang démentent tout campement prolongé",
             body = "Dans un communiqué que personne n'a lu, la guilde rivale affirme ne « camper aucun cimetière ». "
                 .. "Pourtant, Mortefeuille a été aperçu à proximité immédiate du cimetière du Bois de la Pénombre, et Tobias a quitté ce monde onze fois en vingt jours. "
                 .. "La rédaction ne tire aucune conclusion. Elle laisse ce soin à ses lecteurs, qui sont intelligents et forcément d'accord avec elle.\n\n"
                 .. "Fendragon, chef de guilde, a de son côté croisé Gorbash à trois reprises. Le bilan de ces rencontres reste confidentiel, sur demande expresse de l'intéressé.",
-            refs = {}, votes = 7 },
-        { id = "demo-art-3", t = now - 120, kind = "Nécrologie", style = "Rédacteur de faits divers",
-            title = "Tobias, onze fois regretté",
-            body = "Tobias nous a quittés. Puis il est revenu. Puis il nous a quittés de nouveau. "
-                .. "Avec onze décès en vingt jours, Tobias pulvérise le record de la guilde et s'adjuge le titre convoité d'Habitué du cimetière. "
-                .. "Les esprits gardiens le reconnaissent désormais de loin et lui gardent sa place.\n\nNi fleurs ni couronnes : il en aura besoin la prochaine fois.",
-            refs = {}, votes = 9, key = "demo-tobias", portrait = "Tobias",
-            quote = "Les esprits gardiens le reconnaissent désormais de loin." },
+            refs = {} },
         { id = "demo-art-4", t = now - 120, kind = "Carnet mondain", style = "Chroniqueur mondain",
             title = "Le mouton de la discorde",
             body = "Mélisande a soigné un mouton pendant trois minutes, persuadée qu'il s'agissait du tank. "
                 .. "Le mouton se porte à merveille. Le tank, lui, n'a pas survécu.\n\n## Réaction de l'intéressée\n"
                 .. "« Il avait l'air si vulnérable », a confié Mélisande à notre envoyé spécial, qui n'a pas su quoi répondre.",
-            refs = {}, votes = 2, quote = "Il avait l'air si vulnérable." },
+            refs = {}, quote = "Il avait l'air si vulnérable." },
     }
-    for i, a in ipairs(articles) do a.order = i end
+    -- Two issues: an older one, then this week's (Tobias on the front page).
+    for i, a in ipairs(articles) do a.order, a.edition = i, i == 1 and "demo-1" or "demo-2" end
 
     -- This week's edition is published at once, as in real life (articles + layout).
     -- Layout of this week's edition, as the EDITION event carries it (see UI/Newsprint.lua).
@@ -173,7 +174,7 @@ local function build()
         { pg = 2, r = 2, w = 4, b = { { t = "notice", title = "Petite annonce",
             text = "Cherche tank capable de survivre à un mouton. Se présenter à l'auberge." } } },
     } }) }
-    layouts[1].t = now - 60
+    layouts[1].t, layouts[1].edition = now - 60, "demo-2"
 
     dataset = {
         isDemo = true,
