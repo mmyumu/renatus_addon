@@ -269,10 +269,25 @@ function Store.Delete(id)
 end
 
 -- Guild roster (members without the addon included, no statistics).
+-- The client only fills the guild roster once someone asks for it (guild window,
+-- or this request); GUILD_ROSTER_UPDATE follows. Throttled: at most every 10 s.
+local lastRosterRequest
+function Store.RequestRoster()
+    local now = time()
+    if lastRosterRequest and now - lastRosterRequest < 10 then return end
+    if not try(IsInGuild) then return end
+    lastRosterRequest = now
+    if C_GuildInfo and C_GuildInfo.GuildRoster then try(C_GuildInfo.GuildRoster)
+    elseif GuildRoster then try(GuildRoster) end
+end
+
 function Store.Roster()
     local roster = {}
     local n = try(GetNumGuildMembers)
-    if not n or n == 0 then return roster end
+    if not n or n == 0 then
+        Store.RequestRoster()
+        return roster
+    end
     for i = 1, n do
         local name, _, rankIndex, level, _, _, _, _, online, _, class = try(GetGuildRosterInfo, i)
         if name then

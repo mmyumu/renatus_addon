@@ -315,5 +315,10 @@ function A.Toggle()
     if f:IsShown() then f:Hide() else A.Open() end
 end
 
+-- The roster (officer ranks) may arrive after the window opened.
+R:RegisterGameEvent("GUILD_ROSTER_UPDATE", function()
+    if window and window:IsShown() then window:Refresh() end
+end)
+
 SLASH_RENATUSADMIN1 = "/radmin"
 SlashCmdList.RENATUSADMIN = function() A.Toggle() end

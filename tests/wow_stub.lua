@@ -200,7 +200,17 @@ function Stub.reset(opts)
     function IsInRaid() return false end
     function IsInGroup() return #S.group > 0 end
     function GetNumGroupMembers() return #S.group > 0 and (#S.group + 1) or 0 end
-    function GetNumGuildMembers() return #S.roster end
+    -- opts.rosterPending: like the real client, the roster stays empty until requested.
+    S.rosterLoaded = not opts.rosterPending
+    S.rosterRequests = 0
+    function GetNumGuildMembers() return S.rosterLoaded and #S.roster or 0 end
+    C_GuildInfo = { GuildRoster = function()
+        S.rosterRequests = S.rosterRequests + 1
+        if not S.rosterLoaded then
+            S.rosterLoaded = true
+            C_Timer.After(0.5, function() Stub.fire("GUILD_ROSTER_UPDATE") end)
+        end
+    end }
     function GetGuildRosterInfo(i)
         local r = S.roster[i]
         if r then return r.name .. "-Forever", "Membre", r.rank or 2, r.level or 20, "", "", "", "", true, 0, r.class or "WARRIOR" end

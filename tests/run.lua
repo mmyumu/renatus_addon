@@ -910,6 +910,15 @@ test("simple membre : ne peut pas diffuser, mais applique le reglage d'un offici
     eq(ns.GuildConfig.Rival(), "Les Crocs de Sang")
 end)
 
+test("liste de guilde demandee au jeu : le reglage d'un officier s'applique sans ouvrir la fenetre de guilde", function()
+    local ns, A, S = bootAdmin({ specIndex = 1, rank = 1, roster = OFFICERS, rosterPending = true })
+    assert(S.rosterRequests >= 1, "liste demandee a la connexion")
+    Stub.advance(1)
+    receivedConfig(ns, BOB, 1, 1000, "Les Crocs de Sang")
+    eq(ns.GuildConfig.Rival(), "Les Crocs de Sang")
+    assert(A.Press, "admin charge")
+end)
+
 test("reglage d'un non-officier ignore ; le plus recent gagne ; officier retrogade ignore", function()
     local S = Stub.reset({ specIndex = 1, roster = OFFICERS })
     local ns = Stub.loadAddon(ROOT, NAME)

@@ -133,4 +133,6 @@ function GuildConfig:OnLogin()
         if ev.k == "GUILD_CONFIG" then cache = nil end
     end)
     ns:RegisterGameEvent("GUILD_ROSTER_UPDATE", function() cache = nil end)
+    -- Officer checks need the roster: ask for it now rather than wait for the guild window.
+    ns.Store.RequestRoster()
 end
