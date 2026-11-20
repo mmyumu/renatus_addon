@@ -9,7 +9,14 @@ local function noop() end
 
 local Widget = {}
 -- Unknown (Capitalized) methods: no-op. Unknown (lowercase) fields: nil, as in game.
-local WidgetMeta = { __index = function(_, k)
+-- Methods that only some widget types have: calling them elsewhere errors, as in game.
+local ONLY_ON = {
+    HasFocus = { EditBox = true }, SetFocus = { EditBox = true }, ClearFocus = { EditBox = true },
+    SetMaxLetters = { EditBox = true }, SetAutoFocus = { EditBox = true }, SetMultiLine = { EditBox = true },
+    SetChecked = { CheckButton = true }, GetChecked = { CheckButton = true },
+}
+local WidgetMeta = { __index = function(self, k)
+    if ONLY_ON[k] and not ONLY_ON[k][rawget(self, "kind")] then return nil end
     if Widget[k] then return Widget[k] end
     if type(k) == "string" and k:match("^%u") then return noop end
     return nil

@@ -146,7 +146,7 @@ local function buildRival(f, page)
             table.insert(lines, "Effectif de l'armurerie : pas encore publié.")
         end
         self.info:SetText(table.concat(lines, "\n"))
-        if not self.rival:HasFocus() then self.rival:SetText(rival or "") end
+        if not self.rival.edit:HasFocus() then self.rival:SetText(rival or "") end
         self.publish:SetDisabled(not A.IsOfficer())
         self.list:Update()
     end
