@@ -93,6 +93,20 @@
         <pre id="preview-summary"></pre>
         <pre id="preview-prompt" class="prompt" hidden></pre>
       </div>
+      <div class="card" id="draft" hidden>
+        <div class="label" id="draft-title">Brouillon</div>
+        <p class="hint">Relis avant de proposer : rien n'est dans Press.lua tant que tu n'as pas cliqué sur « Proposer en jeu ».</p>
+        <pre id="draft-notes" class="log"></pre>
+        <div id="draft-articles"></div>
+        <details>
+          <summary>Réponse brute de l'IA</summary>
+          <pre id="draft-answer" class="prompt"></pre>
+        </details>
+        <div class="buttons">
+          <button id="propose-gazette">Proposer en jeu</button>
+          <button id="discard-gazette">Jeter</button>
+        </div>
+      </div>
       <div class="card">
         <div class="label">Articles écrits à la main</div>
         <div class="path" id="articles-dir">—</div>

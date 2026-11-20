@@ -22,7 +22,7 @@ function render(s) {
   const st = s.status;
   const busy = !!s.busy;
   $("busy").textContent = busy ? `${s.busy}…` : "";
-  for (const id of ["deaths", "refresh-rival", "write-gazette", "articles", "install-admin", "app-update"]) $(id).disabled = busy;
+  for (const id of ["deaths", "refresh-rival", "write-gazette", "articles", "install-admin", "app-update", "propose-gazette", "discard-gazette"]) $(id).disabled = busy;
 
   // Home
   $("app-version").textContent = s.appVersion;
@@ -72,6 +72,7 @@ function render(s) {
   }
 
   // Gazette
+  renderDraft(s.draft, busy);
   $("articles-dir").textContent = s.config.articlesDir ?? "non choisi";
   $("open-articles").disabled = !s.config.articlesDir;
 
@@ -91,6 +92,48 @@ function render(s) {
     $("auto-gazette").checked = s.config.autoGazette;
     $("test-channel").checked = s.config.testChannel;
   }
+}
+
+const TEMPLATES = {
+  classique: "Classique", grande_une: "Grande une", trois_colonnes: "Trois colonnes", portrait: "Portrait",
+};
+
+// AI gazette draft: what came back, what the checks rejected, the articles as written.
+function renderDraft(d, busy) {
+  $("draft").hidden = !d;
+  if (!d) return;
+  const articles = d.items.filter((i) => i.kind === "ARTICLE");
+  const layout = d.items.find((i) => i.kind === "EDITION");
+  const template = layout ? TEMPLATES[layout.p.template] ?? layout.p.template : "aucune";
+  $("draft-title").textContent =
+    `Brouillon · rédigé le ${when(d.at)} · ${articles.length} article(s) · maquette : ${template}`;
+  $("draft-notes").textContent = d.notes.join("\n");
+  const list = $("draft-articles");
+  list.textContent = "";
+  for (const a of articles) {
+    const p = a.p;
+    const div = document.createElement("div");
+    div.className = "article";
+    const meta = document.createElement("div");
+    meta.className = "meta";
+    meta.textContent = [`#${p.order}`, p.format, p.style, p.portrait && `portrait : ${p.portrait}`]
+      .filter(Boolean).join(" · ");
+    const h = document.createElement("h3");
+    h.textContent = p.title;
+    div.append(meta, h);
+    if (p.quote) {
+      const q = document.createElement("blockquote");
+      q.textContent = `« ${p.quote} »`;
+      div.appendChild(q);
+    }
+    const body = document.createElement("div");
+    body.className = "body";
+    body.textContent = p.body;
+    div.appendChild(body);
+    list.appendChild(div);
+  }
+  $("draft-answer").textContent = d.answer ?? "(aucune réponse)";
+  $("propose-gazette").disabled = busy || d.items.length === 0;
 }
 
 function report(e) {
@@ -122,6 +165,8 @@ $("install-admin").addEventListener("click", () => call("install_admin_addon"));
 $("app-update").addEventListener("click", () => call("update_app"));
 $("refresh-rival").addEventListener("click", () => call("refresh_rival", { rival: $("rival").value }));
 $("write-gazette").addEventListener("click", () => call("write_gazette"));
+$("propose-gazette").addEventListener("click", () => call("propose_gazette"));
+$("discard-gazette").addEventListener("click", () => call("discard_gazette"));
 $("articles").addEventListener("click", () => call("propose_articles"));
 $("pick-articles").addEventListener("click", () => call("pick_articles_dir"));
 $("open-articles").addEventListener("click", () => call("open_folder", { which: "articles" }));

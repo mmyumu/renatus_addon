@@ -23,12 +23,18 @@ pub fn now() -> i64 {
 pub struct Proposal {
     pub items: Vec<Value>,
     pub notes: Vec<String>,
+    /// The AI's raw answer (gazette only), so the editor can read what came back.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub answer: Option<String>,
 }
 
 impl Proposal {
     pub fn extend(&mut self, other: Proposal) {
         self.items.extend(other.items);
         self.notes.extend(other.notes);
+        if other.answer.is_some() {
+            self.answer = other.answer;
+        }
     }
 }
 
@@ -149,6 +155,7 @@ pub fn articles(dir: &Path, ch: &Chronicle) -> Proposal {
     Proposal {
         items: found.iter().map(articles::Article::to_item).collect(),
         notes,
+        answer: None,
     }
 }
 
@@ -202,6 +209,7 @@ pub fn gazette(
     let mut out = Proposal {
         items: Vec::new(),
         notes: brief_summary(&b, ch.members().len()),
+        answer: None,
     };
     out.notes.insert(0, format!("Gazette IA {edition}"));
     if b.facts.is_empty() {
@@ -211,6 +219,7 @@ pub fn gazette(
         Err(e) => out.notes.push(format!("IA indisponible : {e}")),
         Ok(answer) => {
             let (items, notes) = gazette::check(&b, &answer, &edition);
+            out.answer = Some(answer.clone());
             out.notes.extend(notes);
             out.notes
                 .push(format!("{} article(s) proposé(s).", items.len()));

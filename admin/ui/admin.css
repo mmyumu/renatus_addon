@@ -37,6 +37,15 @@ textarea { width: 100%; font-family: Consolas, monospace; font-size: 12px; resiz
 .field input[type="number"] { width: 100px; }
 
 pre.log { max-height: 260px; font-size: 12px; }
+
+/* Gazette draft */
+.article { border-top: 1px solid var(--border); padding: 10px 0; }
+.article .meta { color: var(--muted); font-size: 12px; }
+.article h3 { margin: 4px 0 6px; color: var(--gold); font: 600 18px Georgia, serif; }
+.article .body { white-space: pre-wrap; user-select: text; line-height: 1.45; }
+.article blockquote { margin: 8px 0; padding-left: 10px; border-left: 3px solid var(--gold); font-style: italic; }
+details { margin-top: 8px; }
+summary { cursor: pointer; color: var(--muted); }
 pre.prompt { max-height: 320px; font-family: Consolas, monospace; font-size: 12px; border-top: 1px solid var(--border); padding-top: 6px; }
 
 table { width: 100%; border-collapse: collapse; font-size: 13px; }

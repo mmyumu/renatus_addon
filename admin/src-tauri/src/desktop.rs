@@ -41,6 +41,15 @@ struct State {
     admin_available: Option<String>,
     /// Newer version of this app, found by the updater (installed on demand).
     app_update: Option<String>,
+    draft: Option<Draft>,
+}
+
+/// AI gazette written from the window, kept here until the editor proposes or discards it.
+#[derive(Serialize, Clone)]
+struct Draft {
+    at: i64,
+    #[serde(flatten)]
+    proposal: Proposal,
 }
 
 #[derive(Serialize, Clone)]
@@ -81,6 +90,7 @@ struct View {
     log: Vec<LogLine>,
     busy: Option<String>,
     admin_available: Option<String>,
+    draft: Option<Draft>,
     app_version: String,
     app_update: Option<String>,
 }
@@ -127,6 +137,7 @@ fn view(app: &AppHandle) -> View {
         log: s.log.clone(),
         busy: s.busy.clone(),
         admin_available: s.admin_available.clone(),
+        draft: s.draft.clone(),
         app_version: app.package_info().version.to_string(),
         app_update: s.app_update.clone(),
     }
@@ -172,10 +183,11 @@ fn refresh_status(app: &AppHandle) {
 // Jobs: one at a time, off the UI thread
 // ---------------------------------------------------------------------------
 
-/// Runs `work` in the background; its proposal goes to Press.lua.
-async fn job<F>(app: AppHandle, label: &str, work: F) -> Result<View, String>
+/// Runs `work` in the background, flagged as busy (one job at a time).
+async fn busy<T, F>(app: &AppHandle, label: &str, work: F) -> Result<T, String>
 where
-    F: FnOnce(&Config, &WowPaths, &Chronicle) -> Result<Proposal, String> + Send + 'static,
+    T: Send + 'static,
+    F: FnOnce(&Config, &WowPaths, &Chronicle) -> Result<T, String> + Send + 'static,
 {
     {
         let shared = app.state::<Shared>();
@@ -185,20 +197,31 @@ where
         }
         s.busy = Some(label.to_string());
     }
-    publish_view(&app);
-    let cfg = config(&app);
-    let result =
-        tauri::async_runtime::spawn_blocking(move || -> Result<(Proposal, usize), String> {
-            let paths = game_paths(&cfg)?;
-            let (_, ch) = ops::load(&paths)?;
-            let proposal = work(&cfg, &paths, &ch)?;
-            let pending = ops::publish(&paths, &ch, proposal.items.clone())?;
-            Ok((proposal, pending))
-        })
-        .await
-        .map_err(|e| e.to_string())
-        .and_then(|r| r);
+    publish_view(app);
+    let cfg = config(app);
+    let result = tauri::async_runtime::spawn_blocking(move || -> Result<T, String> {
+        let paths = game_paths(&cfg)?;
+        let (_, ch) = ops::load(&paths)?;
+        work(&cfg, &paths, &ch)
+    })
+    .await
+    .map_err(|e| e.to_string())
+    .and_then(|r| r);
     app.state::<Shared>().state.lock().unwrap().busy = None;
+    result
+}
+
+/// Runs `work` in the background; its proposal goes to Press.lua.
+async fn job<F>(app: AppHandle, label: &str, work: F) -> Result<View, String>
+where
+    F: FnOnce(&Config, &WowPaths, &Chronicle) -> Result<Proposal, String> + Send + 'static,
+{
+    let result = busy(&app, label, move |cfg, paths, ch| {
+        let proposal = work(cfg, paths, ch)?;
+        let pending = ops::publish(paths, ch, proposal.items.clone())?;
+        Ok((proposal, pending))
+    })
+    .await;
     match &result {
         Ok((p, pending)) => {
             let mut lines = vec![format!("— {label}")];
@@ -273,9 +296,11 @@ async fn refresh_rival(app: AppHandle, rival: String) -> Result<View, String> {
     job(app, "Armurerie", work).await
 }
 
+/// Writes the AI gazette as a draft shown in the Gazette tab: nothing goes to Press.lua
+/// before "Proposer en jeu" (propose_gazette).
 #[tauri::command]
 async fn write_gazette(app: AppHandle) -> Result<View, String> {
-    job(app, "Gazette IA", |cfg, _, ch| {
+    let result = busy(&app, "Gazette IA", |cfg, _, ch| {
         Ok(ops::gazette(
             ch,
             7,
@@ -284,7 +309,57 @@ async fn write_gazette(app: AppHandle) -> Result<View, String> {
             &cfg.gazette_template,
         ))
     })
-    .await
+    .await;
+    match result {
+        Ok(proposal) => {
+            let mut lines = vec!["— Gazette IA (brouillon)".to_string()];
+            lines.extend(proposal.notes.iter().cloned());
+            lines.push("Brouillon à relire dans l'onglet Gazette, rien n'est encore dans Press.lua.".into());
+            log(&app, lines);
+            app.state::<Shared>().state.lock().unwrap().draft = Some(Draft {
+                at: ops::now(),
+                proposal,
+            });
+        }
+        Err(e) => {
+            log(&app, [format!("— Gazette IA : {e}")]);
+            publish_view(&app);
+            return Err(e);
+        }
+    }
+    publish_view(&app);
+    Ok(view(&app))
+}
+
+/// Sends the draft to Press.lua, for publishing in game.
+#[tauri::command]
+async fn propose_gazette(app: AppHandle) -> Result<View, String> {
+    let items = {
+        let shared = app.state::<Shared>();
+        let s = shared.state.lock().unwrap();
+        match &s.draft {
+            Some(d) if !d.proposal.items.is_empty() => d.proposal.items.clone(),
+            _ => return Err("Aucun article à proposer.".into()),
+        }
+    };
+    let view = job(app.clone(), "Gazette IA", move |_, _, _| {
+        Ok(Proposal {
+            items,
+            notes: Vec::new(),
+            answer: None,
+        })
+    })
+    .await?;
+    app.state::<Shared>().state.lock().unwrap().draft = None;
+    publish_view(&app);
+    Ok(View { draft: None, ..view })
+}
+
+#[tauri::command]
+fn discard_gazette(app: AppHandle) -> View {
+    app.state::<Shared>().state.lock().unwrap().draft = None;
+    log(&app, ["— Gazette IA : brouillon jeté.".to_string()]);
+    view(&app)
 }
 
 #[derive(Serialize)]
@@ -696,6 +771,8 @@ pub fn run() {
             propose_articles,
             refresh_rival,
             write_gazette,
+            propose_gazette,
+            discard_gazette,
             preview_gazette,
             save_settings,
             pick_wow_folder,
