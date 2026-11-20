@@ -20,11 +20,10 @@ local recent = {}   -- [name] = time last seen (even if not recorded)
 
 local function now() return (GetServerTime and GetServerTime()) or time() end
 
+-- Rival guild: the guild setting published by an officer (Core/GuildConfig.lua).
 local function rival()
-    local r = ns.char and ns.char.rivalGuild
-    if type(r) ~= "string" then return nil end
-    r = r:gsub("^%s+", ""):gsub("%s+$", "")
-    return r ~= "" and string.lower(r) or nil
+    local r = ns.GuildConfig.Rival()
+    return r and string.lower(r) or nil
 end
 
 function Enemies.Observe(unit)

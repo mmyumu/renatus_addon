@@ -19,9 +19,10 @@ Types.CATEGORIES = {
 -- Provenance: never conflated (see docs/ARCHITECTURE.md §4.2).
 Types.PROVENANCE = {
     OBS = { label = "Observé", color = { 0.55, 0.85, 0.55 }, help = "Détecté automatiquement par l'addon." },
-    LOG = { label = "Journal de combat", color = { 0.45, 0.7, 1 }, help = "Issu d'un fichier de journal de combat (application compagnon)." },
+    LOG = { label = "Journal de combat", color = { 0.45, 0.7, 1 }, help = "Issu d'un fichier de journal de combat (application Renatus Admin)." },
     MAN = { label = "Déclaré", color = { 1, 0.75, 0.3 }, help = "Déclaré manuellement par un membre, non vérifié automatiquement." },
     DED = { label = "Supposé", color = { 0.75, 0.75, 0.75 }, help = "Déduit par une règle : ce n'est pas un fait confirmé." },
+    EXT = { label = "Armurerie", color = { 0.6, 0.8, 0.8 }, help = "Relevé sur l'armurerie publique du jeu par un officier (application d'administration)." },
     GEN = { label = "Rédaction", color = { 0.85, 0.6, 0.85 }, help = "Texte écrit par la rédaction de la gazette ; seuls les faits cités en sources font foi." },
 }
 
@@ -131,6 +132,12 @@ local TYPES = {
         text = function(ev)
             return ev.p.ok and "accepte que la gazette IA parle de lui/elle" or "refuse que la gazette IA parle de lui/elle"
         end },
+    -- Guild settings published by an officer (Core/GuildConfig.lua); never displayed.
+    GUILD_CONFIG = { cat = "social", icon = "Interface\\Icons\\INV_Misc_Note_06", importance = 0, hidden = true,
+        text = function(ev) return "modifie les réglages de la guilde" end },
+    -- Rival guild roster from the armory (Core/GuildConfig.lua); never displayed.
+    RIVAL_ROSTER = { cat = "pvp", icon = "Interface\\Icons\\INV_Misc_Book_09", importance = 0, hidden = true,
+        text = function(ev) return "relève l'effectif de " .. tostring(ev.p.guild) .. " sur l'armurerie" end },
     -- Opening of a booster: p.n (number), p.cards (card ids), p.cv (catalogue version).
     BOOSTER_OPEN = { cat = "album", icon = "Interface\\Icons\\INV_Misc_Ticket_Tarot_Stack_01", importance = 0, hidden = true,
         text = function(ev) return "ouvre un booster" end },

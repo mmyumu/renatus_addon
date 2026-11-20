@@ -24,62 +24,6 @@ local MONTHS = { "janvier", "février", "mars", "avril", "mai", "juin", "juillet
     "septembre", "octobre", "novembre", "décembre" }
 local DAY = 86400
 
--- Editorial window: companion items to publish or ignore (one by one).
-local review
-local function openReview(onDone)
-    if review then review:Hide() end
-    local f = CreateFrame("Frame", nil, UI.GetWindow())
-    review = f
-    f:SetFrameStrata("DIALOG")
-    f:SetToplevel(true)
-    f:EnableMouse(true)
-    f:SetPoint("CENTER")
-    f:SetSize(560, 400)
-    UI.Skin(f, "window")
-    local t = UI.Title(f, 18)
-    t:SetPoint("TOPLEFT", 16, -14)
-    t:SetText("Rédaction : éléments du compagnon")
-    local hint = UI.Text(f, 10, UI.C.dim)
-    hint:SetPoint("TOPLEFT", 16, -38)
-    hint:SetWidth(528)
-    hint:SetText("Rien n'est publié sans toi. Publier = partager avec la guilde, signé de ton nom. "
-        .. "Les causes de mort et affrontements viennent de ton journal de combat (provenance « Journal de combat »).")
-    local list = UI.List(f, 528, 290, 40, function(row)
-        row.label = UI.Text(row, 12)
-        row.label:SetPoint("TOPLEFT", 6, -4)
-        row.label:SetPoint("RIGHT", -190, 0)
-        row.label:SetWordWrap(false)
-        row.sub = UI.Text(row, 10, UI.C.dim)
-        row.sub:SetPoint("TOPLEFT", row.label, "BOTTOMLEFT", 0, -3)
-        row.sub:SetPoint("RIGHT", -190, 0)
-        row.sub:SetWordWrap(false)
-        row.pub = UI.Button(row, "Publier", 80, 22, function()
-            ns.Press.Publish(row.item); f:Update(); if onDone then onDone() end
-        end)
-        row.pub:SetPoint("RIGHT", -96, 0)
-        row.ign = UI.Button(row, "Ignorer", 80, 22, function()
-            ns.Press.Ignore(row.item); f:Update(); if onDone then onDone() end
-        end)
-        row.ign:SetPoint("RIGHT", -8, 0)
-    end, function(row, item)
-        row.label:SetText(ns.Press.Label(item))
-        local bits = { ns.Press.KINDS[item.kind].label }
-        if item.t then table.insert(bits, UI.Date(item.t, true)) end
-        if item.refs then table.insert(bits, #item.refs .. " source(s)") end
-        if item.note then table.insert(bits, item.note) end
-        row.sub:SetText(table.concat(bits, "  ·  "))
-    end)
-    list:SetPoint("TOPLEFT", 16, -64)
-    local close = UI.Button(f, "Fermer", 100, 24, function() f:Hide() end)
-    close:SetPoint("BOTTOMRIGHT", -16, 12)
-    function f:Update()
-        list:SetItems(ns.Press.Pending(), "Rien en attente. Lance le compagnon, puis /reload.")
-    end
-    f:Update()
-    f:Show()
-    return f
-end
-
 ------------------------------------------------------------------------
 -- Text flow helpers (measured with an invisible FontString)
 ------------------------------------------------------------------------
@@ -355,7 +299,7 @@ local function refreshFront(c, ds, edition)
         kicker = "AVIS À LA POPULATION"
         title = "Les rotatives sont à l'arrêt"
         by = "La rédaction"
-        text = "La gazette est rédigée hors du jeu par l'application compagnon du rédacteur, à partir du journal de la guilde. "
+        text = "La gazette est rédigée hors du jeu par l'application Renatus Admin du rédacteur, à partir du journal de la guilde. "
             .. "Le rédacteur la publie ensuite en jeu avec le bouton « Rédaction », et les autres membres la reçoivent par la synchronisation.\n\n"
             .. "En attendant la première édition, tape /renatus demo pour feuilleter un numéro de démonstration."
     end
@@ -560,10 +504,6 @@ local function build(c)
     end)
     c.back:SetPoint("TOPLEFT", 0, barY)
 
-    c.press = UI.Button(c, "Rédaction", 110, 22, function() openReview(function() c:Refresh() end) end)
-    c.press:SetPoint("TOPRIGHT", 0, barY)
-    UI.Tooltip(c.press, "Rédaction", { "Articles et causes de mort produits par l'application compagnon,",
-        "à relire avant publication. Nécessite le compagnon et l'addon Renatus_Press." })
     page.letter = UI.Button(c, "Courrier des lecteurs", 160, 22, function() UI.Dialogs.Letter() end)
     page.vote = UI.Button(c, "Voter pour la une", 140, 22, function()
         local a = c.current
@@ -594,12 +534,8 @@ local function build(c)
 
     function c:Refresh()
         local ds = ns.Store.Dataset()
-        local press = not ds.isDemo and ns.Press.Available()
-        local pending = press and #ns.Press.Pending() or 0
-        self.press:SetLabel(pending > 0 and ("Rédaction (" .. pending .. ")") or "Rédaction")
-        self.press:SetShown(press)
         -- right-aligned buttons, from the right
-        local right = press and self.press or nil
+        local right
         for _, b in ipairs({ page.letter, page.vote, page.sources }) do
             b:ClearAllPoints()
             if right then b:SetPoint("RIGHT", right, "LEFT", -6, 0) else b:SetPoint("TOPRIGHT", 0, -(PAGE_H + 8)) end

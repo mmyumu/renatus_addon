@@ -43,8 +43,9 @@ local CHAR_DEFAULTS = {
     privacy = {
         progression = "P", combat = "P", exploration = "P", social = "P", pvp = "P", anecdote = "P", gazette = "P", album = "P",
     },
-    exportConsent = false,   -- off-game export (companion / LLM), separate consent
-    rivalGuild = "",         -- rival guild name (Wanted Board)
+    exportConsent = true,    -- AI gazette may talk about me (on by default, can be unticked)
+    consentChosen = false,   -- the member ticked or unticked it themselves
+    rivalGuild = "",         -- legacy per-character rival guild (before GUILD_CONFIG); read-only fallback
     albumOptOut = false,     -- do not appear in other people's album
     visitedMaps = {},        -- zones already visited (for "first visit")
     enemySeenAt = {},        -- [name] = last recorded observation (rate limit)

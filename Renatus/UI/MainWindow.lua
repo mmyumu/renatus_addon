@@ -168,7 +168,7 @@ local function build()
     -- Settings: in Esc > Options > AddOns > Renatus.
     f.options = UI.Button(nav, "Options", 84, 22, function() UI.Options.Open() end)
     f.options:SetPoint("BOTTOMRIGHT", -10, 10)
-    UI.Tooltip(f.options, "Options", { "Réglages de Renatus : confidentialité, voix, guilde rivale, synchronisation.",
+    UI.Tooltip(f.options, "Options", { "Réglages de Renatus : confidentialité, minicarte, voix.",
         "Aussi dans Échap > Options > AddOns > Renatus." })
 
     local version = UI.Text(nav, 10, UI.C.dim)

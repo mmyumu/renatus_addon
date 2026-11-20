@@ -1,7 +1,10 @@
 //! Reading the installed version and installing a release archive into
-//! `Interface/AddOns`, with the same rules as `tools/deploy.sh`:
-//! `Renatus` is replaced as a whole, `Renatus_Press/Press.lua` is never
-//! overwritten (the companion writes it).
+//! `Interface/AddOns`: `Renatus` is replaced as a whole.
+//!
+//! Members only get `Renatus`. The officers' addon (`Renatus_Admin`) is a
+//! separate release asset that this launcher never installs. Archives up to
+//! 0.11 also carried `Renatus_Press`: it is accepted but not installed, and an
+//! installed copy is removed (only `Renatus_Admin` reads the companion's data now).
 
 use std::fs;
 use std::io::{self, Cursor};
@@ -10,8 +13,8 @@ use std::path::{Component, Path};
 use zip::ZipArchive;
 
 pub const ADDON: &str = "Renatus";
-pub const PRESS: &str = "Renatus_Press";
-const PRESS_DATA: &str = "Press.lua";
+/// Obsolete data addon (before 0.12), removed on install.
+pub const LEGACY_PRESS: &str = "Renatus_Press";
 const STAGING: &str = ".renatus-staging";
 const PREVIOUS: &str = ".renatus-previous";
 
@@ -29,7 +32,7 @@ pub fn installed_version(addons: &Path) -> Option<String> {
     toc_version(&toc)
 }
 
-/// Installs a release archive (`Renatus/…` and `Renatus_Press/…` at its root)
+/// Installs a release archive (`Renatus/…` at its root, `Renatus_Press/…` ignored)
 /// into `addons` and returns the installed version.
 ///
 /// The archive is fully extracted next to the addons first, so a broken
@@ -59,7 +62,8 @@ fn extract(archive: &[u8], staging: &Path) -> Result<(), String> {
             .enclosed_name()
             .ok_or_else(|| format!("Chemin refusé dans l'archive : {}", entry.name()))?;
         match rel.components().next() {
-            Some(Component::Normal(top)) if top == ADDON || top == PRESS => {}
+            Some(Component::Normal(top)) if top == ADDON => {}
+            Some(Component::Normal(top)) if top == LEGACY_PRESS => continue,
             _ => {
                 return Err(format!(
                     "Fichier inattendu dans l'archive : {}",
@@ -99,26 +103,9 @@ fn swap_in(addons: &Path, staging: &Path, previous: &Path) -> Result<String, Str
     }
     let _ = remove_dir(previous);
 
-    let new_press = staging.join(PRESS);
-    if new_press.is_dir() {
-        install_press(&new_press, &addons.join(PRESS))?;
-    }
+    // Best effort: a leftover data-only addon does no harm.
+    let _ = remove_dir(&addons.join(LEGACY_PRESS));
     Ok(version)
-}
-
-/// Copies the press files, keeping an existing Press.lua.
-fn install_press(from: &Path, to: &Path) -> Result<(), String> {
-    fs::create_dir_all(to).map_err(|e| io_error("installation de Renatus_Press", &e))?;
-    let entries = fs::read_dir(from).map_err(|e| io_error("installation de Renatus_Press", &e))?;
-    for entry in entries {
-        let entry = entry.map_err(|e| io_error("installation de Renatus_Press", &e))?;
-        let dest = to.join(entry.file_name());
-        if !entry.path().is_file() || (entry.file_name() == PRESS_DATA && dest.exists()) {
-            continue;
-        }
-        fs::copy(entry.path(), &dest).map_err(|e| io_error("installation de Renatus_Press", &e))?;
-    }
-    Ok(())
 }
 
 fn remove_dir(path: &Path) -> Result<(), String> {

@@ -17,8 +17,14 @@ local dialog
 
 local function trim(s) return (s or ""):match("^%s*(.-)%s*$") end
 
+-- Inner margin: the "window" skin border (iron frame + garnet corners) is ~24 px thick.
+local PAD = 28
+local FIELD_W = 380
+
 -- fields : { key, label, kind = "text"|"multi"|"choice"|"check", options, value, required, max }
-local function open(title, fields, onSave)
+-- opts   : { hint = footer text, save = save button label }
+local function open(title, fields, onSave, opts)
+    opts = opts or {}
     if dialog then dialog:Hide() end
     local f = CreateFrame("Frame", nil, UI.GetWindow())
     dialog = f
@@ -28,50 +34,52 @@ local function open(title, fields, onSave)
     f:SetPoint("CENTER")
     UI.Skin(f, "window")
     local t = UI.Title(f, 18)
-    t:SetPoint("TOPLEFT", 16, -14)
+    t:SetPoint("TOPLEFT", PAD, -PAD + 2)
     t:SetText(title)
-    local y = -46
+    local y = -PAD - 32
     local inputs = {}
     for _, field in ipairs(fields) do
         local label = UI.Text(f, 12)
-        label:SetPoint("TOPLEFT", 16, y)
+        label:SetPoint("TOPLEFT", PAD, y)
         label:SetText(field.label .. (field.required and " |cffcc3322*|r" or ""))
         local input
         if field.kind == "multi" then
-            input = UI.EditBox(f, 380, 70, true, field.max or 400)
-            input:SetPoint("TOPLEFT", 16, y - 18)
+            input = UI.EditBox(f, FIELD_W, 90, true, field.max or 400)
+            input:SetPoint("TOPLEFT", PAD, y - 18)
             input:SetText(field.value)
-            y = y - 98
+            y = y - 120
         elseif field.kind == "choice" then
             input = UI.Dropdown(f, 200, field.options)
-            input:SetPoint("TOPLEFT", 16, y - 18)
+            input:SetPoint("TOPLEFT", PAD, y - 18)
             input:SetValue(field.value or field.options[1].value)
-            y = y - 48
+            y = y - 50
         elseif field.kind == "check" then
             label:SetText("")
             input = UI.Checkbox(f, field.label)
-            input:SetPoint("TOPLEFT", 12, y)
+            input:SetPoint("TOPLEFT", PAD - 4, y)
             input:SetChecked(field.value and true or false)
             y = y - 30
         else
-            input = UI.EditBox(f, 380, 24, false, field.max or 80)
-            input:SetPoint("TOPLEFT", 16, y - 18)
+            input = UI.EditBox(f, FIELD_W, 24, false, field.max or 80)
+            input:SetPoint("TOPLEFT", PAD, y - 18)
             input:SetText(field.value)
-            y = y - 50
+            y = y - 54
         end
         inputs[field.key] = { field = field, input = input }
     end
     f.error = UI.Text(f, 11, UI.C.red)
-    f.error:SetPoint("TOPLEFT", 16, y - 2)
+    f.error:SetPoint("TOPLEFT", PAD, y)
+    f.error:SetWidth(FIELD_W)
     local hint = UI.Text(f, 10, UI.C.dim)
-    hint:SetPoint("TOPLEFT", 16, y - 18)
-    hint:SetWidth(380)
-    hint:SetText("Saisie manuelle : affichée comme « déclarée », jamais comme vérifiée.")
-    f:SetSize(412, -y + 76)
+    hint:SetPoint("TOPLEFT", PAD, y - 16)
+    hint:SetWidth(FIELD_W)
+    hint:SetText(opts.hint or "Saisie manuelle : affichée comme « déclarée », jamais comme vérifiée.")
+    local hintH = math.max(12, hint:GetStringHeight() or 12)
+    f:SetSize(FIELD_W + 2 * PAD, -y + 16 + hintH + 12 + 24 + PAD)
 
     local cancel = UI.Button(f, "Annuler", 100, 24, function() f:Hide() end)
-    cancel:SetPoint("BOTTOMRIGHT", -16, 14)
-    local save = UI.Button(f, "Enregistrer", 120, 24, function()
+    cancel:SetPoint("BOTTOMRIGHT", -PAD, PAD - 4)
+    local save = UI.Button(f, opts.save or "Enregistrer", 120, 24, function()
         local values = {}
         for key, entry in pairs(inputs) do
             local field, input = entry.field, entry.input
@@ -111,7 +119,7 @@ end
 local function rivalDefault()
     local ds = ns.Store.Dataset()
     if ds.isDemo then return "Les Crocs de Sang" end
-    return ns.char.rivalGuild or ""
+    return ns.GuildConfig.Rival() or ""
 end
 
 function UI.Dialogs.Anecdote()
@@ -173,7 +181,10 @@ function UI.Dialogs.Letter()
         { key = "desc", label = "Votre lettre à la rédaction", kind = "multi", required = true, max = 400 },
     }, function(v)
         ns.Store.AddManual("LETTER", { title = v.title, desc = v.desc })
-    end)
+    end, {
+        save = "Envoyer",
+        hint = "La rédaction lit tout, et publie ce qui l'arrange. Signé de ton nom.",
+    })
 end
 
 -- Yes / no question. onYes runs only on confirmation.

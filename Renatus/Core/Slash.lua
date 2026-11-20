@@ -82,7 +82,6 @@ SlashCmdList.RENATUS = function(msg)
     elseif cmd == "help" then
         ns.Print("/renatus : ouvrir la fenêtre")
         ns.Print("/renatus options : réglages (aussi dans Échap > Options > AddOns > Renatus)")
-        ns.Print("/renatus demo : afficher des données fictives (rien n'est sauvegardé)")
         ns.Print("/renatus voice ... : réglages de Renacoach (aussi /renacoach)")
     elseif cmd == "" then
         ns.UI.Toggle()

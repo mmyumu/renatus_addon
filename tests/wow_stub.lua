@@ -94,6 +94,7 @@ function Stub.reset(opts)
         sent = {}, units = opts.units or {}, group = opts.group or {}, roster = opts.roster or {},
         instance = opts.instance, -- { type = "party", name = "Mortemines", iid = 36 }
         me = opts.me or { guid = "Player-1-ABC", name = "Testeur" },
+        rank = opts.rank or 3,
     }
     Stub.state = S
 
@@ -175,7 +176,7 @@ function Stub.reset(opts)
             local u = S.units[unit]
             return u and u.guild
         end
-        if S.guild then return S.guild, "Membre", 3 end
+        if S.guild then return S.guild, "Membre", S.rank end
     end
     function GetNormalizedRealmName() return "Forever" end
     function GetRealZoneText() return S.zone end
@@ -386,7 +387,7 @@ function Stub.deliver(messages, sender)
 end
 
 -- Loads the addon in TOC order, then ADDON_LOADED and PLAYER_LOGIN.
-function Stub.loadAddon(root, name)
+local function runToc(root, name)
     local ns = {}
     local toc = assert(io.open(root .. "/" .. name .. ".toc"))
     for line in toc:lines() do
@@ -398,9 +399,22 @@ function Stub.loadAddon(root, name)
         end
     end
     toc:close()
-    Stub.fire("ADDON_LOADED", name)
-    Stub.fire("PLAYER_LOGIN")
     return ns
+end
+
+-- Loads an addon, then optional dependent addons ({ { root, name }, ... }), like the
+-- client: each addon's files, its ADDON_LOADED, then a single PLAYER_LOGIN.
+-- Returns the first addon's namespace, then the others'.
+function Stub.loadAddon(root, name, extras)
+    local ns = runToc(root, name)
+    Stub.fire("ADDON_LOADED", name)
+    local others = {}
+    for _, e in ipairs(extras or {}) do
+        table.insert(others, runToc(e[1], e[2]))
+        Stub.fire("ADDON_LOADED", e[2])
+    end
+    Stub.fire("PLAYER_LOGIN")
+    return ns, table.unpack(others)
 end
 
 return Stub

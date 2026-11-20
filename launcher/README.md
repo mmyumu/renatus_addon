@@ -17,13 +17,13 @@ Fermer la fenêtre laisse le launcher actif ; clic droit sur l'icône → **Quit
 Il se met lui-même à jour quand une nouvelle version du launcher sort.
 
 **Désinstaller** : Paramètres Windows → Applications → *Renatus Launcher* → Désinstaller.
-L'addon reste dans le jeu (supprimer `Interface\AddOns\Renatus` et `Renatus_Press` pour l'enlever aussi).
+L'addon reste dans le jeu (supprimer `Interface\AddOns\Renatus` pour l'enlever aussi).
 
 ## Pour publier
 
-- **Addon** : changer la version dans `Renatus/Renatus.toc` (`## Version:`) et `Renatus/Core/Init.lua`
-  (`ns.version`), commit, push sur `main`. Le workflow `addon-release.yml` lance les tests Lua,
-  publie `v<version>` avec `Renatus-<version>.zip` ; le message du commit devient les
+- **Addon** : changer la version dans `Renatus/Renatus.toc` (`## Version:`), `Renatus/Core/Init.lua`
+  (`ns.version`) et `Renatus_Admin/Renatus_Admin.toc`, commit, push sur `main`. Le workflow `addon-release.yml` lance les tests Lua,
+  publie `v<version>` avec `Renatus-<version>.zip` (membres) et `Renatus_Admin-<version>.zip` (officiers) ; le message du commit devient les
   « Nouveautés » affichées par le launcher. Une version avec un tiret (`0.12.0-test.1`) est une
   version de test : seuls les launchers qui ont coché « Recevoir les versions de test » l'installent.
   Supprimer une release sur GitHub fait revenir tout le monde à la précédente.
@@ -42,5 +42,6 @@ L'addon reste dans le jeu (supprimer `Interface\AddOns\Renatus` et `Renatus_Pres
 - L'icône vient de `uv run tools/make_launcher_icon.py`.
 
 Sécurité : le launcher ne télécharge que depuis ce dépôt, en HTTPS, n'exécute rien de ce qu'il
-télécharge et n'écrit que dans `Interface\AddOns\Renatus` et `Renatus_Press` (jamais `Press.lua`).
+télécharge et n'écrit que dans `Interface\AddOns\Renatus` (il retire l'ancien `Renatus_Press`). Il n'installe
+jamais `Renatus_Admin`, l'addon des officiers, publié à part (`Renatus_Admin-<version>.zip`).
 Les mises à jour du launcher lui-même sont vérifiées par signature.

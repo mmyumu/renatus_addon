@@ -31,6 +31,15 @@
 - **Visuel des cartes** : cadre teinté selon la rareté, dos de carte, gemme, halo pour épique et légendaire ; image = icône recadrée, la première candidate présente sur le client (`UI.CardArt`, `GetFileIDFromPath`). Booster distribué face cachée puis retourné carte par carte. Filtre Guilde / Azeroth.
 - Reste : échanges de cartes entre membres.
 
+### Avancement v0.12.0 (19/11/2026)
+
+- **Deux addons** : `Renatus` pour tous les membres, `Renatus_Admin` pour les officiers et le rédacteur (il remplace `Renatus_Press`).
+  - **Renatus** : la fenêtre (gazette, album, journaux) et des Options réduites aux réglages du membre (confidentialité, consentement IA, album, minicarte, voix). Plus de page Guilde, de mode démo, de diagnostic de synchro ni de bouton Rédaction : **identique pour tous les membres**, que `Renatus_Admin` soit installé ou non (testé).
+  - **Renatus_Admin** : sa propre fenêtre (`Window.lua`), ouverte par sa propre icône de minimap (clé, `Minimap.lua`) ou `/radmin`, sans rien ajouter à la fenêtre des membres. Onglets **Rédaction** (articles de `Press.lua` : aperçu, publier, ignorer), **Guilde rivale** (en vigueur, propositions de l'application : réglage + effectif, saisie manuelle), **Diagnostic** (synchro, données, mode démo). Publier est réservé aux officiers (`A.IsOfficer`, même règle de rang que `GUILD_CONFIG`) ; les autres consultent. Il s'appuie sur `Renatus.ns` (widgets, `UI.MinimapButton`).
+- **Réglages de guilde** (`Core/GuildConfig.lua`) : événement `GUILD_CONFIG` partagé, valable si son auteur est au rang `OFFICER_MAX_RANK` (1) ou au-dessus dans le roster **actuel** ; le plus récent gagne. La guilde rivale du tableau de chasse en vient (repli : l'ancien réglage local du personnage). Le compagnon peut aussi en proposer un (élément `GUILD_CONFIG` de `Press.lua`, publié depuis l'onglet Guilde rivale de `Renatus_Admin`).
+- **Renatus Admin** (`admin/`, Rust + Tauri, Windows) **remplace le compagnon Python** : mêmes fonctions (journaux de combat, articles, gazette IA, mêmes identifiants d'éléments), plus l'armurerie (`armorywowforever.com`, API JSON `/api/guild/…` et `/api/character/…`) qui produit `GUILD_CONFIG` et `RIVAL_ROSTER` (provenance **`EXT`**, « Armurerie » ; affiché dans le tableau de chasse, en-tête et fiche de l'ennemi), l'installation de `Renatus_Admin` et un mode automatique (surveillance des SavedVariables). Ligne de commande `renatus-admin` pour WSL/Linux. Voir `admin/README.md`.
+- **Distribution** : la release contient `Renatus-<v>.zip` (installé par le launcher, qui retire l'ancien `Renatus_Press`) et `Renatus_Admin-<v>.zip` (jamais installé par le launcher). Les deux addons portent la même version.
+
 ### Avancement v0.9.0 (19/11/2026)
 
 - **La fenêtre ne montre que du contenu** : Gazette et Album en tête (grands boutons), puis la section « Journaux » (Mon journal, Guilde, Membres, Tableau de chasse). La Gazette s'ouvre par défaut. La vue simple/complète de la v0.8 disparaît.
@@ -42,7 +51,7 @@
 - **Trois niveaux d'usage** :
   1. **Vue simple** (par défaut, tous les membres) : Gazette et Album. Les onglets portent `simple = true`.
   2. **Vue complète** (« Tout afficher ») : en plus, les journaux, les membres, le tableau de chasse, la voix et les paramètres.
-  3. **Rédaction** (le rédacteur seul) : l'addon `Renatus_Press` (sans lui, aucun bouton « Rédaction » n'apparaît) et le compagnon hors jeu (LLM).
+  3. **Rédaction** (le rédacteur seul) : l'addon `Renatus_Press` (sans lui, aucun bouton « Rédaction » n'apparaît) et le compagnon hors jeu (LLM). *(v0.12 : remplacé par `Renatus_Admin`.)*
 
 ### Avancement v0.8.0 (19/11/2026)
 
@@ -88,7 +97,7 @@
 - **Compagnon v1, sans LLM** (`companion/`) : lecture des SavedVariables et des journaux de combat, causes de mort, affrontements PvP contre des rivaux connus, articles écrits à la main, écriture de `Renatus_Press/Press.lua`. En jeu, **Gazette > Rédaction** : rien n'est publié sans validation.
 - **Gazette réelle** : articles (`ARTICLE`, provenance « Rédaction »), votes pour la une (un par membre et par semaine), causes de mort affichées sur les morts (« d'après le journal de combat de X »).
 - 66 tests Lua (`lua tests/run.lua`) et 14 tests Python (`python3 -m unittest discover -s tests/companion -t .`).
-- **Pas encore faits** : ~~LLM de la gazette (fait en v0.4.0)~~, obtention réelle de boosters (modèle à choisir, §9.2), réglages de guilde signés par le chef (`GUILD_CONFIG` : rédacteurs, rivale commune), ~~tombstones (fait en v0.7.0)~~, rivalités détectées (§6.4).
+- **Pas encore faits** : ~~LLM de la gazette (fait en v0.4.0)~~, obtention réelle de boosters (modèle à choisir, §9.2), ~~réglages de guilde (`GUILD_CONFIG`, rivale commune : fait en v0.12.0, signés par un officier)~~, rédacteurs désignés, ~~tombstones (fait en v0.7.0)~~, rivalités détectées (§6.4).
 
 ### Avancement v0.2.0 (18/11/2026)
 
@@ -323,13 +332,13 @@ Ces rivalités alimentent le journal (événements `DED`) et la gazette (rubriqu
                 3 à 5 articles précédents résumés (pour la continuité)
 6. [compagnon]  génération LLM : style éditorial configuré
 7. [compagnon]  relecture par le rédacteur (éditer, refuser, régénérer)
-8. [compagnon]  écriture de l'addon de données Renatus_Press/Press.lua
+8. [compagnon]  écriture de Renatus_Admin/Press.lua
 9. [jeu]        /reload chez le rédacteur : « 4 articles prêts, publier ? »
 10. [jeu]       publication = événements ARTICLE du rédacteur → synchro vers la guilde
 ```
 
 - **Un seul membre a besoin du compagnon** : le rédacteur. Les autres reçoivent les articles par la synchro de l'addon.
-- `Renatus_Press` est un mini-addon, sans code, ne contenant qu'une table Lua. Il est réécrit par le compagnon pendant que le jeu tourne et relu au `/reload` (un `/reload` relit les fichiers Lua listés dans les TOC ; seul un **nouveau** fichier exige un redémarrage du client). C'est un mécanisme de fichiers standard, sans injection.
+- `Renatus_Admin/Press.lua` ne contient qu'une table Lua (`RenatusPress`). Il est réécrit par le compagnon pendant que le jeu tourne et relu au `/reload` (un `/reload` relit les fichiers Lua listés dans les TOC ; seul un **nouveau** fichier exige un redémarrage du client). C'est un mécanisme de fichiers standard, sans injection.
 - Chaque article stocke `refs` (identifiants des événements sources) et `style`. Dans le jeu, un bouton « Sources » affiche les faits d'origine.
 
 ### 7.2 Garde-fous anti-invention
@@ -340,7 +349,7 @@ Ces rivalités alimentent le journal (événements `DED`) et la gazette (rubriqu
 
 ### 7.3 Rôles et règles de publication
 
-- **Réglages de guilde** : un événement `GUILD_CONFIG` signé par un membre de **rang 0** (chef de guilde) dans le roster au moment de la réception. Il désigne les rédacteurs, la guilde rivale et le style éditorial par défaut.
+- **Réglages de guilde** : un événement `GUILD_CONFIG` dont l'auteur est, dans le roster **actuel** de chaque client, au rang 0 (chef de guilde) ou 1 (officiers ; `GuildConfig.OFFICER_MAX_RANK`). Le plus récent l'emporte ; un officier rétrogradé ne compte plus. Il contient la guilde rivale (fait), plus tard les rédacteurs et le style éditorial par défaut. Il est publié depuis l'addon `Renatus_Admin`.
 - **Articles** : seuls les rédacteurs publient la une et les éditions spéciales. Chaque article reste possédé par son auteur, qui seul peut publier un `EDIT` (rectificatif) ou un `TOMBSTONE`.
 - **Contributions de tous** : brèves proposées, courrier des lecteurs, petites annonces, commentaires. Ce sont des événements de leurs auteurs, affichés dans la gazette avec leur signature.
 - **Votes** pour la une de la semaine : événement `VOTE`, un par membre et par semaine, le dernier compte. Résultat calculé.
@@ -363,13 +372,14 @@ companion/
   expeditions.py   résumé factuel structuré par expédition
   llm.py           fournisseurs : API distante configurable, Ollama local
   gazette.py       gabarits, styles, vérification des faits
-  press.py         écriture de Renatus_Press/Press.lua
+  press.py         écriture de Renatus_Admin/Press.lua
   config.toml
 ```
 
 ### 8.2 Journaux de combat
 
 - Le client Retail écrit `Logs/WoWCombatLog-<date>.txt` quand le joueur tape `/combatlog`. **[V11 : à confirmer sur Forever : le fichier existe-t-il, son format, l'option de journalisation avancée]**
+- **Non utilisé (décision du 2026-11-20)** : un addon ne peut pas lire ce fichier, et seul le rédacteur aurait pu le fournir. Une source n'est retenue que si elle vaut pour tous les membres : les morts passent uniquement par l'addon (récapitulatif de mort), pareil pour tout le monde.
 - Le fichier n'est **pas** accessible depuis Lua pendant la session. Le compagnon le lit **après coup**. Ce n'est **pas** un pont temps réel.
 - **Extraction ciblée** : `UNIT_DIED` (avec les derniers dégâts subis → cause de mort, chute comprise via `ENVIRONMENTAL_DAMAGE`), `PARTY_KILL` (coup fatal), dégâts entre joueurs (affrontements PvP), sorts marquants. On ne garde que les fenêtres utiles : expéditions connues de l'addon, et morts.
 - **Alignement** : les horodatages du log sont en heure locale. On les convertit avec l'écart enregistré par l'addon (§4.4), puis on recale sur des ancres présentes des deux côtés (morts du joueur).
@@ -377,11 +387,11 @@ companion/
 
 ### 8.3 Retour dans le jeu des informations des logs
 
-Les enrichissements `LOG` (causes de mort, coups fataux PvP) passent par le même addon de données `Renatus_Press`. L'addon du rédacteur les publie comme événements `LOG` **signés par le rédacteur**. La fiche affiche « d'après le journal de combat de X ». Personne n'a besoin d'installer le compagnon pour les voir.
+Les enrichissements `LOG` (causes de mort, coups fataux PvP) passent par le même fichier `Renatus_Admin/Press.lua`. L'addon du rédacteur les publie comme événements `LOG` **signés par le rédacteur**. La fiche affiche « d'après le journal de combat de X ». Personne n'a besoin d'installer le compagnon pour les voir.
 
 ### 8.4 Confidentialité de l'export
 
-- Le compagnon n'exporte vers le LLM **que** les événements de visibilité `G`, **et** seulement ceux des auteurs qui ont activé « autoriser l'export hors jeu ». Ce consentement est distinct du partage en guilde, désactivé par défaut et porté dans les métadonnées de l'auteur.
+- Le compagnon n'exporte vers le LLM **que** les événements de visibilité `G`, **et** seulement ceux des auteurs qui ont activé « autoriser l'export hors jeu ». Ce consentement est distinct du partage en guilde, **activé par défaut** (décision du 2026-11-20 : décochable à tout moment, un « non » explicite est toujours conservé) et porté par l'événement `AI_CONSENT` de l'auteur.
 - Avec un fournisseur distant, le compagnon affiche avant le premier envoi ce qui part et chez qui. Ollama local évite tout envoi.
 
 ---

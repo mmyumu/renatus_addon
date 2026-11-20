@@ -30,8 +30,18 @@ fn release_zip(version: &str) -> Vec<u8> {
         ("Renatus/", ""),
         ("Renatus/Renatus.toc", &toc),
         ("Renatus/Core/Init.lua", "-- new"),
+    ])
+}
+
+/// Archive layout up to 0.11: the press data addon shipped next to Renatus.
+fn legacy_release_zip(version: &str) -> Vec<u8> {
+    let toc = format!("## Interface: 16001\n## Version: {version}\nCore\\Init.lua\n");
+    zip_of(&[
+        ("Renatus/", ""),
+        ("Renatus/Renatus.toc", &toc),
+        ("Renatus/Core/Init.lua", "-- old"),
         ("Renatus_Press/", ""),
-        ("Renatus_Press/Renatus_Press.toc", "## Version: 2"),
+        ("Renatus_Press/Renatus_Press.toc", "## Version: 1"),
         ("Renatus_Press/Press.lua", "RenatusPress = {} -- empty"),
     ])
 }
@@ -51,7 +61,7 @@ fn toc_version_reads_the_version_line() {
 }
 
 #[test]
-fn fresh_install_creates_both_addons() {
+fn fresh_install_creates_only_renatus() {
     let dir = tempfile::tempdir().unwrap();
     let addons = dir.path().join("Interface/AddOns");
     assert_eq!(
@@ -59,15 +69,13 @@ fn fresh_install_creates_both_addons() {
         "0.12.0"
     );
     assert_eq!(installed_version(&addons), Some("0.12.0".into()));
-    assert_eq!(
-        read(&addons.join("Renatus_Press/Press.lua")),
-        "RenatusPress = {} -- empty"
-    );
+    assert!(!addons.join("Renatus_Press").exists());
+    assert!(!addons.join("Renatus_Admin").exists());
     assert!(!addons.join(".renatus-staging").exists());
 }
 
 #[test]
-fn update_replaces_renatus_and_keeps_press_data() {
+fn update_replaces_renatus_removes_legacy_press_keeps_admin() {
     let dir = tempfile::tempdir().unwrap();
     let addons = dir.path().to_path_buf();
     fs::create_dir_all(addons.join("Renatus/Old")).unwrap();
@@ -79,6 +87,8 @@ fn update_replaces_renatus_and_keeps_press_data() {
         "written by the companion",
     )
     .unwrap();
+    fs::create_dir_all(addons.join("Renatus_Admin")).unwrap();
+    fs::write(addons.join("Renatus_Admin/Press.lua"), "officer data").unwrap();
     fs::create_dir_all(addons.join("OtherAddon")).unwrap();
 
     assert_eq!(
@@ -90,13 +100,14 @@ fn update_replaces_renatus_and_keeps_press_data() {
         "Renatus is mirrored, stale files go"
     );
     assert_eq!(read(&addons.join("Renatus/Core/Init.lua")), "-- new");
-    assert_eq!(
-        read(&addons.join("Renatus_Press/Press.lua")),
-        "written by the companion"
+    assert!(
+        !addons.join("Renatus_Press").exists(),
+        "obsolete data addon removed"
     );
     assert_eq!(
-        read(&addons.join("Renatus_Press/Renatus_Press.toc")),
-        "## Version: 2"
+        read(&addons.join("Renatus_Admin/Press.lua")),
+        "officer data",
+        "the officers' addon is never touched"
     );
     assert!(addons.join("OtherAddon").is_dir());
     assert!(!addons.join(".renatus-previous").exists());
@@ -227,4 +238,16 @@ fn config_round_trips_and_survives_garbage() {
     assert_eq!(Config::load(&path), Config::default());
     fs::write(&path, r#"{"testChannel": true}"#).unwrap();
     assert!(Config::load(&path).test_channel);
+}
+
+#[test]
+fn legacy_archive_installs_renatus_and_skips_press() {
+    let dir = tempfile::tempdir().unwrap();
+    let addons = dir.path().to_path_buf();
+    assert_eq!(
+        install_zip(&addons, &legacy_release_zip("0.11.0")).unwrap(),
+        "0.11.0"
+    );
+    assert_eq!(read(&addons.join("Renatus/Core/Init.lua")), "-- old");
+    assert!(!addons.join("Renatus_Press").exists());
 }

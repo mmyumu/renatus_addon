@@ -3,8 +3,9 @@
 --
 --   Renatus            native controls: display, privacy, AI consent, album
 --     Voix             native controls: Renacoach voice lines
---     Guilde           addon widgets (needs a text field): rival guild, sync, data
 --
+-- Members only see their own settings. Guild settings (rival guild), the editorial
+-- tools, sync diagnostics and the demo mode live in the Renatus_Admin addon.
 -- Every setting reads and writes ns.char directly, so the window stays consistent.
 -- If the Settings API is missing or differs on this client, one canvas page with
 -- the same settings (built with the addon's own widgets) is registered instead.
@@ -52,110 +53,49 @@ end
 O.PlaySample = playSample
 
 ------------------------------------------------------------------------
--- "Guilde" page (also the whole fallback page): addon widgets on a canvas.
+-- Fallback page (no usable Settings API): addon widgets on a canvas.
 ------------------------------------------------------------------------
-local function buildCanvas(full)
+local function buildCanvas()
     local f = CreateFrame("Frame")
-    f.name = full and "Renatus" or "Guilde"
+    f.name = "Renatus"
     local x, y = 16, -16
     local title = UI.Title(f, 22)
     title:SetPoint("TOPLEFT", x, y)
-    title:SetText(full and "Renatus" or "Guilde")
+    title:SetText("Renatus")
     y = y - 40
 
-    if full then
-        -- Fallback page: the settings the native page would have shown.
-        local priv = UI.Section(f, "Collecte et confidentialité", 300)
-        priv:SetPoint("TOPLEFT", x, y)
-        y = y - 28
-        f.privacy = {}
-        local opts = {}
-        for _, m in ipairs(MODES) do opts[#opts + 1] = { value = m[1], label = m[2] } end
-        for _, cat in ipairs(ns.Types.CATEGORIES) do
-            local label = UI.Text(f, 12)
-            label:SetPoint("TOPLEFT", x, y - 4)
-            label:SetText(cat.label)
-            local d = UI.Dropdown(f, 130, opts, function(v) ns.char.privacy[cat.key] = v end)
-            d:SetPoint("TOPLEFT", x + 180, y)
-            f.privacy[cat.key] = d
-            y = y - 26
-        end
-        f.export = UI.Checkbox(f, "La gazette rédigée par IA peut parler de moi", function(v) ns.Press.SetConsent(v) end)
-        f.export:SetPoint("TOPLEFT", x, y)
-        UI.Tooltip(f.export, "Gazette IA", { CONSENT_HELP })
-        f.minimap = UI.Checkbox(f, "Bouton sur la minicarte", function(v)
-            ns.char.ui.showMinimap = v
-            if UI.Minimap then UI.Minimap:Update() end
-        end)
-        f.minimap:SetPoint("TOPLEFT", x, y - 24)
-        f.demo = UI.Checkbox(f, "Mode démo (données fictives)", function(v) ns.char.ui.demo = v; UI.Refresh() end)
-        f.demo:SetPoint("TOPLEFT", x, y - 48)
-        f.optOut = UI.Checkbox(f, "Ne pas apparaître dans l'album des autres", function(v) ns.char.albumOptOut = v end)
-        f.optOut:SetPoint("TOPLEFT", x, y - 72)
-        y = -56
-        x = 360
+    local priv = UI.Section(f, "Collecte et confidentialité", 300)
+    priv:SetPoint("TOPLEFT", x, y)
+    y = y - 28
+    f.privacy = {}
+    local opts = {}
+    for _, m in ipairs(MODES) do opts[#opts + 1] = { value = m[1], label = m[2] } end
+    for _, cat in ipairs(ns.Types.CATEGORIES) do
+        local label = UI.Text(f, 12)
+        label:SetPoint("TOPLEFT", x, y - 4)
+        label:SetText(cat.label)
+        local d = UI.Dropdown(f, 130, opts, function(v) ns.char.privacy[cat.key] = v end)
+        d:SetPoint("TOPLEFT", x + 180, y)
+        f.privacy[cat.key] = d
+        y = y - 26
     end
-
-    local pvp = UI.Section(f, "Tableau de chasse", 300)
-    pvp:SetPoint("TOPLEFT", x, y)
-    local rl = UI.Text(f, 12)
-    rl:SetPoint("TOPLEFT", x, y - 28)
-    rl:SetText("Nom de la guilde rivale :")
-    f.rival = UI.EditBox(f, 240, 24, false, 48)
-    f.rival:SetPoint("TOPLEFT", x, y - 46)
-    f.rival.edit:SetScript("OnTextChanged", function(self) ns.char.rivalGuild = self:GetText() or "" end)
-    local rh = UI.Text(f, 10, UI.C.dim)
-    rh:SetPoint("TOPLEFT", x, y - 76)
-    rh:SetWidth(300)
-    rh:SetText("Ses membres croisés en jeu sont notés au tableau de chasse (une fois toutes les 10 minutes au plus).")
-    y = y - 112
-
-    local sync = UI.Section(f, "Synchronisation", 300)
-    sync:SetPoint("TOPLEFT", x, y)
-    f.syncInfo = UI.Text(f, 11)
-    f.syncInfo:SetPoint("TOPLEFT", x, y - 26)
-    f.syncInfo:SetWidth(320)
-    f.syncNow = UI.Button(f, "Synchroniser maintenant", 190, 22, function()
-        if ns.Sync then ns.Sync.SendVector(true) end
-        f:Refresh()
+    UI.Tooltip(priv, "Confidentialité", { PRIVACY_HELP })
+    f.export = UI.Checkbox(f, "La gazette rédigée par IA peut parler de moi", function(v) ns.Consent.SetConsent(v) end)
+    f.export:SetPoint("TOPLEFT", x, y)
+    UI.Tooltip(f.export, "Gazette IA", { CONSENT_HELP })
+    f.minimap = UI.Checkbox(f, "Bouton sur la minicarte", function(v)
+        ns.char.ui.showMinimap = v
+        if UI.Minimap then UI.Minimap:Update() end
     end)
-    f.syncNow:SetPoint("TOPLEFT", x, y - 104)
-    y = y - 142
-
-    local data = UI.Section(f, "Données", 300)
-    data:SetPoint("TOPLEFT", x, y)
-    f.dataInfo = UI.Text(f, 11)
-    f.dataInfo:SetPoint("TOPLEFT", x, y - 26)
-    f.dataInfo:SetWidth(320)
-    f.unsupported = UI.Text(f, 10, UI.C.dim)
-    f.unsupported:SetPoint("TOPLEFT", x, y - 60)
-    f.unsupported:SetWidth(320)
+    f.minimap:SetPoint("TOPLEFT", x, y - 24)
+    f.optOut = UI.Checkbox(f, "Ne pas apparaître dans l'album des autres", function(v) ns.char.albumOptOut = v end)
+    f.optOut:SetPoint("TOPLEFT", x, y - 48)
 
     function f:Refresh()
-        if self.privacy then
-            for key, d in pairs(self.privacy) do d:SetValue(ns.char.privacy[key] or "P") end
-            self.export:SetChecked(ns.char.exportConsent)
-            self.minimap:SetChecked(ns.char.ui.showMinimap)
-            self.demo:SetChecked(ns.char.ui.demo)
-            self.optOut:SetChecked(ns.char.albumOptOut)
-        end
-        self.rival:SetText(ns.char.rivalGuild or "")
-        self.dataInfo:SetText(("%d événement(s) enregistré(s) sur ce compte.\nSchéma de données v%d."):format(ns.Store.Count(), ns.Settings.SCHEMA))
-        if ns.Sync then
-            local st = ns.Sync.Status()
-            local lines = {}
-            table.insert(lines, st.canSend and "|cff8fd88fActive|r" or ("|cffcc9933En pause|r (" .. tostring(st.reason) .. ")"))
-            table.insert(lines, ("Membres équipés vus : %d  ·  messages en attente : %d"):format(st.peers, st.queue))
-            table.insert(lines, ("Événements partagés connus : %d (%d auteurs)"):format(st.shared, st.authors))
-            local last = st.stats.lastReceived and UI.Ago(st.stats.lastReceived) or "jamais"
-            table.insert(lines, ("Reçus : %d  ·  dernier message : %s"):format(st.received, last))
-            if st.rejected > 0 then table.insert(lines, ("|cffcc6633%d événement(s) rejeté(s) (invalides)|r"):format(st.rejected)) end
-            self.syncInfo:SetText(table.concat(lines, "\n"))
-        end
-        local list = {}
-        for ev in pairs(ns.unsupportedEvents) do table.insert(list, ev) end
-        table.sort(list)
-        self.unsupported:SetText(#list > 0 and ("Événements indisponibles sur ce client : " .. table.concat(list, ", ")) or "")
+        for key, d in pairs(self.privacy) do d:SetValue(ns.char.privacy[key] or "P") end
+        self.export:SetChecked(ns.char.exportConsent)
+        self.minimap:SetChecked(ns.char.ui.showMinimap)
+        self.optOut:SetChecked(ns.char.albumOptOut)
     end
     f:SetScript("OnShow", function(self) self:Refresh() end)
     return f
@@ -224,14 +164,12 @@ local function buildNative()
     P.checkbox("showMinimap", char.ui, "showMinimap", "Bouton sur la minicarte", true,
         "Affiche le bouton de Renatus sur le bord de la minicarte. Renatus reste accessible par /renatus et par le menu des addons de la minicarte.",
         function() if UI.Minimap then UI.Minimap:Update() end end)
-    P.checkbox("demo", char.ui, "demo", "Mode démo (données fictives)", false,
-        "Remplit chaque écran avec des données inventées. Rien n'est sauvegardé ni partagé.")
     P.header("Collecte et confidentialité")
     for _, cat in ipairs(ns.Types.CATEGORIES) do
         P.dropdown("privacy_" .. cat.key, char.privacy, cat.key, cat.label, "P", MODES, PRIVACY_HELP)
     end
-    P.checkbox("exportConsent", char, "exportConsent", "La gazette rédigée par IA peut parler de moi", false,
-        CONSENT_HELP, function(v) ns.Press.SetConsent(v) end)
+    P.checkbox("exportConsent", char, "exportConsent", "La gazette rédigée par IA peut parler de moi", true,
+        CONSENT_HELP, function(v) ns.Consent.SetConsent(v) end)
     P.checkbox("albumOptOut", char, "albumOptOut", "Ne pas apparaître dans l'album des autres", false,
         "Ta carte de membre n'est plus proposée dans l'album de guilde.")
 
@@ -265,20 +203,14 @@ local function buildNative()
         V.checkbox("voiceFamily_" .. key, voice.families, key, FAMILY_LABELS[key], true)
     end
 
-    -- Guild page (text field: addon widgets on a canvas)
-    O.guildPanel = buildCanvas(false)
-    if S.RegisterCanvasLayoutSubcategory then
-        O.guildCategory = S.RegisterCanvasLayoutSubcategory(category, O.guildPanel, "Guilde")
-    end
-
     S.RegisterAddOnCategory(category)
     O.voiceCategory = vcat
     return category
 end
 
--- Fallback: one canvas page with every setting except the voice (/renatus voice).
+-- Fallback: one canvas page with the member settings; the voice stays on /renatus voice.
 local function buildFallback()
-    local panel = buildCanvas(true)
+    local panel = buildCanvas()
     O.fallbackPanel = panel
     if Settings and Settings.RegisterCanvasLayoutCategory and Settings.RegisterAddOnCategory then
         local category = Settings.RegisterCanvasLayoutCategory(panel, "Renatus")
@@ -303,11 +235,10 @@ function O:OnInitialize()
     if ok then self.category = result else self.error = result end
 end
 
--- Opens the game's options on a Renatus page: nil / "settings" = main, "voice", "guild".
+-- Opens the game's options on a Renatus page: nil / "settings" = main, "voice".
 function O.Open(which)
     local c = O.category
     if which == "voice" and O.voiceCategory then c = O.voiceCategory end
-    if which == "guild" and O.guildCategory then c = O.guildCategory end
     if c and Settings and Settings.OpenToCategory and type(c) == "table" and c.GetID then
         Settings.OpenToCategory(c:GetID())
         return true

@@ -211,6 +211,20 @@ local function build(c)
         if #e.nicknames == 0 and #e.notes == 0 then table.insert(L, "—") end
         for _, n in ipairs(e.nicknames) do table.insert(L, "« " .. n.text .. " »  |cff999999— " .. (n.by or "?") .. "|r") end
         for _, n in ipairs(e.notes) do table.insert(L, n.text .. "  |cff999999— " .. (n.by or "?") .. "|r") end
+        local arm, roster = ns.GuildConfig.ArmoryInfo(e.name)
+        if arm then
+            table.insert(L, "")
+            table.insert(L, "|cffffd100Armurerie|r  |cff999999(relevé " .. UI.Ago(roster.p.at or roster.t) .. ")|r")
+            local bits = { arm.n }
+            if arm.lvl then table.insert(bits, "niveau " .. arm.lvl) end
+            if arm.rk then table.insert(bits, arm.rk == 0 and "chef de guilde" or ("rang " .. arm.rk)) end
+            table.insert(L, table.concat(bits, ", "))
+            local gear = {}
+            if arm.gs then table.insert(gear, "score d'équipement " .. arm.gs) end
+            if arm.il then table.insert(gear, "niveau d'objet moyen " .. arm.il) end
+            if #gear > 0 then table.insert(L, table.concat(gear, ", ")) end
+            if arm.ll then table.insert(L, "dernière connexion " .. UI.Ago(arm.ll)) end
+        end
         d.left:SetText(table.concat(L, "\n"))
 
         local R = { "|cffffd100Historique des rencontres|r" }
@@ -229,8 +243,14 @@ local function build(c)
 
     function c:Refresh()
         local ds = ns.Store.Dataset()
-        local rival = ds.isDemo and "Les Crocs de Sang" or (ns.char.rivalGuild ~= "" and ns.char.rivalGuild or nil)
-        self.rival:SetText(rival and ("Guilde rivale : <" .. rival .. ">") or "Guilde rivale non définie (Options > Renatus > Guilde).")
+        local rival = ds.isDemo and "Les Crocs de Sang" or ns.GuildConfig.Rival()
+        local line = rival and ("Guilde rivale : <" .. rival .. ">") or "Guilde rivale pas encore choisie par les officiers."
+        local roster = not ds.isDemo and ns.GuildConfig.Roster()
+        if roster then
+            line = line .. ("  ·  %d membre(s) selon l'armurerie (relevé %s)"):format(
+                roster.p.count or #roster.p.members, UI.Ago(roster.p.at or roster.t))
+        end
+        self.rival:SetText(line)
         local postersList, enemies = Views.Wanted(ds)
         self.tabPosters:SetSelected(self.view == "posters")
         self.tabRegistry:SetSelected(self.view == "registry")

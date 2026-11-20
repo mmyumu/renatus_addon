@@ -2,22 +2,22 @@
 ## Title: Renatus
 ## Notes: Memoire vivante de la guilde : journal, tableau de chasse, gazette, album et (en option) les repliques de Renacoach.
 ## Author: Dakey
-## Version: 0.11.0
+## Version: 0.12.0-test.1
 ## IconTexture: Interface\Icons\INV_Misc_Book_09
 ## SavedVariables: RenatusDB
 ## SavedVariablesPerCharacter: RenatusCharDB
-## OptionalDeps: Renatus_Press
 
 Core\Init.lua
 Core\EventBus.lua
 Core\Settings.lua
 Core\Types.lua
 Core\Store.lua
+Core\GuildConfig.lua
 Core\Views.lua
 Core\Cards.lua
 Core\Album.lua
 Core\Demo.lua
-Core\Press.lua
+Core\Consent.lua
 Sync\Serialize.lua
 Sync\Transport.lua
 Sync\Sync.lua

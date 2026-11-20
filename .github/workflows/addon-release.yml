@@ -9,7 +9,7 @@ name: Addon release
 on:
   push:
     branches: [main]
-    paths: ['Renatus/**', 'Renatus_Press/**']
+    paths: ['Renatus/**', 'Renatus_Admin/**']
   workflow_dispatch:
 permissions:
   contents: write
@@ -27,6 +27,11 @@ jobs:
         id: version
         run: |
           version=$(grep -m1 '^## Version:' Renatus/Renatus.toc | cut -d' ' -f3 | tr -d '\r')
+          admin=$(grep -m1 '^## Version:' Renatus_Admin/Renatus_Admin.toc | cut -d' ' -f3 | tr -d '\r')
+          if [ "$version" != "$admin" ]; then
+            echo "::error::Renatus.toc says $version but Renatus_Admin.toc says $admin"
+            exit 1
+          fi
           code=$(grep -m1 '^ns.version' Renatus/Core/Init.lua | cut -d'"' -f2)
           if [ "$version" != "$code" ]; then
             echo "::error::Renatus.toc says $version but Core/Init.lua says $code"
@@ -49,13 +54,16 @@ jobs:
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
+          # Members' addon (installed by the launcher) and officers' addon, separately.
           zip="Renatus-$VERSION.zip"
+          admin="Renatus_Admin-$VERSION.zip"
           # Tracked files only: ignored local files never ship.
-          git archive --format=zip -o "$zip" HEAD Renatus Renatus_Press
+          git archive --format=zip -o "$zip" HEAD Renatus
+          git archive --format=zip -o "$admin" HEAD Renatus_Admin
           git log -1 --format=%B | grep -v '^Co-Authored-By:' > notes.md
           flags=(--latest=false)
           [[ "$VERSION" == *-* ]] && flags+=(--prerelease)
-          gh release create "v$VERSION" "$zip" \
+          gh release create "v$VERSION" "$zip" "$admin" \
             --target "$GITHUB_SHA" \
             --title "Renatus $VERSION" \
             --notes-file notes.md \

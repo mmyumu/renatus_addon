@@ -1,0 +1,135 @@
+# Builds and publishes the admin app (officers) when a push to main carries an
+# admin version not released yet (bump it with admin/scripts/bump.sh X.Y.Z).
+# The "latest" slot belongs to the members' launcher, so the admin app's updater
+# reads a fixed release instead: releases/download/admin-updates/latest.json,
+# whose files are replaced at each admin release.
+name: Admin app release
+on:
+  push:
+    branches: [main]
+    paths: ['admin/**', 'launcher/core/**']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: admin-release
+  cancel-in-progress: false
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      new: ${{ steps.version.outputs.new }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read and check the version
+        id: version
+        working-directory: admin
+        run: |
+          version=$(node -p 'require("./src-tauri/tauri.conf.json").version')
+          for v in "$(node -p 'require("./package.json").version')" \
+                   "$(grep -m1 '^version = ' src-tauri/Cargo.toml | cut -d'"' -f2)" \
+                   "$(grep -m1 '^version = ' core/Cargo.toml | cut -d'"' -f2)"; do
+            if [ "$v" != "$version" ]; then
+              echo "::error::Admin app versions disagree ($v vs $version): use admin/scripts/bump.sh"
+              exit 1
+            fi
+          done
+          if gh release view "admin-v$version" >/dev/null 2>&1; then
+            echo "admin-v$version is already released, nothing to do."
+            echo "new=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "new=true" >> "$GITHUB_OUTPUT"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: plan
+    if: needs.plan.outputs.new == 'true'
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+        working-directory: admin
+    env:
+      VERSION: ${{ needs.plan.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: admin/package-lock.json
+      - uses: dtolnay/rust-toolchain@1.94.0
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: admin
+      - run: npm ci
+      - run: cargo test --locked --release
+      - name: Build and sign the installer
+        run: npm run tauri -- build
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      - name: Collect the release files
+        run: |
+          tag="admin-v$VERSION"
+          setup="Renatus-Admin-setup.exe"
+          built="$(ls target/release/bundle/nsis/*-setup.exe | head -n 1)"
+          mkdir release
+          cp "$built" "release/$setup"
+          cp "$built.sig" "release/$setup.sig"
+          (cd release && sha256sum "$setup" > SHA256SUMS.txt)
+          SIGNATURE="$(cat "$built.sig")" \
+          URL="https://github.com/$GITHUB_REPOSITORY/releases/download/$tag/$setup" \
+          NOTES="https://github.com/$GITHUB_REPOSITORY/releases/tag/$tag" \
+          node -e '
+            const e = process.env;
+            const manifest = {
+              version: e.VERSION,
+              notes: e.NOTES,
+              pub_date: new Date().toISOString(),
+              platforms: { "windows-x86_64": { signature: e.SIGNATURE, url: e.URL } },
+            };
+            require("fs").writeFileSync("release/latest.json", JSON.stringify(manifest, null, 2) + "\n");
+          '
+          ls -l release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release
+          path: admin/release/
+          if-no-files-found: error
+
+  publish:
+    needs: [plan, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      VERSION: ${{ needs.plan.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: release
+          path: release
+      - name: Create the GitHub release
+        run: |
+          git log -1 --format=%B | grep -v '^Co-Authored-By:' > notes.md
+          gh release create "admin-v$VERSION" release/* \
+            --target "$GITHUB_SHA" \
+            --title "Renatus Admin $VERSION" \
+            --notes-file notes.md \
+            --latest=false
+      - name: Point the updater at this version
+        run: |
+          if ! gh release view admin-updates >/dev/null 2>&1; then
+            gh release create admin-updates --title "Renatus Admin : mises à jour" \
+              --notes "Fichier lu par Renatus Admin pour se mettre à jour. Ne pas supprimer." \
+              --latest=false --prerelease
+          fi
+          gh release upload admin-updates release/latest.json --clobber

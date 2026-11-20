@@ -1,0 +1,22 @@
+[package]
+name = "renatus-admin-core"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[[bin]]
+name = "renatus-admin"
+path = "src/bin/cli.rs"
+
+[dependencies]
+renatus-launcher-core = { path = "../../launcher/core" }
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+regex = { version = "1", default-features = false, features = ["std", "unicode"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha1 = "0.10"
+ureq = { version = "2", default-features = false, features = ["tls", "json"] }
+zip = { version = "2", default-features = false, features = ["deflate"] }
+
+[dev-dependencies]
+tempfile = "3"

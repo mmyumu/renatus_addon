@@ -1,0 +1,46 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Renatus Admin",
+  "version": "0.1.0",
+  "identifier": "fr.renatus.admin",
+  "build": {
+    "frontendDist": "../ui"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "label": "main",
+        "title": "Renatus Admin",
+        "width": 900,
+        "height": 680,
+        "minWidth": 720,
+        "minHeight": 520,
+        "center": true
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; style-src 'self'; script-src 'self'; connect-src ipc: http://ipc.localhost"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "createUpdaterArtifacts": true,
+    "targets": ["nsis"],
+    "icon": ["icons/icon.png", "icons/icon.ico"],
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "languages": ["French"],
+        "displayLanguageSelector": false
+      }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDI2MUY0NTJBMTM2MDE5NTAKUldSUUdXQVRLa1VmSnBPaXVyRXhlbjNHaGdISFlFTW5lK3dwNzJZcHRBdERmTEtkZFkwMTlHa3EK",
+      "endpoints": ["https://github.com/mmyumu/renatus_addon/releases/download/admin-updates/latest.json"],
+      "windows": { "installMode": "passive" }
+    }
+  }
+}

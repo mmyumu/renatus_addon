@@ -36,7 +36,7 @@ local function clock() return (GetTime and GetTime()) or now() end
 local ALLOWED = { v = true, id = true, a = true, n = true, c = true, s = true, t = true, k = true, g = true,
     loc = true, pt = true, prov = true, miss = true, refs = true, occ = true, x = true, vis = true, src = true,
     p = true, ded = true, del = true }
-local PROVS = { OBS = true, LOG = true, MAN = true, DED = true, GEN = true }
+local PROVS = { OBS = true, LOG = true, MAN = true, DED = true, GEN = true, EXT = true }
 
 ------------------------------------------------------------------------
 -- Vector and gaps

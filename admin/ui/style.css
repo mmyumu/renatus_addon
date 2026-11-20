@@ -1,0 +1,68 @@
+:root {
+  --bg: #1b140e;
+  --card: #2a1f15;
+  --border: #5a4128;
+  --text: #ecdcc0;
+  --muted: #a8916f;
+  --gold: #d4a017;
+  --ok: #8fc46a;
+  --error: #e0705a;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  padding: 16px;
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/1.4 "Segoe UI", system-ui, sans-serif;
+  user-select: none;
+}
+
+header { text-align: center; margin-bottom: 12px; }
+h1 { margin: 0; color: var(--gold); font: 600 28px Georgia, "Times New Roman", serif; letter-spacing: 1px; }
+.sub { margin: 2px 0 0; color: var(--muted); }
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px;
+  margin-bottom: 10px;
+}
+
+.row { display: flex; justify-content: space-between; margin-bottom: 4px; }
+.label { color: var(--muted); }
+.path { margin: 4px 0 8px; word-break: break-all; font-size: 13px; }
+.buttons { display: flex; gap: 8px; }
+
+#message { min-height: 20px; margin: 8px 0; }
+#message.ok { color: var(--ok); }
+#message.error { color: var(--error); }
+
+button {
+  background: #4a3420;
+  color: var(--text);
+  border: 1px solid var(--gold);
+  border-radius: 4px;
+  padding: 6px 12px;
+  font: inherit;
+  cursor: pointer;
+}
+button:hover:not(:disabled) { background: #5d4228; }
+button:disabled { opacity: 0.5; cursor: default; }
+
+label { display: block; padding: 3px 0; cursor: pointer; }
+input[type="checkbox"] { accent-color: var(--gold); }
+
+pre {
+  margin: 6px 0 0;
+  max-height: 120px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  font: inherit;
+  user-select: text;
+}
+
+footer { color: var(--muted); font-size: 12px; text-align: center; }

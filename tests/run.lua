@@ -23,13 +23,34 @@ local function eq(actual, expected, msg)
     end
 end
 
+-- The AI consent is on by default and announced at login (one shared event). Tests that
+-- are not about it start with a character who said no, so event numbering stays simple;
+-- opts.consent = "default" keeps the real default.
+local function withConsent(opts)
+    opts = opts or {}
+    if opts.consent ~= "default" and opts.savedChar == nil then
+        opts.savedChar = { schema = 1, exportConsent = false, consentChosen = true }
+    end
+    return opts
+end
+
 local function boot(opts)
-    local S = Stub.reset(opts)
+    local S = Stub.reset(withConsent(opts))
     local ns = Stub.loadAddon(ROOT, NAME)
     for _, line in ipairs(S.printed) do
         if line:find("erreur") then error("erreur au chargement : " .. line, 2) end
     end
     return ns, S
+end
+
+-- Renatus + Renatus_Admin (officers' addon). Returns ns, admin namespace, stub state.
+local function bootAdmin(opts)
+    local S = Stub.reset(withConsent(opts))
+    local ns, A = Stub.loadAddon(ROOT, NAME, { { "Renatus_Admin", "Renatus_Admin" } })
+    for _, line in ipairs(S.printed) do
+        if line:find("erreur") then error("erreur au chargement : " .. line, 2) end
+    end
+    return ns, A, S
 end
 
 local function soundName(entry) return entry.path:match("([%w_]+)%.ogg$") end
@@ -844,14 +865,173 @@ test("mort juste apres avoir vu un rival : present (suppose), pas tueur", functi
     eq(withEnemies, 1, "fenetre de 30 s")
 end)
 
+print("Reglages de guilde (officiers)")
+
+local OFFICERS = { { name = "Testeur", rank = 1 }, { name = "Bob", rank = 1 }, { name = "Carol", rank = 4 } }
+
+-- A GUILD_CONFIG event as received from another member.
+local function receivedConfig(ns, who, s, t, rival)
+    local ev = { v = 1, id = who.guid .. ":" .. s, a = who.guid, n = who.name, s = s, t = t, k = "GUILD_CONFIG",
+        g = ns.Context.GuildKey(), vis = "G", prov = "MAN", p = { rival = rival } }
+    assert(ns.Store.Insert(ev))
+    return ev
+end
+
+test("officier : guilde rivale diffusee depuis Renatus_Admin, appliquee au tableau de chasse", function()
+    local ns, A, S = bootAdmin({ specIndex = 1, rank = 1, roster = OFFICERS, units = { target = GORBASH } })
+    eq(ns.GuildConfig.Rival(), nil)
+    SlashCmdList.RENATUSADMIN("")
+    local panel = A.window.pages.rival
+    A.window.tabs.rival:Click()
+    eq(panel:IsShown(), true)
+    eq(panel.publish.gcDisabled, false, "officier : bouton actif")
+    panel.rival:SetText("  Les Crocs de Sang ")
+    panel.publish:Click()
+    local cfg = eventsOf(ns, "GUILD_CONFIG")[1]
+    eq(cfg.vis, "G"); eq(cfg.p.rival, "Les Crocs de Sang")
+    eq(ns.GuildConfig.Rival(), "Les Crocs de Sang")
+    assert(panel.info:GetText():find("Testeur"), "auteur affiche")
+    eq(#ns.Views.Filter(ns.Store.Dataset().events, {}), 0, "masque de la chronologie")
+    Stub.fire("PLAYER_TARGET_CHANGED")
+    eq(#eventsOf(ns, "ENEMY_SEEN"), 1, "rival observe")
+    -- other settings kept when only the rival changes; empty = no rival
+    ns.GuildConfig.Publish({ rival = "" })
+    eq(ns.GuildConfig.Rival(), nil)
+end)
+
+test("simple membre : ne peut pas diffuser, mais applique le reglage d'un officier", function()
+    local ns, A = bootAdmin({ specIndex = 1, rank = 3, roster = { { name = "Testeur", rank = 3 }, { name = "Bob", rank = 1 } } })
+    local ev, why = ns.GuildConfig.Publish({ rival = "X" })
+    eq(ev, nil); eq(why, "rang")
+    A.Open("rival")
+    eq(A.window.pages.rival.publish.gcDisabled, true, "bouton inactif")
+    assert(A.window.status:GetText():find("Consultation"), A.window.status:GetText())
+    receivedConfig(ns, BOB, 1, 1000, "Les Crocs de Sang")
+    eq(ns.GuildConfig.Rival(), "Les Crocs de Sang")
+end)
+
+test("reglage d'un non-officier ignore ; le plus recent gagne ; officier retrogade ignore", function()
+    local S = Stub.reset({ specIndex = 1, roster = OFFICERS })
+    local ns = Stub.loadAddon(ROOT, NAME)
+    ns.char.rivalGuild = "Ancienne"
+    eq(ns.GuildConfig.Rival(), "Ancienne", "repli : reglage local d'avant")
+    receivedConfig(ns, CAROL, 1, 3000, "Usurpateurs")
+    eq(ns.GuildConfig.Rival(), "Ancienne", "rang 4 : ignore")
+    receivedConfig(ns, BOB, 1, 1000, "Premiere")
+    receivedConfig(ns, BOB, 2, 2000, "Seconde")
+    eq(ns.GuildConfig.Rival(), "Seconde", "le plus recent")
+    S.roster[2].rank = 5
+    Stub.fire("GUILD_ROSTER_UPDATE")
+    eq(ns.GuildConfig.Rival(), "Ancienne", "Bob retrogade : ses reglages ne comptent plus")
+end)
+
+test("element GUILD_CONFIG du compagnon : publie depuis la Redaction", function()
+    local ns, A = bootAdmin({ specIndex = 1, rank = 0, roster = { { name = "Testeur", rank = 0 } } })
+    RenatusPress = { version = 1, items = { { id = "cfg1", kind = "GUILD_CONFIG", p = { rival = "Cest Dieu qui pilote" } } } }
+    local item = A.Press.Pending()[1]
+    eq(A.Press.Label(item), "Guilde rivale : Cest Dieu qui pilote")
+    assert(A.Press.Publish(item))
+    eq(ns.GuildConfig.Rival(), "Cest Dieu qui pilote")
+    eq(#A.Press.Pending(), 0)
+    RenatusPress = nil
+end)
+
+test("armurerie : effectif publie (EXT) et affiche sur la fiche de l'ennemi", function()
+    local LADOU = { name = "Ladou", realm = "Forever", guild = "Cest Dieu qui pilote", level = 24, race = "Tauren", class = "WARRIOR", pvp = true }
+    local ns, A = bootAdmin({ specIndex = 1, rank = 1, roster = OFFICERS, units = { target = LADOU } })
+    RenatusPress = { version = 1, items = {
+        { id = "cfg:1", kind = "GUILD_CONFIG", t = 10, p = { rival = "Cest Dieu qui pilote" } },
+        { id = "roster:x:1", kind = "RIVAL_ROSTER", t = 11, p = { guild = "Cest Dieu qui pilote", count = 10, at = 100,
+            members = { { n = "Ladou Pipø", lvl = 25, rk = 2, cl = "WARRIOR", ra = "Tauren", gs = 159, ll = 50 },
+                        { n = "Inoups Acrilège", lvl = 21, rk = 0 } } } },
+    } }
+    local items = A.Press.Pending()
+    eq(A.Press.Label(items[2]), "Effectif de Cest Dieu qui pilote : 10 membre(s)")
+    assert(A.Press.Publish(items[1])); assert(A.Press.Publish(items[2]))
+    local ev = eventsOf(ns, "RIVAL_ROSTER")[1]
+    eq(ev.prov, "EXT"); eq(ev.vis, "G")
+    eq(ns.Sync.Validate(ev, ns.Context.GuildKey()) ~= nil, true, "provenance EXT acceptee par la synchro")
+    eq(ns.GuildConfig.Roster(), ev)
+    local m = ns.GuildConfig.ArmoryInfo("ladou")
+    eq(m.gs, 159)
+    eq(ns.GuildConfig.ArmoryInfo("Lad"), nil)
+    Stub.fire("PLAYER_TARGET_CHANGED")
+    ns.UI.Open("wanted")
+    local c = RenatusMainFrame.containers.wanted
+    assert(c.rival:GetText():find("10 membre"), c.rival:GetText())
+    c:ShowDetail(ns.Views.Enemies(ns.Store.Dataset())[1])
+    local left = c.detailFrame.left.fontString:GetText()
+    assert(left:find("Armurerie") and left:find("score d'équipement 159") and left:find("rang 2"), left)
+    RenatusPress = nil
+end)
+
+test("sans Renatus_Admin : ni fenetre, ni icone d'administration", function()
+    RenatusAdminFrame, RenatusAdminMinimapButton, SlashCmdList.RENATUSADMIN = nil, nil, nil   -- left by earlier tests
+    local ns = boot({ specIndex = 1 })
+    RenatusPress = { version = 1, items = {} }
+    eq(Renatus.admin, nil)
+    eq(RenatusAdminFrame, nil)
+    eq(RenatusAdminMinimapButton, nil)
+    eq(SlashCmdList.RENATUSADMIN, nil)
+    RenatusPress = nil
+end)
+
+-- Every button of the members' window, by label (to compare with and without Renatus_Admin).
+local function memberButtons()
+    local labels = {}
+    for _, f in ipairs(Stub.state.frames) do
+        if f.label and f.label.GetText and f:IsShown() then
+            local anc, inMain = f.parent, false
+            while anc do if anc == RenatusMainFrame then inMain = true end; anc = anc.parent end
+            if inMain then table.insert(labels, tostring(f.label:GetText())) end
+        end
+    end
+    table.sort(labels)
+    return table.concat(labels, "|")
+end
+
+test("fenetre des membres identique avec ou sans Renatus_Admin", function()
+    local ns = boot({ specIndex = 1 })
+    ns.UI.Open("gazette")
+    local without = memberButtons()
+    RenatusMainFrame = nil
+    local nsA = bootAdmin({ specIndex = 1, rank = 0, roster = { { name = "Testeur", rank = 0 } } })
+    RenatusPress = { version = 1, items = { { id = "a1", kind = "ARTICLE", p = { title = "T", body = "B" } } } }
+    nsA.UI.Open("gazette")
+    eq(memberButtons(), without)
+    RenatusPress = nil
+end)
+
+test("fenetre d'administration : icone cle, /radmin, diagnostic, mode demo", function()
+    local ns, A, S = bootAdmin({ specIndex = 1, settingsApi = true })
+    eq(#S.settings.categories, 1, "plus de page Renatus Admin dans les Options du jeu")
+    local icon = RenatusAdminMinimapButton
+    assert(icon, "icone d'administration sur la minimap")
+    assert(icon ~= ns.UI.Minimap.button, "distincte de celle des membres")
+    icon.scripts.OnClick(icon, "LeftButton")
+    eq(A.window:IsShown(), true)
+    A.window.tabs.diag:Click()
+    local diag = A.window.pages.diag
+    assert(diag.syncInfo:GetText():find("Membres"), "etat de synchro")
+    assert(diag.dataInfo:GetText():find("Schéma"), "donnees")
+    diag.syncNow:Click()
+    diag.demo:Click()
+    eq(ns.char.ui.demo, true)
+    SlashCmdList.RENATUSADMIN("")
+    eq(A.window:IsShown(), false, "/radmin referme")
+end)
+
 print("Presse (compagnon)")
 
 local function withPress(items)
     RenatusPress = { version = 1, items = items }
 end
 
+local OFFICER = { specIndex = 1, rank = 0, roster = { { name = "Testeur", rank = 0 } } }
+
 test("elements du compagnon : en attente, publies signes LOG / GEN, jamais automatiques", function()
-    local ns = boot({ specIndex = 1 })
+    local ns, A = bootAdmin(OFFICER)
+    local Press = A.Press
     ns.char.privacy.combat = "G"
     Stub.fire("PLAYER_DEAD")
     local death = eventsOf(ns, "DEATH")[1]
@@ -862,9 +1042,9 @@ test("elements du compagnon : en attente, publies signes LOG / GEN, jamais autom
           p = { title = "Drame à Elwynn", body = "Selon nos sources...", style = "sarcastique", format = "Brève" } },
         { id = "bad", kind = "INCONNU", p = {} },
     })
-    eq(#ns.Press.Pending(), 2)
+    eq(#Press.Pending(), 2)
     eq(#eventsOf(ns, "DEATH_CAUSE"), 0, "rien de publie tout seul")
-    local cause = ns.Press.Publish(ns.Press.Pending()[1])
+    local cause = Press.Publish(Press.Pending()[1])
     eq(cause.prov, "LOG"); eq(cause.vis, "G"); eq(cause.refs[1], death.id); eq(cause.t, death.t)
     local ds = ns.Store.Dataset()
     eq(ds.causes[death.id], cause)
@@ -872,22 +1052,33 @@ test("elements du compagnon : en attente, publies signes LOG / GEN, jamais autom
     ns.UI.Open("journal")
     local row = RenatusMainFrame.containers.journal.list.rows[1]
     assert(row.line2:GetText():find("Hogger"), "cause affichee sur la ligne de la mort")
-    ns.Press.Ignore(ns.Press.Pending()[1])
-    eq(#ns.Press.Pending(), 0)
+    Press.Ignore(Press.Pending()[1])
+    eq(#Press.Pending(), 0)
     local clash = ns.Store.Add("PVP_CLASH", { name = "Gorbash", result = "loss", member = "Bob" }, { prov = "LOG", vis = "G" })
     eq(ns.Types.Describe(clash, true), "Testeur rapporte : Bob tombe face à Gorbash")
     local e = ns.Views.Enemies(ns.Store.Dataset())[1]
     eq(e.losses.LOG, 1); eq(e.memberList[1], "Bob")
     local savedA, savedC = RenatusDB, RenatusCharDB
-    local ns2 = boot({ specIndex = 1, savedAccount = savedA, savedChar = savedC })
-    eq(#ns2.Press.Pending(), 0, "decisions memorisees")
+    local _, A2 = bootAdmin({ specIndex = 1, rank = 0, roster = OFFICER.roster, savedAccount = savedA, savedChar = savedC })
+    withPress({ { id = "c1", kind = "DEATH_CAUSE", p = { victim = "x", cause = "y" } } })
+    eq(#A2.Press.Pending(), 0, "decisions memorisees")
     RenatusPress = nil
 end)
 
-test("gazette reelle : article publie, vote une fois par semaine", function()
-    local ns = boot({ specIndex = 1 })
-    withPress({ { id = "a1", kind = "ARTICLE", p = { title = "Une", body = "Texte", style = "épique", format = "Hebdomadaire" } } })
-    local art = ns.Press.Publish(ns.Press.Pending()[1])
+test("gazette reelle : relue et publiee dans la fenetre d'administration, vote une fois par semaine", function()
+    local ns, A = bootAdmin(OFFICER)
+    local Press = A.Press
+    withPress({ { id = "a1", kind = "ARTICLE", p = { title = "Une", body = "Texte", style = "épique", format = "Hebdomadaire" } },
+                { id = "cfg", kind = "GUILD_CONFIG", p = { rival = "X" } } })
+    local w = A.Open()
+    eq(w.tabs.press.label:GetText(), "Rédaction (1)")
+    eq(w.tabs.rival.label:GetText(), "Guilde rivale (1)")
+    local row = w.pages.press.list.rows[1]
+    eq(row.item.id, "a1", "reglage de guilde range dans l'onglet Guilde rivale")
+    row.scripts.OnClick(row)
+    assert(w.pages.press.preview.fontString:GetText():find("Texte"), "apercu de l'article")
+    row.pub:Click()
+    local art = eventsOf(ns, "ARTICLE")[1]
     eq(art.prov, "GEN")
     ns.UI.Open("gazette")
     local c = RenatusMainFrame.containers.gazette
@@ -897,37 +1088,64 @@ test("gazette reelle : article publie, vote une fois par semaine", function()
     eq(c.current.votes, 1); eq(c.current.voted, true)
     c.paper.vote:Click()
     eq(c.current.votes, 1, "pas de double vote")
-    c.press:Click()
+    eq(w.tabs.press.label:GetText(), "Rédaction")
+    RenatusPress = nil
+end)
+
+test("non-officier : peut consulter la redaction, pas publier", function()
+    local ns, A = bootAdmin({ specIndex = 1, rank = 3, roster = { { name = "Testeur", rank = 3 } } })
+    withPress({ { id = "a1", kind = "ARTICLE", p = { title = "Une", body = "Texte" } } })
+    local item = A.Press.Pending()[1]
+    local ev, why = A.Press.Publish(item)
+    eq(ev, nil); eq(why, "rang")
+    local w = A.Open("press")
+    eq(w.pages.press.list.rows[1].pub.gcDisabled, true, "bouton Publier inactif")
+    eq(#eventsOf(ns, "ARTICLE"), 0)
+    eq(#A.Press.Pending(), 1, "toujours en attente")
     RenatusPress = nil
 end)
 
 test("consentement gazette IA : publie et partage, le dernier choix compte", function()
-    local ns = boot({ specIndex = 1 })
-    eq(#eventsOf(ns, "AI_CONSENT"), 0, "rien coche : rien a annoncer")
-    local c = ns.UI.Options.fallbackPanel   -- no Settings API in this test: the single canvas page
-    c.export:Click()
+    local ns = boot({ specIndex = 1, consent = "default" })
     local ev = eventsOf(ns, "AI_CONSENT")[1]
-    eq(ev.vis, "G", "partage meme si la categorie est privee"); eq(ev.p.ok, true)
-    eq(#ns.Views.Filter(ns.Store.Dataset().events, {}), 0, "masque de la chronologie")
-    ns.Press.SetConsent(true)
-    eq(#eventsOf(ns, "AI_CONSENT"), 1, "pas de doublon")
+    eq(ev.p.ok, true, "coche par defaut, annonce a la connexion")
+    eq(ev.vis, "G", "partage meme si la categorie est privee")
+    eq(ns.char.exportConsent, true)
+    local c = ns.UI.Options.fallbackPanel   -- no Settings API in this test: the single canvas page
+    c.export:SetChecked(true)
     c.export:Click()
-    eq(#eventsOf(ns, "AI_CONSENT"), 2)
-    eq(ns.Press.LastConsent().p.ok, false, "retrait du consentement")
+    eq(ns.Consent.LastConsent().p.ok, false, "decoche")
+    c.export:Click()
+    eq(#eventsOf(ns, "AI_CONSENT"), 3)
+    eq(#ns.Views.Filter(ns.Store.Dataset().events, {}), 0, "masque de la chronologie")
+    ns.Consent.SetConsent(true)
+    eq(#eventsOf(ns, "AI_CONSENT"), 3, "pas de doublon")
+    ns.Consent.SetConsent(false)
+    eq(ns.Consent.LastConsent().p.ok, false, "retrait du consentement")
     eq(ns.char.exportConsent, false)
+    -- the explicit "no" survives a new login
+    local savedA, savedC = RenatusDB, RenatusCharDB
+    local ns2 = boot({ specIndex = 1, savedAccount = savedA, savedChar = savedC })
+    eq(ns2.char.exportConsent, false, "non conserve")
+    eq(ns2.Consent.LastConsent().p.ok, false)
+end)
+
+test("consentement IA : ancien personnage jamais decide -> oui par defaut", function()
+    local ns = boot({ specIndex = 1, savedChar = { schema = 1, exportConsent = false } })
+    eq(ns.char.exportConsent, true)
+    eq(ns.Consent.LastConsent().p.ok, true)
 end)
 
 print("Interface (v0.3)")
 
-test("options (page de repli) : confidentialite, guilde rivale, synchronisation", function()
+test("options (page de repli) : reglages du membre seulement", function()
     local ns = boot({ specIndex = 1 })
     local c = ns.UI.Options.fallbackPanel
     c.scripts.OnShow(c)
-    assert(c.syncInfo:GetText():find("Membres"), "etat de synchro")
-    c.syncNow:Click()
-    c.privacy.combat:SetValue("G")
-    c.rival:SetText("Les Crocs")
-    eq(ns.char.rivalGuild, "Les Crocs")
+    eq(c.privacy.combat ~= nil, true, "confidentialite")
+    eq(c.rival, nil, "pas de guilde rivale")
+    eq(c.syncInfo, nil, "pas de diagnostic de synchro")
+    eq(c.demo, nil, "pas de mode demo")
 end)
 
 print("Acces a l'addon (v0.4.2)")
@@ -967,17 +1185,17 @@ test("menu des addons de la minicarte (Retail) : ouvre la fenetre ou les paramet
     eq(ns.UI.current, "gazette", "clic droit : options du jeu, pas la fenetre")
 end)
 
-test("menu Options du jeu : page principale, sous-pages Voix et Guilde", function()
+test("menu Options du jeu : page principale et sous-page Voix", function()
     local ns, S = boot({ specIndex = 1, settingsApi = true })
     local reg = S.settings
     eq(ns.UI.Options.native, true, ns.UI.Options.error)
     eq(#reg.categories, 1); eq(reg.categories[1].name, "Renatus")
-    eq(#reg.subcategories, 2); eq(reg.subcategories[1].name, "Voix"); eq(reg.subcategories[2].name, "Guilde")
+    eq(#reg.subcategories, 1); eq(reg.subcategories[1].name, "Voix")
     local main, voice = 0, 0
     for _, c in ipairs(reg.controls) do
         if c.category == reg.categories[1] then main = main + 1 else voice = voice + 1 end
     end
-    eq(main, 4 + #ns.Types.CATEGORIES, "minicarte, demo, consentement, album + confidentialite")
+    eq(main, 3 + #ns.Types.CATEGORIES, "minicarte, consentement, album + confidentialite")
     eq(voice, 8 + 10, "voix : 8 reglages + 10 familles")
     -- privacy: same table as everywhere
     reg.byVar.Renatus_privacy_combat:SetValue("G")
@@ -987,20 +1205,13 @@ test("menu Options du jeu : page principale, sous-pages Voix et Guilde", functio
     reg.byVar.Renatus_showMinimap:SetValue(false)
     eq(ns.UI.Minimap.button:IsShown(), false)
     reg.byVar.Renatus_exportConsent:SetValue(true)
-    eq(ns.Press.LastConsent().p.ok, true)
+    eq(ns.Consent.LastConsent().p.ok, true)
     -- the "Open" button opens the window and closes the options panel
     SettingsPanel:Show()
     reg.buttons[1].onClick()
     eq(SettingsPanel:IsShown(), false, "panneau Options ferme")
     assert(RenatusMainFrame:IsShown())
     eq(ns.UI.current, "gazette")
-    -- Guild page: rival guild text field, sync status
-    local g = ns.UI.Options.guildPanel
-    g.scripts.OnShow(g)
-    g.rival:SetText("Les Crocs de Sang")
-    eq(ns.char.rivalGuild, "Les Crocs de Sang")
-    assert(g.syncInfo:GetText():find("Membres"), "etat de synchro")
-    g.syncNow:Click()
     -- opening pages
     SlashCmdList.RENATUS("options")
     eq(reg.opened, reg.categories[1]:GetID())

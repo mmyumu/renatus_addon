@@ -31,8 +31,10 @@ M.OnClick = onClick
 
 local TOOLTIP = { "Clic gauche : ouvrir", "Clic droit : options", "Glisser : déplacer" }
 
-local function createButton(self)
-    local b = CreateFrame("Button", "RenatusMinimapButton", Minimap)
+-- Minimap button, also used by Renatus_Admin for its own icon.
+-- spec = { name, icon, title, tooltip = { lines }, onClick(button), angle() -> degrees, setAngle(degrees) }
+function UI.MinimapButton(spec)
+    local b = CreateFrame("Button", spec.name, Minimap)
     b:SetSize(31, 31)
     b:SetFrameStrata("MEDIUM")
     b:SetFrameLevel(8)
@@ -41,8 +43,9 @@ local function createButton(self)
     local icon = b:CreateTexture(nil, "BACKGROUND")
     icon:SetSize(20, 20)
     icon:SetPoint("CENTER", 0, 1)
-    icon:SetTexture(M.ICON)
+    icon:SetTexture(spec.icon)
     icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+    b.icon = icon
     local border = b:CreateTexture(nil, "OVERLAY")
     border:SetSize(53, 53)
     border:SetPoint("TOPLEFT")
@@ -50,60 +53,68 @@ local function createButton(self)
     local hl = b:CreateTexture(nil, "HIGHLIGHT")
     hl:SetAllPoints()
     hl:SetTexture("Interface\\Minimap\\UI-Minimap-ZoomButton-Highlight")
-    b:SetScript("OnClick", function(_, button) onClick(button) end)
+    b:SetScript("OnClick", function(_, button) spec.onClick(button) end)
     b:SetScript("OnDragStart", function(btn)
         btn:SetScript("OnUpdate", function()
             local mx, my = Minimap:GetCenter()
             local scale = Minimap:GetEffectiveScale()
             local cx, cy = GetCursorPosition()
             local angle = math.deg(math.atan2(cy / scale - my, cx / scale - mx))
-            ns.char.ui.minimapAngle = angle
+            spec.setAngle(angle)
             place(btn, angle)
         end)
     end)
     b:SetScript("OnDragStop", function(btn) btn:SetScript("OnUpdate", nil) end)
-    UI.Tooltip(b, "Renatus", TOOLTIP)
+    UI.Tooltip(b, spec.title, spec.tooltip)
+    function b:Place() place(self, spec.angle()) end
     -- The minimap can be resized by the game or by other addons: stay on its edge.
     if Minimap.HookScript then
-        Minimap:HookScript("OnSizeChanged", function() self:Update() end)
+        Minimap:HookScript("OnSizeChanged", function() if b:IsShown() then b:Place() end end)
     end
-    self.button = b
+    b:Place()
+    return b
 end
 
--- Retail addon compartment. Registered at runtime (no global function needed);
--- absent on clients without it.
-local function registerCompartment(self)
-    if not (AddonCompartmentFrame and AddonCompartmentFrame.RegisterAddon) then return end
-    local ok = pcall(AddonCompartmentFrame.RegisterAddon, AddonCompartmentFrame, {
-        text = "Renatus",
-        icon = M.ICON,
+-- Retail addon compartment entry (absent on clients without it). Returns true if registered.
+function UI.CompartmentEntry(spec)
+    if not (AddonCompartmentFrame and AddonCompartmentFrame.RegisterAddon) then return nil end
+    return pcall(AddonCompartmentFrame.RegisterAddon, AddonCompartmentFrame, {
+        text = spec.title,
+        icon = spec.icon,
         notCheckable = true,
         registerForAnyClick = true,
         func = function(_, input, _, _, mouseButton)
             -- The click button is passed in different positions depending on the client version.
             local button = type(input) == "table" and input.buttonName or mouseButton
-            onClick(button)
+            spec.onClick(button)
         end,
         funcOnEnter = function(owner)
             if not GameTooltip then return end
             GameTooltip:SetOwner(owner or UIParent, "ANCHOR_LEFT")
-            GameTooltip:SetText("Renatus")
-            for _, line in ipairs({ TOOLTIP[1], TOOLTIP[2] }) do GameTooltip:AddLine(line, 1, 1, 1) end
+            GameTooltip:SetText(spec.title)
+            for _, line in ipairs(spec.compartmentTooltip or spec.tooltip or {}) do GameTooltip:AddLine(line, 1, 1, 1) end
             GameTooltip:Show()
         end,
         funcOnLeave = function() if GameTooltip then GameTooltip:Hide() end end,
-    })
-    self.compartment = ok
+    }) or nil
 end
 
+local SPEC = {
+    name = "RenatusMinimapButton", icon = M.ICON, title = "Renatus", tooltip = TOOLTIP,
+    compartmentTooltip = { TOOLTIP[1], TOOLTIP[2] },
+    onClick = function(button) onClick(button) end,
+    angle = function() return ns.char.ui.minimapAngle or 200 end,
+    setAngle = function(a) ns.char.ui.minimapAngle = a end,
+}
+
 function M:OnLogin()
-    if Minimap then createButton(self) end
-    registerCompartment(self)
+    if Minimap then self.button = UI.MinimapButton(SPEC) end
+    self.compartment = UI.CompartmentEntry(SPEC)
     self:Update()
 end
 
 function M:Update()
     if not self.button then return end
-    place(self.button, ns.char.ui.minimapAngle or 200)
+    self.button:Place()
     self.button:SetShown(ns.char.ui.showMinimap)
 end

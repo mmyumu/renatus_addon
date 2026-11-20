@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <title>Renatus Admin</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="admin.css">
+  <script src="main.js" defer></script>
+</head>
+<body>
+  <header class="bar">
+    <h1>Renatus <span>Admin</span></h1>
+    <nav>
+      <button class="tab active" data-tab="home">Accueil</button>
+      <button class="tab" data-tab="rival">Guilde rivale</button>
+      <button class="tab" data-tab="gazette">Gazette</button>
+      <button class="tab" data-tab="settings">Réglages</button>
+    </nav>
+    <span id="busy"></span>
+  </header>
+
+  <main>
+    <!-- Accueil -->
+    <section class="page" id="page-home">
+      <div class="grid">
+        <div class="card">
+          <div class="label">Jeu</div>
+          <div class="row"><span>Renatus</span><span id="renatus-version">—</span></div>
+          <div class="row"><span>Renatus_Admin</span><span id="admin-version">—</span></div>
+          <div class="buttons"><button id="install-admin">Installer Renatus_Admin</button></div>
+          <p class="hint" id="admin-hint"></p>
+        </div>
+        <div class="card">
+          <div class="label">Journal de l'addon</div>
+          <div class="row"><span>Événements</span><span id="events">—</span></div>
+          <div class="row"><span>Auteurs (membres équipés)</span><span id="authors">—</span></div>
+          <div class="row"><span>Dernière écriture du jeu</span><span id="saved-at">—</span></div>
+          <div class="row"><span>Journaux de combat</span><span id="combat-logs">—</span></div>
+          <p class="error" id="sv-error" hidden></p>
+        </div>
+        <div class="card">
+          <div class="label">En attente en jeu</div>
+          <div class="big" id="pending">0</div>
+          <p class="hint">Éléments proposés dans Press.lua. En jeu : <b>/reload</b>, puis l'icône clé d'administration (ou <b>/radmin</b>), onglet <b>Rédaction</b>, pour publier ou ignorer.</p>
+          <div class="buttons">
+            <button id="deaths">Analyser les journaux de combat</button>
+            <button id="reload">Actualiser</button>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="label">Journal de l'application</div>
+        <pre id="log" class="log"></pre>
+      </div>
+    </section>
+
+    <!-- Guilde rivale -->
+    <section class="page" id="page-rival" hidden>
+      <div class="card">
+        <div class="label">Guilde rivale (nom ou lien de l'armurerie)</div>
+        <div class="buttons wide">
+          <input id="rival" type="text" placeholder="https://armorywowforever.com/g/forever/eu/pvp/...">
+          <button id="refresh-rival">Actualiser depuis l'armurerie</button>
+        </div>
+        <p class="hint">L'app propose en jeu le réglage de guilde (guilde rivale pour tous les membres) et l'effectif relevé sur l'armurerie, avec la fiche détaillée des ennemis déjà connus. Rien n'est diffusé sans « Publier » en jeu : <b>/reload</b>, icône clé (ou <b>/radmin</b>), onglet <b>Guilde rivale</b> (réservé aux officiers).</p>
+        <div class="row"><span>Réglage en vigueur dans la guilde</span><span id="configured-rival">—</span></div>
+      </div>
+      <div class="card">
+        <div class="label" id="roster-title">Effectif</div>
+        <table id="roster">
+          <thead><tr><th>Personnage</th><th>Niv.</th><th>Classe</th><th>Race</th><th>Rang</th><th>Connu</th></tr></thead>
+          <tbody></tbody>
+        </table>
+        <p class="hint" id="roster-empty">Pas encore relevé.</p>
+      </div>
+    </section>
+
+    <!-- Gazette -->
+    <section class="page" id="page-gazette" hidden>
+      <div class="card">
+        <div class="label">Gazette IA de la semaine</div>
+        <p class="hint">Seuls les événements partagés des membres qui ont coché « La gazette rédigée par IA peut parler de moi » sont envoyés. Les rivaux sont anonymisés. Les articles douteux sont rejetés.</p>
+        <div class="buttons">
+          <button id="preview">Voir ce qui serait envoyé</button>
+          <button id="write-gazette">Rédiger avec l'IA</button>
+        </div>
+        <pre id="preview-summary"></pre>
+        <pre id="preview-prompt" class="prompt" hidden></pre>
+      </div>
+      <div class="card">
+        <div class="label">Articles écrits à la main</div>
+        <div class="path" id="articles-dir">—</div>
+        <div class="buttons">
+          <button id="pick-articles">Choisir le dossier</button>
+          <button id="open-articles">Ouvrir</button>
+          <button id="articles">Proposer les articles</button>
+        </div>
+        <p class="hint">Un fichier .md par article : un en-tête <code>title:</code>, <code>format:</code>, <code>style:</code>, <code>refs:</code> entre deux lignes <code>---</code>, puis le texte.</p>
+      </div>
+    </section>
+
+    <!-- Réglages -->
+    <section class="page" id="page-settings" hidden>
+      <div class="card">
+        <div class="label">Dossier du jeu</div>
+        <div class="path" id="wow">—</div>
+        <div class="buttons">
+          <button id="pick-wow">Changer</button>
+          <button id="open-addons">Ouvrir AddOns</button>
+        </div>
+        <div class="field">
+          <span>Compte</span>
+          <select id="account"><option value="">Automatique</option></select>
+        </div>
+      </div>
+      <div class="card">
+        <div class="label">IA</div>
+        <div class="field column">
+          <span>Commande (liste JSON) qui lit la demande sur l'entrée standard</span>
+          <textarea id="llm-command" rows="3" spellcheck="false"></textarea>
+        </div>
+        <div class="field"><span>Délai maximum (secondes)</span><input id="llm-timeout" type="number" min="30" max="3600"></div>
+      </div>
+      <div class="card">
+        <label><input type="checkbox" id="auto"> Automatique : après chaque /reload, analyser les journaux de combat et relever l'armurerie une fois par jour</label>
+        <label><input type="checkbox" id="auto-gazette"> Rédiger aussi la gazette IA, une fois par semaine</label>
+        <label><input type="checkbox" id="test-channel"> Installer les versions de test de Renatus_Admin</label>
+        <div class="buttons"><button id="save-settings">Enregistrer</button></div>
+        <p id="settings-message"></p>
+      </div>
+    </section>
+  </main>
+
+  <footer>Renatus Admin <span id="version"></span> · garder la fenêtre ouverte pendant le jeu pour l'automatique</footer>
+</body>
+</html>
