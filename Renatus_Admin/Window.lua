@@ -176,11 +176,17 @@ local function buildDiag(f, page)
     page.unsupported:SetPoint("TOPLEFT", 370, -64)
     page.unsupported:SetWidth(340)
 
+    local gs = UI.Section(page, "Réglages de guilde", 330)
+    gs:SetPoint("TOPLEFT", 0, -150)
+    page.guildInfo = UI.Text(page, 11)
+    page.guildInfo:SetPoint("TOPLEFT", 0, -178)
+    page.guildInfo:SetWidth(BODY_W)
+
     local tools = UI.Section(page, "Outils", 330)
-    tools:SetPoint("TOPLEFT", 0, -160)
+    tools:SetPoint("TOPLEFT", 0, -300)
     page.demo = UI.Checkbox(page, "Mode démo dans ma fenêtre Renatus (données fictives, rien n'est sauvegardé)",
         function(v) R.char.ui.demo = v; R.UI.Refresh() end)
-    page.demo:SetPoint("TOPLEFT", 0, -190)
+    page.demo:SetPoint("TOPLEFT", 0, -330)
 
     function page:Refresh()
         if R.Sync then
@@ -201,6 +207,7 @@ local function buildDiag(f, page)
         table.sort(list)
         self.unsupported:SetText(#list > 0 and ("Événements indisponibles sur ce client : " .. table.concat(list, ", ")) or "")
         self.demo:SetChecked(R.char.ui.demo)
+        self.guildInfo:SetText(table.concat(GC.Diagnose(), "\n"))
     end
 end
 

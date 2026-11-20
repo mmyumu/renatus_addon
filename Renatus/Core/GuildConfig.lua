@@ -64,6 +64,41 @@ end
 
 function GuildConfig.Invalidate() cache = nil end
 
+-- Why each GUILD_CONFIG event counts or not (admin diagnostics). Returns text lines.
+function GuildConfig.Diagnose()
+    local lines = {}
+    local guildKey = ns.Context.GuildKey()
+    local roster = ns.Store.Roster()
+    local _, _, myRank = ns.Try(GetGuildInfo, "player")
+    local _, me = ns.Context.Me()
+    table.insert(lines, ("Guilde : %s"):format(tostring(guildKey)))
+    table.insert(lines, ("Liste de guilde : %d membre(s)%s"):format(#roster,
+        #roster == 0 and " (pas encore reçue du jeu)" or ""))
+    table.insert(lines, ("Ton rang (jeu) : %s  ·  dans la liste : %s"):format(tostring(myRank),
+        tostring(me and rankOf(me))))
+    local n = 0
+    for _, ev in pairs(ns.db.events) do
+        if ev.k == "GUILD_CONFIG" then
+            n = n + 1
+            local why
+            if ev.vis ~= "G" then why = "non partagé"
+            elseif ev.del then why = "supprimé"
+            elseif ev.g ~= guildKey then why = ("autre guilde (%s)"):format(tostring(ev.g))
+            elseif type(ev.p) ~= "table" then why = "contenu invalide"
+            else
+                local r = rankOf(ev.n)
+                if r == nil then why = ("%s absent de la liste de guilde"):format(tostring(ev.n))
+                elseif not GuildConfig.IsOfficerRank(r) then why = ("%s est de rang %d"):format(tostring(ev.n), r)
+                else why = "valable" end
+            end
+            table.insert(lines, ("<%s> par %s, %s : %s"):format(tostring(ev.p and ev.p.rival or "aucune"),
+                tostring(ev.n), date("%d/%m %H:%M", ev.t or 0), why))
+        end
+    end
+    if n == 0 then table.insert(lines, "Aucun réglage de guilde reçu.") end
+    return lines
+end
+
 -- Rival guild name: the guild setting, otherwise the one this character entered
 -- before guild settings existed (kept so nothing is lost on update).
 function GuildConfig.Rival()

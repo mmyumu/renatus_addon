@@ -916,7 +916,9 @@ test("liste de guilde demandee au jeu : le reglage d'un officier s'applique sans
     Stub.advance(1)
     receivedConfig(ns, BOB, 1, 1000, "Les Crocs de Sang")
     eq(ns.GuildConfig.Rival(), "Les Crocs de Sang")
-    assert(A.Press, "admin charge")
+    A.Open("diag")
+    local diag = A.window.pages.diag.guildInfo:GetText()
+    assert(diag:find("Liste de guilde : 3 membre") and diag:find("valable") and diag:find("dans la liste : 1"), diag)
 end)
 
 test("reglage d'un non-officier ignore ; le plus recent gagne ; officier retrogade ignore", function()
