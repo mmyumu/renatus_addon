@@ -66,7 +66,7 @@ local function fillPoster(f, poster)
     f.reason:SetText(ev.p.reason or "")
     f.reward:SetText(ev.p.reward and ("Prime : " .. ev.p.reward) or "")
     local record = e and ("V " .. Views.Total(e.wins) .. "  ·  D " .. Views.Total(e.losses) .. "  ·  ") or ""
-    f.foot:SetText(record .. "affiché par " .. (ev.n or "?"))
+    f.foot:SetText(record .. "affiché par " .. Types.Who(ev))
 end
 
 ------------------------------------------------------------------------
@@ -239,7 +239,7 @@ local function build(c)
             if i > 30 then break end
             local prov = Types.PROVENANCE[ev.prov] or Types.PROVENANCE.OBS
             local text = Types.Describe(ev, true)
-            if ev.k == "DEATH" then text = (ev.n or "?") .. " meurt, " .. e.name .. " présent" end
+            if ev.k == "DEATH" then text = Types.Who(ev) .. " meurt, " .. e.name .. " présent" end
             local provLabel = ev.k == "DEATH" and "supposé" or string.lower(prov.label)
             table.insert(R, ("|cff999999%s|r  %s  |c%s[%s]|r"):format(UI.Date(ev.t), text,
                 UI.ColorHex(prov.color[1], prov.color[2], prov.color[3]), provLabel))

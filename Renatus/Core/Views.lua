@@ -8,6 +8,8 @@ local DAY = 86400
 local AGGREGATE_WINDOW = 15 * 60
 
 local function lower(s) return s and string.lower(s) or "" end
+-- Author display name (full roster name on WoW Forever).
+local function who(ev) return ns.Types.Who(ev) end
 
 function Views.Now() return (GetServerTime and GetServerTime()) or time() end
 
@@ -61,10 +63,10 @@ function Views.Aggregate(events)
             table.insert(group.events, ev)
             if not group.seen[ev.a] then
                 group.seen[ev.a] = true
-                table.insert(group.authors, ev.n or "?")
+                table.insert(group.authors, who(ev))
             end
         else
-            local item = { ev = ev, events = { ev }, authors = { ev.n or "?" }, seen = { [ev.a] = true } }
+            local item = { ev = ev, events = { ev }, authors = { who(ev) }, seen = { [ev.a] = true } }
             if ev.occ then byOcc[ev.occ] = item end
             table.insert(items, item)
         end
@@ -216,20 +218,20 @@ function Views.Enemies(ds)
             if p.level then see(e, "level", p.level, ev.t) end
             if ev.k == "ENEMY_SEEN" or ev.k == "PVP_CLASH" then
                 e.lastSeen, e.lastZone = ev.t, ns.Types.Zone(ev)
-                e.members[p.member or ev.n or "?"] = true
+                e.members[p.member or who(ev)] = true
                 table.insert(e.encounters, 1, ev)
             end
             if ev.k == "PVP_CLASH" then
                 if p.result == "win" then e.wins[ev.prov] = (e.wins[ev.prov] or 0) + 1
                 elseif p.result == "loss" then
                     e.losses[ev.prov] = (e.losses[ev.prov] or 0) + 1
-                    e.killedMembers[p.member or ev.n or "?"] = true
+                    e.killedMembers[p.member or who(ev)] = true
                 end
             end
             if ev.k == "ENEMY_NOTE" then
-                if p.nickname then table.insert(e.nicknames, 1, { text = p.nickname, by = ev.n, t = ev.t }) end
-                if p.note then table.insert(e.notes, 1, { text = p.note, by = ev.n, t = ev.t, prov = ev.prov }) end
-                if p.sworn then e.swornVotes[ev.n or "?"] = true end
+                if p.nickname then table.insert(e.nicknames, 1, { text = p.nickname, by = who(ev), t = ev.t }) end
+                if p.note then table.insert(e.notes, 1, { text = p.note, by = who(ev), t = ev.t, prov = ev.prov }) end
+                if p.sworn then e.swornVotes[ev.a or ev.n or "?"] = true end
             end
         elseif ev.k == "DEATH" then
             local k = type(p.killer) == "table" and p.killer or nil
@@ -241,9 +243,9 @@ function Views.Enemies(ds)
                 see(e, "race", k.ra, ev.t)
                 see(e, "realm", k.r, ev.t)
                 e.lastSeen, e.lastZone = ev.t, ns.Types.Zone(ev)
-                e.members[ev.n or "?"] = true
+                e.members[who(ev)] = true
                 e.losses[ev.prov] = (e.losses[ev.prov] or 0) + 1
-                e.killedMembers[ev.n or "?"] = true
+                e.killedMembers[who(ev)] = true
                 table.insert(e.encounters, 1, ev)
             end
             for _, name in ipairs(p.enemies or {}) do
@@ -336,7 +338,7 @@ function Views.Articles(events, meGuid)
         if ev.k == "ARTICLE" then
             local p = ev.p or {}
             local a = { id = ev.id, t = ev.t, kind = p.format, title = p.title, body = p.body, style = p.style,
-                refs = ev.refs, author = ev.n, ia = (p.ia == true) or nil, week = Views.WeekKey(ev.t), votes = 0, ev = ev }
+                refs = ev.refs, author = who(ev), ia = (p.ia == true) or nil, week = Views.WeekKey(ev.t), votes = 0, ev = ev }
             byId[ev.id] = a
             table.insert(list, a)
         end

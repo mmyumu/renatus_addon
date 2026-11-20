@@ -57,7 +57,7 @@ local function rowTooltip(row)
         table.insert(lines, { "Confirmé par : " .. table.concat(item.authors, ", "), 0.55, 0.85, 0.55 })
     end
     local pt = participantsText(ev)
-    if pt then table.insert(lines, { "Présents selon " .. (ev.n or "?") .. " : " .. pt, 0.8, 0.8, 0.8 }) end
+    if pt then table.insert(lines, { "Présents selon " .. Types.Who(ev) .. " : " .. pt, 0.8, 0.8, 0.8 }) end
     if ev.k == "EXPEDITION" and ev.p then
         if ev.p.bossNames then table.insert(lines, { "Boss : " .. table.concat(ev.p.bossNames, ", "), 1, 0.82, 0 }) end
         if ev.p.others then table.insert(lines, { ev.p.others .. " joueur(s) hors guilde dans le groupe", 0.8, 0.8, 0.8 }) end
@@ -75,7 +75,7 @@ local function rowTooltip(row)
     end
     if ev.rx then
         table.insert(lines, { ev.rx.direct and ("Reçu directement de " .. tostring(ev.rx.by))
-            or ("Relayé par " .. tostring(ev.rx.by) .. " (copie de l'original de " .. tostring(ev.n) .. ")"), 0.6, 0.6, 0.6 })
+            or ("Relayé par " .. tostring(ev.rx.by) .. " (copie de l'original de " .. Types.Who(ev) .. ")"), 0.6, 0.6, 0.6 })
     end
     if ev.vis == "P" then table.insert(lines, { "Privé : visible uniquement par toi.", 0.6, 0.6, 0.6 }) end
     if ns.Store.CanDelete(ev) then table.insert(lines, { "Clic droit : supprimer", 1, 0.82, 0 }) end
@@ -119,7 +119,7 @@ local function updateRow(row, item, mode)
     if mode == "guild" and #item.authors > 1 then
         row.line1:SetText(Types.Describe(ev, false) .. "  |cff8fd88f(" .. #item.authors .. " membres)|r")
     elseif mode == "guild" then
-        row.line1:SetText(UI.ClassName(ev.n, ev.c) .. " " .. Types.Raw(ev))
+        row.line1:SetText(UI.ClassName(Types.Who(ev), ev.c) .. " " .. Types.Raw(ev))
     else
         row.line1:SetText(Types.Describe(ev, false))
     end
@@ -228,7 +228,7 @@ function UI.BuildTimeline(c, mode)
             items = Views.Aggregate(events)
         else
             items = {}
-            for i, ev in ipairs(events) do items[i] = { ev = ev, events = { ev }, authors = { ev.n } } end
+            for i, ev in ipairs(events) do items[i] = { ev = ev, events = { ev }, authors = { Types.Who(ev) } } end
         end
         self.list:SetItems(items, emptyText)
     end

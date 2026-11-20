@@ -173,12 +173,15 @@ function Types.Raw(ev)
 end
 
 -- Descriptive sentence. withName: "Brisépée atteint le niveau 20"; otherwise "Atteint le niveau 20".
+-- Author name to display (full roster name on WoW Forever, see Store.DisplayName).
+function Types.Who(ev)
+    if not ev or not ev.n then return "?" end
+    return ns.Store and ns.Store.DisplayName and ns.Store.DisplayName(ev.a, ev.n) or ev.n
+end
+
 function Types.Describe(ev, withName)
     local text = Types.Raw(ev)
-    if withName then
-        local name = ev.n and ns.Store and ns.Store.DisplayName and ns.Store.DisplayName(ev.a, ev.n) or ev.n
-        return (name or "?") .. " " .. text
-    end
+    if withName then return Types.Who(ev) .. " " .. text end
     return (text:gsub("^%l", string.upper))
 end
 

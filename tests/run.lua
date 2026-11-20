@@ -949,6 +949,9 @@ test("WoW Forever : onglet Membres, prenom + nom, sans doublon", function()
     eq(list[2].display, "Bob Martin")
     local ev = eventsOf(ns, "LEVEL_UP")[1]
     assert(ns.Types.Describe(ev, true):find("^Testeur Dupont "), ns.Types.Describe(ev, true))
+    ns.UI.Open("guild")
+    local line = RenatusMainFrame.containers.guild.list.rows[1].line1:GetText()
+    assert(line:find("Testeur Dupont"), line)
 end)
 
 test("reglage d'un non-officier ignore ; le plus recent gagne ; officier retrogade ignore", function()
