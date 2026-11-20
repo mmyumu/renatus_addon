@@ -236,6 +236,7 @@ end
 
 test("passage de niveau : un evenement prive, observe, avec lieu", function()
     local ns = boot({ specIndex = 1 })
+    ns.char.privacy.progression = "P"
     Stub.fire("PLAYER_LEVEL_UP", 21)
     local list = eventsOf(ns, "LEVEL_UP")
     eq(#list, 1)
@@ -247,6 +248,27 @@ test("passage de niveau : un evenement prive, observe, avec lieu", function()
     eq(ev.loc.z, "Forêt d'Elwynn")
     eq(ev.loc.xy[1], 500)
     eq(ev.g, "Les Testeurs-Forever")
+end)
+
+test("confidentialite : partage avec la guilde par defaut, anciens personnages migres", function()
+    local ns = boot({ specIndex = 1 })
+    for _, cat in ipairs(ns.Types.CATEGORIES) do eq(ns.char.privacy[cat.key], "G", cat.key) end
+    Stub.fire("PLAYER_LEVEL_UP", 21)
+    eq(eventsOf(ns, "LEVEL_UP")[1].vis, "G")
+    -- character saved before the new default: "P" becomes "G", "OFF" is kept, told once
+    local ns2, S = boot({ specIndex = 1, savedChar = { schema = 1, exportConsent = false, consentChosen = true,
+        privacy = { progression = "P", combat = "OFF", pvp = "G" } } })
+    eq(ns2.char.privacy.progression, "G"); eq(ns2.char.privacy.combat, "OFF"); eq(ns2.char.privacy.pvp, "G")
+    eq(ns2.char.privacy.album, "G", "categorie absente : nouveau defaut")
+    eq(ns2.char.schema, 2)
+    local told = false
+    for _, line in ipairs(S.printed) do if line:find("partagés avec la guilde par défaut") then told = true end end
+    assert(told, "message au chargement")
+    -- next login: no migration, no message, a private choice is kept
+    ns2.char.privacy.progression = "P"
+    local _, S3 = boot({ specIndex = 1, savedAccount = RenatusDB, savedChar = RenatusCharDB })
+    eq(RenatusCharDB.privacy.progression, "P")
+    for _, line in ipairs(S3.printed) do assert(not line:find("par défaut"), "message une seule fois") end
 end)
 
 test("categorie desactivee : rien n'est enregistre", function()
@@ -557,6 +579,7 @@ end)
 test("evenement public diffuse, evenement prive jamais", function()
     local ns, S = boot({ specIndex = 1, me = ALICE })
     ns.char.privacy.combat = "G"
+    ns.char.privacy.progression = "P"
     Stub.fire("PLAYER_DEAD")
     Stub.fire("PLAYER_LEVEL_UP", 21)       -- progression: private
     Stub.advance(2)
@@ -1246,7 +1269,7 @@ test("menu Options du jeu : page principale et sous-page Voix", function()
     for _, c in ipairs(reg.controls) do
         if c.category == reg.categories[1] then main = main + 1 else voice = voice + 1 end
     end
-    eq(main, 3 + #ns.Types.CATEGORIES, "minicarte, consentement, album + confidentialite")
+    eq(main, 4 + #ns.Types.CATEGORIES, "minicarte, icone gazette, consentement, album + confidentialite")
     eq(voice, 8 + 10, "voix : 8 reglages + 10 familles")
     -- privacy: same table as everywhere
     reg.byVar.Renatus_privacy_combat:SetValue("G")
@@ -1438,6 +1461,7 @@ end
 
 test("supprimer une anecdote privee : clic droit dans le journal, confirmation", function()
     local ns = boot({ specIndex = 1 })
+    ns.char.privacy.anecdote = "P"
     local ev = ns.Store.AddManual("ANECDOTE", { title = "Le saut raté", desc = "La falaise a gagné." })
     ns.UI.Open("journal")
     local c = RenatusMainFrame.containers.journal
@@ -1506,6 +1530,86 @@ test("suppression : seulement mes saisies manuelles ; en demo aussi", function()
     assert(inDataset(ns, ev.id))
     assert(ns.Store.Delete(ev.id))
     eq(inDataset(ns, ev.id), false)
+end)
+
+test("visibilite : partager un evenement prive, puis le rendre prive (synchro, tombstone)", function()
+    local ns, S = boot({ specIndex = 1, me = ALICE })
+    ns.char.privacy.combat = "P"
+    Stub.fire("PLAYER_DEAD")
+    local death = eventsOf(ns, "DEATH")[1]
+    eq(death.vis, "P")
+    local note = ns.Store.Add("DEATH_CAUSE", { victim = death.id, cause = "x" }, { refs = { death.id } })
+    eq(ns.Store.CanMakePrivate(death), false); eq(ns.Store.CanShare(death), true)
+    -- right click in the journal: dialog, share
+    ns.UI.Open("journal")
+    local c = RenatusMainFrame.containers.journal
+    local row
+    for _, r in ipairs(c.list.rows) do if r.item and r.item.ev.id == death.id then row = r end end
+    assert(row, "ligne de la mort")
+    row.scripts.OnClick(row, "RightButton")
+    local d = ns.UI.Dialogs.EventActions(death)
+    eq(d.delete, nil, "evenement observe : pas de suppression")
+    eq(d.visibility.label:GetText(), "Partager avec la guilde")
+    d.visibility:Click()
+    eq(ns.db.events[death.id], nil, "copie privee retiree")
+    local shared = eventsOf(ns, "DEATH")[1]
+    eq(shared.vis, "G"); eq(shared.id, ALICE.guid .. ":" .. shared.s); eq(shared.t, death.t, "date conservee")
+    eq(shared.loc.z, death.loc.z)
+    if note then eq(ns.db.events[note.id].refs[1], shared.id, "references suivies") end
+    Stub.advance(5)
+    local sent = S.sent
+    local aliceDB, aliceChar = RenatusDB, RenatusCharDB
+    -- Bob receives it
+    local nsB = boot({ specIndex = 1, me = BOB })
+    Stub.deliver(sent, "Alice-Forever")
+    assert(nsB.db.events[shared.id] and not nsB.db.events[shared.id].del, "recu par Bob")
+    local bobDB, bobChar = RenatusDB, RenatusCharDB
+    -- Alice makes it private again
+    local ns2, S2 = boot({ specIndex = 1, me = ALICE, savedAccount = aliceDB, savedChar = aliceChar })
+    local ev = ns2.db.events[shared.id]
+    local d2 = ns2.UI.Dialogs.EventActions(ev)
+    eq(d2.visibility.label:GetText(), "Rendre privé")
+    d2.visibility:Click()
+    eq(ns2.db.events[shared.id].del, true, "copie partagee videe")
+    local priv = {}
+    for _, e in ipairs(eventsOf(ns2, "DEATH")) do if not e.del then priv[#priv + 1] = e end end
+    eq(#priv, 1); eq(priv[1].vis, "P"); eq(priv[1].t, death.t)
+    Stub.advance(5)
+    boot({ specIndex = 1, me = BOB, savedAccount = bobDB, savedChar = bobChar })
+    Stub.deliver(S2.sent, "Alice-Forever")
+    eq(RenatusDB.events[shared.id].del, true, "videe chez Bob")
+end)
+
+test("visibilite : bouton « partager mes evenements passes », categories Guilde seulement", function()
+    local ns = boot({ specIndex = 1 })
+    ns.char.privacy.combat = "P"; ns.char.privacy.progression = "P"
+    Stub.fire("PLAYER_DEAD"); Stub.fire("PLAYER_DEAD")
+    Stub.fire("PLAYER_LEVEL_UP", 21)
+    ns.char.privacy.combat = "G"                 -- progression stays private
+    local c = ns.UI.Options.fallbackPanel
+    c.sharePast:Click()
+    local deaths = eventsOf(ns, "DEATH")
+    eq(#deaths, 2); eq(deaths[1].vis, "G"); eq(deaths[2].vis, "G")
+    assert(deaths[1].s ~= deaths[2].s)
+    eq(eventsOf(ns, "LEVEL_UP")[1].vis, "P", "categorie restee privee")
+    eq(ns.Store.SharePast(), 0, "rien de plus")
+    -- nothing that belongs to the newsroom or to someone else
+    local art = ns.Store.Add("ARTICLE", { title = "T", body = "B" }, { vis = "G", prov = "GEN", noExp = true })
+    eq(ns.Store.CanMakePrivate(art), false)
+    eq(ns.UI.Dialogs.EventActions(art), nil)
+end)
+
+test("mode demo : une saisie partagee ne consomme pas la vraie sequence", function()
+    local ns = boot({ specIndex = 1 })
+    eq(ns.char.privacy.anecdote, "G")
+    SlashCmdList.RENATUS("demo")
+    local ev = ns.Store.AddManual("ANECDOTE", { title = "Démo" })
+    assert(ev.id:find(":demo"), ev.id)
+    eq(ns.db.events[ev.id], nil, "jamais sauvegardee")
+    SlashCmdList.RENATUS("demo")
+    local real = ns.Store.AddManual("ANECDOTE", { title = "Vraie" })
+    eq(real.s, (ns.db.seq[real.a].public), "sequence publique sans trou")
+    eq(ns.Sync.Vector()[real.a].max, real.s)
 end)
 
 print("Fenetre : contenu seulement")
@@ -1753,6 +1857,47 @@ test("numeros : deux parutions la meme semaine = deux numeros ; evenements cites
         if row:IsShown() and row.item and (row.line2:GetText() or ""):find("Paru dans le n° " .. byKey.E1.number) then marked = marked + 1 end
     end
     eq(marked, 1, "l'evenement cite porte la mention")
+end)
+
+print("Notifications (icone de la gazette)")
+
+test("icone de la gazette : nouvel article, boosters, pastilles du menu", function()
+    local ns = boot({ specIndex = 1 })
+    local w = RenatusGazetteWidget
+    assert(w and w:IsShown(), "icone affichee")
+    eq(w.gazette:IsShown(), false, "rien de neuf dans la gazette")
+    eq(w.boosters.label:GetText(), "1", "booster du jour joue")
+    -- An article published by someone else arrives (sync).
+    local t = GetServerTime()
+    ns.Store.Insert({ v = 1, id = "Player-1-BOB:1", a = "Player-1-BOB", n = "Bob", s = 1, t = t, k = "ARTICLE",
+        g = ns.Context.GuildKey(), vis = "G", prov = "GEN", p = { title = "Scoop", body = "x" } })
+    Stub.advance(3)
+    eq(w.gazette:IsShown(), true, "pastille gazette")
+    eq(w.gazette.label:GetText(), "!")
+    eq(ns.UI.Notifier.Notices().gazette, 1)
+    -- Right click: album; its menu entry shows the boosters, the gazette's the news.
+    w.scripts.OnClick(w, "RightButton")
+    eq(ns.UI.current, "album")
+    local nav = RenatusMainFrame.navButtons
+    eq(nav.album.badge.label:GetText(), "1")
+    eq(nav.gazette.badge:IsShown(), true, "gazette signalee dans le menu")
+    -- Left click: gazette, read.
+    w.scripts.OnClick(w, "LeftButton")
+    eq(ns.UI.current, "gazette")
+    eq(ns.UI.Notifier.Notices().gazette, 0, "lu")
+    eq(w.gazette:IsShown(), false)
+    eq(nav.gazette.badge:IsShown(), false)
+    w.scripts.OnClick(w, "LeftButton")
+    eq(RenatusMainFrame:IsShown(), false, "second clic : ferme")
+    -- Opening the booster clears the album pip.
+    ns.UI.Open("album")
+    RenatusMainFrame.containers.album.booster.scripts.OnClick(RenatusMainFrame.containers.album.booster, "LeftButton")
+    eq(nav.album.badge:IsShown(), false, "plus de booster")
+    eq(w.boosters:IsShown(), false)
+    -- Option
+    ns.char.ui.showWidget = false
+    ns.UI.Notifier:Update()
+    eq(w:IsShown(), false, "masquable")
 end)
 
 print(string.format("\n%d ok, %d echec(s)", passed, failed))

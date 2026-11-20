@@ -220,6 +220,57 @@ function UI.Dialogs.Confirm(title, text, yesLabel, onYes)
     return f
 end
 
+-- Actions on one of the player's own events (right click in the journal): share it with
+-- the guild or make it private, delete it. nil when none applies.
+local actions
+function UI.Dialogs.EventActions(ev)
+    local Store = ns.Store
+    local share, private, delete = Store.CanShare(ev), Store.CanMakePrivate(ev), Store.CanDelete(ev)
+    if not (share or private or delete) then return nil end
+    if actions then actions:Hide() end
+    local what = ev.p and ev.p.title and ("« " .. ev.p.title .. " »") or ns.Types.Describe(ev, false)
+    local f = CreateFrame("Frame", nil, UI.GetWindow())
+    actions = f
+    f:SetFrameStrata("DIALOG")
+    f:SetToplevel(true)
+    f:EnableMouse(true)
+    f:SetPoint("CENTER")
+    f:SetSize(460, 170)
+    UI.Skin(f, "window")
+    local t = UI.Title(f, 18)
+    t:SetPoint("TOPLEFT", 26, -24)
+    t:SetText(share and "Événement privé" or private and "Événement partagé" or "Mon événement")
+    local body = UI.Text(f, 12)
+    body:SetPoint("TOPLEFT", 26, -54)
+    body:SetWidth(408)
+    body:SetText(what .. "\n\n" .. (share and "Visible par toi seul. Le partager l'envoie aux membres de la guilde équipés de l'addon (et à la gazette, si tu l'acceptes)."
+        or private and "Partagé avec la guilde. Le rendre privé efface la copie des autres membres ; une copie déjà lue ne peut pas être reprise."
+        or ""))
+    f.text = body
+    local no = UI.Button(f, "Annuler", 90, 24, function() f:Hide() end)
+    no:SetPoint("BOTTOMRIGHT", -26, 24)
+    f.no = no
+    local anchor = no
+    if delete then
+        f.delete = UI.Button(f, "Supprimer", 100, 24, function()
+            f:Hide()
+            UI.Dialogs.Delete(ev)
+        end)
+        f.delete:SetPoint("RIGHT", anchor, "LEFT", -8, 0)
+        anchor = f.delete
+    end
+    if share or private then
+        f.visibility = UI.Button(f, share and "Partager avec la guilde" or "Rendre privé", 170, 24, function()
+            f:Hide()
+            if share then Store.Share(ev.id) else Store.MakePrivate(ev.id) end
+            UI.Refresh()
+        end)
+        f.visibility:SetPoint("RIGHT", anchor, "LEFT", -8, 0)
+    end
+    f:Show()
+    return f
+end
+
 -- Deletion of one of the player's own events, after confirmation.
 function UI.Dialogs.Delete(ev)
     if not ns.Store.CanDelete(ev) then return nil end

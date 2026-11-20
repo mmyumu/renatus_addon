@@ -6,10 +6,10 @@ local _, ns = ...
 local Settings = {}
 ns.Settings = Settings
 
-Settings.SCHEMA = 1
+Settings.SCHEMA = 2
 
 local ACCOUNT_DEFAULTS = {
-    schema = 1,
+    schema = 2,
     voiceDuck = {},   -- SFX volume to restore if the game exited during ducking
     events = {},      -- [id] = event (all characters of the account + received later through sync)
     seq = {},         -- [guid] = { public = n, private = n }
@@ -21,7 +21,7 @@ local ACCOUNT_DEFAULTS = {
 }
 
 local CHAR_DEFAULTS = {
-    schema = 1,
+    schema = 2,
     voice = {
         -- Renacoach is a "just for fun" option: disabled by default.
         enabled = false,
@@ -39,9 +39,10 @@ local CHAR_DEFAULTS = {
         },
     },
     -- Privacy per category: "OFF" (not recorded), "P" (private), "G" (guild).
-    -- "G": shared with guild members who have the addon (sync).
+    -- "G": shared with guild members who have the addon (sync). Sharing is the point of the
+    -- addon, so it is the default; each member can make a category private or turn it off.
     privacy = {
-        progression = "P", combat = "P", exploration = "P", social = "P", pvp = "P", anecdote = "P", gazette = "P", album = "P",
+        progression = "G", combat = "G", exploration = "G", social = "G", pvp = "G", anecdote = "G", gazette = "G", album = "G",
     },
     exportConsent = true,    -- AI gazette may talk about me (on by default, can be unticked)
     consentChosen = false,   -- the member ticked or unticked it themselves
@@ -55,6 +56,9 @@ local CHAR_DEFAULTS = {
         tab = "gazette",
         showMinimap = true,
         minimapAngle = 200,
+        showWidget = true,       -- gazette icon with notices (UI/Notifier.lua)
+        -- widgetPoint = nil     -- its position
+        -- gazetteSeen = nil     -- time of the latest article read
         demo = false,
     },
 }
@@ -76,6 +80,17 @@ Settings.applyDefaults = applyDefaults
 -- Migrations: MIGRATIONS[n] upgrades a table from schema n-1 to schema n.
 local MIGRATIONS = {}
 
+-- 2: privacy defaults to "G". Characters still on the old default "P" switch to "G"
+-- ("OFF" was necessarily chosen and is kept); they are told once at load.
+MIGRATIONS[2] = function(db)
+    if type(db.privacy) ~= "table" then return end
+    local changed = false
+    for cat, mode in pairs(db.privacy) do
+        if mode == "P" then db.privacy[cat] = "G"; changed = true end
+    end
+    if changed then Settings.privacyNowShared = true end
+end
+
 local function migrate(db)
     db.schema = db.schema or Settings.SCHEMA
     while db.schema < Settings.SCHEMA do
@@ -94,4 +109,8 @@ function Settings:Load()
     applyDefaults(RenatusCharDB, CHAR_DEFAULTS)
     ns.db = RenatusDB
     ns.char = RenatusCharDB
+    if Settings.privacyNowShared then
+        ns.Print("tes événements sont désormais partagés avec la guilde par défaut. "
+            .. "Pour garder une catégorie pour toi : Échap > Options > AddOns > Renatus.")
+    end
 end

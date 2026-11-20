@@ -2,7 +2,7 @@
 ## Title: Renatus - Administration
 ## Notes: Pour les officiers : fenetre d'administration a part (icone cle, /radmin) : redaction de la gazette, guilde rivale, diagnostics. Les membres n'en ont pas besoin.
 ## Author: Dakey
-## Version: 0.12.0-test.2
+## Version: 0.12.0-test.3
 ## RequiredDeps: Renatus
 
 Press.lua

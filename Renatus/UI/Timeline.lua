@@ -83,7 +83,11 @@ local function rowTooltip(row)
         table.insert(lines, { "Paru dans la gazette n° " .. issue.number .. " (" .. string.lower(issue.label) .. ")", 0.83, 0.63, 0.09 })
     end
     if ev.vis == "P" then table.insert(lines, { "Privé : visible uniquement par toi.", 0.6, 0.6, 0.6 }) end
-    if ns.Store.CanDelete(ev) then table.insert(lines, { "Clic droit : supprimer", 1, 0.82, 0 }) end
+    local hint = {}
+    if ns.Store.CanShare(ev) then hint[#hint + 1] = "partager avec la guilde" end
+    if ns.Store.CanMakePrivate(ev) then hint[#hint + 1] = "rendre privé" end
+    if ns.Store.CanDelete(ev) then hint[#hint + 1] = "supprimer" end
+    if #hint > 0 then table.insert(lines, { "Clic droit : " .. table.concat(hint, ", "), 1, 0.82, 0 }) end
     return Types.Describe(ev, true), lines
 end
 
@@ -110,10 +114,10 @@ local function createRow(row)
     sep:SetPoint("BOTTOMLEFT")
     sep:SetPoint("BOTTOMRIGHT")
     UI.Tooltip(row, rowTooltip)
-    -- Right click on one of your own hand-entered events: delete it.
+    -- Right click on one of your own events: share / make private, delete.
     row:RegisterForClicks("LeftButtonUp", "RightButtonUp")
     row:SetScript("OnClick", function(self, button)
-        if button == "RightButton" and self.item then UI.Dialogs.Delete(self.item.ev) end
+        if button == "RightButton" and self.item then UI.Dialogs.EventActions(self.item.ev) end
     end)
 end
 

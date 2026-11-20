@@ -242,6 +242,7 @@ local function build(c)
         end
         showReveal(got, ds.collection)
         c:Refresh()
+        UI.Notifier:Refresh(ds)
     end)
     c.booster:SetPoint("TOPRIGHT", -4, -6)
     UI.Tooltip(c.booster, function()

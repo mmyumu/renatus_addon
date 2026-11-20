@@ -20,6 +20,14 @@ local MODES = {
     { "P", "Privé" },
     { "G", "Guilde" },
 }
+local SHARE_PAST_HELP = "Partage avec la guilde tes événements déjà enregistrés en privé, pour les catégories réglées sur « Guilde ». Un événement à la fois : clic droit dessus dans Mon journal."
+
+local function sharePast()
+    local n = ns.Store.SharePast()
+    ns.Print(n > 0 and ("%d événement(s) passé(s) partagé(s) avec la guilde.") or "aucun événement privé à partager (catégories réglées sur « Guilde »).", n)
+    if UI.Refresh then UI.Refresh() end
+end
+
 local PRIVACY_HELP = "Désactivé : rien n'est enregistré. Privé : visible par toi seul. Guilde : partagé avec les membres équipés de l'addon."
 local CONSENT_HELP = "Si coché, tes événements partagés avec la guilde peuvent être envoyés à une IA (Claude) par l'application du rédacteur, pour écrire la gazette. Si décoché, rien de toi n'est envoyé et ton nom est retiré des faits des autres. Ton choix est partagé avec la guilde."
 
@@ -80,6 +88,10 @@ local function buildCanvas()
         y = y - 26
     end
     UI.Tooltip(priv, "Confidentialité", { PRIVACY_HELP })
+    f.sharePast = UI.Button(f, "Partager mes événements passés", 230, 22, sharePast)
+    f.sharePast:SetPoint("TOPLEFT", x, y - 2)
+    UI.Tooltip(f.sharePast, "Partager mes événements passés", { SHARE_PAST_HELP })
+    y = y - 30
     f.export = UI.Checkbox(f, "La gazette rédigée par IA peut parler de moi", function(v) ns.Consent.SetConsent(v) end)
     f.export:SetPoint("TOPLEFT", x, y)
     UI.Tooltip(f.export, "Gazette IA", { CONSENT_HELP })
@@ -88,13 +100,19 @@ local function buildCanvas()
         if UI.Minimap then UI.Minimap:Update() end
     end)
     f.minimap:SetPoint("TOPLEFT", x, y - 24)
+    f.widget = UI.Checkbox(f, "Icône de la gazette (nouveautés)", function(v)
+        ns.char.ui.showWidget = v
+        if UI.Notifier then UI.Notifier:Update() end
+    end)
+    f.widget:SetPoint("TOPLEFT", x, y - 48)
     f.optOut = UI.Checkbox(f, "Ne pas apparaître dans l'album des autres", function(v) ns.char.albumOptOut = v end)
-    f.optOut:SetPoint("TOPLEFT", x, y - 48)
+    f.optOut:SetPoint("TOPLEFT", x, y - 72)
 
     function f:Refresh()
-        for key, d in pairs(self.privacy) do d:SetValue(ns.char.privacy[key] or "P") end
+        for key, d in pairs(self.privacy) do d:SetValue(ns.char.privacy[key] or "G") end
         self.export:SetChecked(ns.char.exportConsent)
         self.minimap:SetChecked(ns.char.ui.showMinimap)
+        self.widget:SetChecked(ns.char.ui.showWidget)
         self.optOut:SetChecked(ns.char.albumOptOut)
     end
     f:SetScript("OnShow", function(self) self:Refresh() end)
@@ -164,10 +182,14 @@ local function buildNative()
     P.checkbox("showMinimap", char.ui, "showMinimap", "Bouton sur la minicarte", true,
         "Affiche le bouton de Renatus sur le bord de la minicarte. Renatus reste accessible par /renatus et par le menu des addons de la minicarte.",
         function() if UI.Minimap then UI.Minimap:Update() end end)
+    P.checkbox("showWidget", char.ui, "showWidget", "Icône de la gazette (nouveautés)", true,
+        "Petite icône déplaçable à l'écran : un « ! » rouge quand la gazette a de nouveaux articles, une pastille dorée avec le nombre de boosters à ouvrir. Clic gauche : la gazette ; clic droit : l'album.",
+        function() if UI.Notifier then UI.Notifier:Update() end end)
     P.header("Collecte et confidentialité")
     for _, cat in ipairs(ns.Types.CATEGORIES) do
-        P.dropdown("privacy_" .. cat.key, char.privacy, cat.key, cat.label, "P", MODES, PRIVACY_HELP)
+        P.dropdown("privacy_" .. cat.key, char.privacy, cat.key, cat.label, "G", MODES, PRIVACY_HELP)
     end
+    P.button("Événements passés", "Partager", SHARE_PAST_HELP, sharePast)
     P.checkbox("exportConsent", char, "exportConsent", "La gazette rédigée par IA peut parler de moi", true,
         CONSENT_HELP, function(v) ns.Consent.SetConsent(v) end)
     P.checkbox("albumOptOut", char, "albumOptOut", "Ne pas apparaître dans l'album des autres", false,

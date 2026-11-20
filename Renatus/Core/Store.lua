@@ -92,6 +92,7 @@ end
 -- Real storage
 ------------------------------------------------------------------------
 local cache -- sorted list (most recent first), invalidated on every insert
+local demoSeq = 0 -- ids of events added in demo mode (never saved)
 
 local function nextSeq(guid, public)
     local seq = ns.db.seq[guid] or { public = 0, private = 0 }
@@ -114,10 +115,19 @@ function Store.Build(kind, payload, opts)
     if mode == "OFF" then return nil end
     local guid, name, class = Context.Me()
     local public = (mode == "G")
-    local s = nextSeq(guid, public)
+    local s, id
+    if opts.demo then
+        -- Demo mode: never consume a real sequence number (the sync would see a gap)
+        -- nor reuse an id of the demo dataset.
+        demoSeq = demoSeq + 1
+        id = guid .. ":demo" .. demoSeq
+    else
+        s = nextSeq(guid, public)
+        id = public and (guid .. ":" .. s) or (guid .. ":p" .. s)
+    end
     local ev = {
         v = 1,
-        id = public and (guid .. ":" .. s) or (guid .. ":p" .. s),
+        id = id,
         a = guid, n = name, c = class,
         s = public and s or nil,
         t = opts.t or (GetServerTime and GetServerTime()) or time(),
@@ -182,6 +192,7 @@ function Store.AddManual(kind, payload, opts)
     opts = opts or {}
     opts.prov = opts.prov or "MAN"
     if ns.char.ui.demo then
+        opts.demo = true
         local ev = Store.Build(kind, payload, opts)
         if ev then ns.Demo:Insert(ev) end
         return ev
@@ -270,6 +281,77 @@ function Store.Delete(id)
     end
     local tomb = Store.Build("TOMBSTONE", {}, { vis = "G", prov = "MAN", refs = { id }, noExp = true, loc = {} })
     return Store.Insert(tomb) and true or false
+end
+
+------------------------------------------------------------------------
+-- Visibility of an existing event. An id carries its visibility (guid:n is in the
+-- public sequence, guid:pn is not), so changing it means a copy under a new id:
+--   private -> guild : public copy (next public sequence number), private one removed;
+--   guild -> private : private copy, and a TOMBSTONE empties the shared one everywhere.
+-- Date, place, payload and provenance are kept.
+------------------------------------------------------------------------
+local COPIED = { "t", "k", "g", "loc", "pt", "prov", "miss", "refs", "occ", "ded", "x", "src", "p" }
+
+local function ownVisible(ev)
+    return type(ev) == "table" and not ev.del and ev.a == Context.Me()
+        and not ns.Types.Get(ev.k).hidden and ev.prov ~= "GEN" and ev.prov ~= "EXT"
+end
+
+function Store.CanShare(ev) return ownVisible(ev) and ev.vis ~= "G" end
+function Store.CanMakePrivate(ev) return ownVisible(ev) and ev.vis == "G" end
+
+local function copyAs(ev, public)
+    local guid = Context.Me()
+    local s = nextSeq(guid, public)
+    local copy = { v = 1, a = ev.a, n = ev.n, c = ev.c, vis = public and "G" or "P", s = public and s or nil,
+        id = public and (guid .. ":" .. s) or (guid .. ":p" .. s) }
+    for _, f in ipairs(COPIED) do copy[f] = ev[f] end
+    return copy
+end
+
+-- Local references (refs) to the old id follow the copy.
+local function remap(old, new)
+    for _, e in pairs(ns.db.events) do
+        for i, r in ipairs(type(e.refs) == "table" and e.refs or {}) do
+            if r == old then e.refs[i] = new end
+        end
+    end
+end
+
+-- Returns the new event, or nil.
+function Store.Share(id)
+    if Store.Dataset().isDemo then return nil end
+    local ev = ns.db.events[id]
+    if not Store.CanShare(ev) then return nil end
+    local copy = copyAs(ev, true)
+    ns.db.events[id] = nil
+    remap(id, copy.id)
+    Store.Insert(copy)
+    return copy
+end
+
+function Store.MakePrivate(id)
+    if Store.Dataset().isDemo then return nil end
+    local ev = ns.db.events[id]
+    if not Store.CanMakePrivate(ev) then return nil end
+    local copy = copyAs(ev, false)
+    remap(id, copy.id)
+    Store.Insert(copy)
+    Store.Insert(Store.Build("TOMBSTONE", {}, { vis = "G", prov = "MAN", refs = { id }, noExp = true, loc = {} }))
+    return copy
+end
+
+-- Shares the current character's past private events of the categories set to "Guilde",
+-- oldest first. Returns how many.
+function Store.SharePast()
+    if Store.Dataset().isDemo then return 0 end
+    local list = {}
+    for _, ev in pairs(ns.db.events) do
+        if Store.CanShare(ev) and ns.char.privacy[ns.Types.Get(ev.k).cat] == "G" then list[#list + 1] = ev end
+    end
+    table.sort(list, function(a, b) if a.t ~= b.t then return a.t < b.t end return a.id < b.id end)
+    for _, ev in ipairs(list) do Store.Share(ev.id) end
+    return #list
 end
 
 -- Guild roster (members without the addon included, no statistics).

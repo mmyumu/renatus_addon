@@ -232,6 +232,35 @@ function UI.Icon(parent, size, path)
     return t
 end
 
+-- Notification pip: a round coloured badge with a short text ("3", "!").
+-- badge:Set(text) shows it, badge:Set(nil) hides it.
+function UI.Badge(parent, size, color)
+    local b = CreateFrame("Frame", nil, parent)
+    b:SetSize(size, size)
+    b:SetFrameLevel((parent:GetFrameLevel() or 1) + 5)
+    color = color or { 0.78, 0.1, 0.08 }
+    local disc = b:CreateTexture(nil, "ARTWORK")
+    disc:SetAllPoints()
+    disc:SetColorTexture(color[1], color[2], color[3], 1)
+    if disc.SetMask then pcall(disc.SetMask, disc, "Interface\\CharacterFrame\\TempPortraitAlphaMask") end
+    local rim = b:CreateTexture(nil, "OVERLAY")
+    rim:SetPoint("TOPLEFT", -size * 0.25, size * 0.25)
+    rim:SetPoint("BOTTOMRIGHT", size * 0.25, -size * 0.25)
+    rim:SetTexture(UI.MEDIA .. "ring")
+    b.label = UI.Text(b, math.floor(size * 0.62), { 1, 1, 1 }, UI.FONT_TITLE)
+    b.label:SetPoint("CENTER", 0, 0)
+    b.label:SetJustifyH("CENTER")
+    b.label:SetJustifyV("MIDDLE")
+    b.label:SetShadowOffset(1, -1)
+    function b:Set(text)
+        if text == nil then self:Hide() return end
+        self.label:SetText(tostring(text))
+        self:Show()
+    end
+    b:Hide()
+    return b
+end
+
 function UI.Tooltip(owner, title, lines)
     if not GameTooltip then return end
     owner:SetScript("OnEnter", function(self)

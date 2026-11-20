@@ -155,6 +155,10 @@ local function build()
         b.text:SetWordWrap(false)
         b.text:SetJustifyV("MIDDLE")
         b.text:SetText(tab.label)
+        -- Something new in this tab (UI/Notifier.lua): a pip on the right.
+        b.badge = UI.Badge(b, main and 20 or 16)
+        b.badge:SetPoint("RIGHT", -8, 0)
+        b.text:SetPoint("RIGHT", b.badge, "LEFT", -4, 0)
         b:SetScript("OnClick", function() UI.Click(); UI.ShowTab(tab.key) end)
         f.navButtons[tab.key] = b
 
@@ -220,6 +224,13 @@ function UI.ShowTab(key)
     UI.current = tab.key
     ns.char.ui.tab = tab.key
     if tab.refresh then tab.refresh(c) end
+    ns.EventBus.Publish("UI_TAB_SHOWN", tab.key)
+end
+
+-- Pip on a navigation entry (nil hides it). No-op until the window exists.
+function UI.SetNavBadge(key, text)
+    local b = window and window.navButtons[key]
+    if b then b.badge:Set(text) end
 end
 
 function UI.Refresh()
