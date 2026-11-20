@@ -18,11 +18,12 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_notification::NotificationExt;
-use tauri_plugin_updater::UpdaterExt;
+use tauri_plugin_updater::{Update, UpdaterExt};
 
 const WATCH_EVERY: Duration = Duration::from_secs(20);
 const ARMORY_EVERY: i64 = 24 * 3600;
 const MAX_LOG: usize = 300;
+const APP_UPDATE_EVERY: Duration = Duration::from_secs(3600);
 
 struct Shared {
     state: Mutex<State>,
@@ -38,6 +39,8 @@ struct State {
     busy: Option<String>,
     sv_seen: Option<SystemTime>,
     admin_available: Option<String>,
+    /// Newer version of this app, found by the updater (installed on demand).
+    app_update: Option<String>,
 }
 
 #[derive(Serialize, Clone)]
@@ -79,6 +82,7 @@ struct View {
     busy: Option<String>,
     admin_available: Option<String>,
     app_version: String,
+    app_update: Option<String>,
 }
 
 fn view(app: &AppHandle) -> View {
@@ -124,6 +128,7 @@ fn view(app: &AppHandle) -> View {
         busy: s.busy.clone(),
         admin_available: s.admin_available.clone(),
         app_version: app.package_info().version.to_string(),
+        app_update: s.app_update.clone(),
     }
 }
 
@@ -536,21 +541,83 @@ async fn check_admin_release(app: AppHandle) {
     }
 }
 
-async fn self_update(app: &AppHandle) -> Result<(), String> {
+/// Looks for a newer signed release of this app; records it for the window.
+async fn find_app_update(app: &AppHandle) -> Result<Option<Update>, String> {
     let update = app
         .updater()
         .map_err(|e| e.to_string())?
         .check()
         .await
         .map_err(|e| e.to_string())?;
-    if let Some(update) = update {
-        update
-            .download_and_install(|_, _| {}, || {})
-            .await
-            .map_err(|e| e.to_string())?;
-        app.restart();
+    app.state::<Shared>().state.lock().unwrap().app_update =
+        update.as_ref().map(|u| u.version.clone());
+    publish_view(app);
+    Ok(update)
+}
+
+/// Installs the update and restarts the app (does not return when it succeeds).
+async fn install_app_update(app: &AppHandle, update: Update) -> Result<(), String> {
+    update
+        .download_and_install(|_, _| {}, || {})
+        .await
+        .map_err(|e| e.to_string())?;
+    app.restart();
+}
+
+/// At start: installs a newer version right away.
+async fn self_update(app: &AppHandle) -> Result<(), String> {
+    if let Some(update) = find_app_update(app).await? {
+        install_app_update(app, update).await?;
     }
     Ok(())
+}
+
+/// While the window is open: only tells that a newer version exists (installing it
+/// would interrupt a job); the button in Accueil installs it.
+async fn watch_app_updates(app: AppHandle) {
+    loop {
+        tokio::time::sleep(APP_UPDATE_EVERY).await;
+        let _ = find_app_update(&app).await;
+    }
+}
+
+/// "Mettre à jour" button: checks now, installs and restarts if there is something newer.
+#[tauri::command]
+async fn update_app(app: AppHandle) -> Result<View, String> {
+    {
+        let shared = app.state::<Shared>();
+        let mut s = shared.state.lock().unwrap();
+        if let Some(b) = &s.busy {
+            return Err(format!("Patiente : {b} en cours."));
+        }
+        s.busy = Some("Mise à jour de l'application".to_string());
+    }
+    publish_view(&app);
+    let current = app.package_info().version.to_string();
+    let result = match find_app_update(&app).await {
+        Ok(None) => {
+            log(&app, [format!("Renatus Admin {current} est à jour.")]);
+            Ok(())
+        }
+        Ok(Some(update)) => {
+            log(
+                &app,
+                [format!(
+                    "Installation de Renatus Admin {} : l'application va redémarrer.",
+                    update.version
+                )],
+            );
+            publish_view(&app);
+            install_app_update(&app, update).await
+        }
+        Err(e) => Err(e),
+    };
+    app.state::<Shared>().state.lock().unwrap().busy = None;
+    if let Err(e) = &result {
+        log(&app, [format!("Mise à jour de Renatus Admin : {e}")]);
+    }
+    publish_view(&app);
+    result.map(|_| view(&app))
 }
 
 fn detect_wow() -> Option<PathBuf> {
@@ -615,6 +682,7 @@ pub fn run() {
             tauri::async_runtime::spawn(watch(handle.clone()));
             tauri::async_runtime::spawn(check_admin_release(handle.clone()));
             if !cfg!(debug_assertions) {
+                tauri::async_runtime::spawn(watch_app_updates(handle.clone()));
                 tauri::async_runtime::spawn(async move {
                     let _ = self_update(&handle).await;
                 });
@@ -633,6 +701,7 @@ pub fn run() {
             pick_wow_folder,
             pick_articles_dir,
             install_admin_addon,
+            update_app,
             open_folder
         ])
         .run(tauri::generate_context!())

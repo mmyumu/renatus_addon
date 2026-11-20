@@ -22,9 +22,14 @@ function render(s) {
   const st = s.status;
   const busy = !!s.busy;
   $("busy").textContent = busy ? `${s.busy}…` : "";
-  for (const id of ["deaths", "refresh-rival", "write-gazette", "articles", "install-admin"]) $(id).disabled = busy;
+  for (const id of ["deaths", "refresh-rival", "write-gazette", "articles", "install-admin", "app-update"]) $(id).disabled = busy;
 
   // Home
+  $("app-version").textContent = s.appVersion;
+  $("app-update").textContent = s.appUpdate ? `Installer la ${s.appUpdate}` : "Vérifier les mises à jour";
+  $("app-hint").textContent = s.appUpdate
+    ? `Nouvelle version ${s.appUpdate} disponible : l'application redémarrera.`
+    : "Elle se met aussi à jour toute seule à chaque démarrage.";
   $("renatus-version").textContent = st?.renatusVersion ?? "absent";
   $("admin-version").textContent = st?.adminVersion ?? "absent";
   const avail = s.adminAvailable;
@@ -114,6 +119,7 @@ for (const tab of document.querySelectorAll(".tab")) {
 $("deaths").addEventListener("click", () => call("propose_deaths"));
 $("reload").addEventListener("click", () => call("reload"));
 $("install-admin").addEventListener("click", () => call("install_admin_addon"));
+$("app-update").addEventListener("click", () => call("update_app"));
 $("refresh-rival").addEventListener("click", () => call("refresh_rival", { rival: $("rival").value }));
 $("write-gazette").addEventListener("click", () => call("write_gazette"));
 $("articles").addEventListener("click", () => call("propose_articles"));
