@@ -27,7 +27,9 @@ local function encode(v, out, depth)
     elseif tv == "number" then
         if v ~= v or v == math.huge or v == -math.huge then error("nombre non serialisable") end
         if v == math.floor(v) and math.abs(v) < 2 ^ 53 then
-            out[#out + 1] = ("n%d;"):format(v)
+            -- not %d: WoW's Lua only formats 32-bit integers with it ("integer overflow"
+            -- above 2^31, e.g. a card catalogue version), %.0f is exact up to 2^53
+            out[#out + 1] = ("n%.0f;"):format(v)
         else
             out[#out + 1] = ("n%.14g;"):format(v)
         end

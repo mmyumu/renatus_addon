@@ -153,15 +153,24 @@ local function request(author, from, to)
     Transport.Send(encode({ o = "R", a = author, f = from, t = to }), P.CONTROL)
 end
 
--- Requests what is missing for an author, based on what we know exists.
+-- Requests what is missing for an author, based on what we know exists: every gap,
+-- not only the first one (an event that never arrives must not hide the next gaps).
+Sync.MAX_GAPS = 4   -- ranges requested at once per author
 local function requestMissing(author, knownTop)
     local info = computeVector()[author] or { max = 0, top = 0 }
     local top = math.max(knownTop or 0, info.top)
-    if top <= info.max then return end
-    local from = info.max + 1
-    local to = from
-    while to < top and not hasEvent(author, to + 1) and to - from < Sync.MAX_RANGE - 1 do to = to + 1 end
-    request(author, from, to)
+    local from, ranges = info.max + 1, 0
+    while from <= top and ranges < Sync.MAX_GAPS do
+        if hasEvent(author, from) then
+            from = from + 1
+        else
+            local to = from
+            while to < top and not hasEvent(author, to + 1) and to - from < Sync.MAX_RANGE - 1 do to = to + 1 end
+            request(author, from, to)
+            ranges = ranges + 1
+            from = to + 1
+        end
+    end
 end
 
 -- Asks right away for every gap we know of (/renatus sync now).
@@ -169,7 +178,9 @@ function Sync.RequestGaps()
     local n = 0
     for author, info in pairs(computeVector()) do
         if info.top > info.max then
-            requested[author .. ":" .. (info.max + 1)] = nil
+            for key in pairs(requested) do
+                if key:sub(1, #author + 1) == author .. ":" then requested[key] = nil end
+            end
             requestMissing(author)
             n = n + 1
         end

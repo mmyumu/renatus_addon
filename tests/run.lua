@@ -638,6 +638,29 @@ test("serialisation : aller-retour, caracteres speciaux, entree invalide", funct
     eq(ns.Serialize.Decode(text .. "x"), nil)
 end)
 
+test("serialisation : entiers au-dela de 2^31 avec le %d 32 bits de WoW (version du catalogue)", function()
+    local ns = boot({ specIndex = 1 })
+    -- WoW's Lua: %d refuses integers beyond 32 bits ("integer overflow attempting to store")
+    local realFormat = string.format
+    string.format = function(fmt, ...)
+        local args = { ... }
+        local i = 0
+        for spec in fmt:gmatch("%%[%-%d%.]*(%a)") do
+            i = i + 1
+            local v = args[i]
+            if spec == "d" and type(v) == "number" and (v >= 2 ^ 31 or v < -2 ^ 31) then
+                error("integer overflow attempting to store " .. realFormat("%.0f", v))
+            end
+        end
+        return realFormat(fmt, ...)
+    end
+    local ok, text = pcall(ns.Serialize.Encode, { cv = 2547948506, neg = -3000000000, t = 1795300000, n = 5, x = 1.5 })
+    string.format = realFormat
+    assert(ok and text, "encodage refuse : " .. tostring(text))
+    local back = ns.Serialize.Decode(text)
+    eq(back.cv, 2547948506); eq(back.neg, -3000000000); eq(back.t, 1795300000); eq(back.n, 5); eq(back.x, 1.5)
+end)
+
 test("evenement public diffuse, evenement prive jamais", function()
     local ns, S = boot({ specIndex = 1, me = ALICE })
     ns.char.privacy.combat = "G"
@@ -729,6 +752,33 @@ test("trou dans la sequence : demande ciblee, l'auteur repond", function()
     local nsB2 = boot({ specIndex = 1, me = BOB, savedAccount = savedB, savedChar = savedBC })
     Stub.deliver(answer, "Alice-Forever")
     eq(nsB2.Sync.Vector()[ALICE.guid].max, 2)
+end)
+
+test("plusieurs trous : chacun est redemande, pas seulement le premier", function()
+    local nsA, SA = boot({ specIndex = 1, me = ALICE })
+    nsA.char.privacy.combat = "G"
+    for _ = 1, 6 do Stub.fire("PLAYER_DEAD") end
+    Stub.advance(10)
+    -- Bob only gets #1, #3 and #6: gaps 2 and 4-5
+    local keep, current = {}, {}
+    for _, m in ipairs(SA.sent) do
+        table.insert(current, m)
+        local tag = m.msg:sub(1, 1)
+        if tag == "S" or tag == "L" then
+            local d = decodeSent(nsA, current)[1]
+            if d and d.o == "E" and (d.e.s == 1 or d.e.s == 3 or d.e.s == 6) then
+                for _, x in ipairs(current) do table.insert(keep, x) end
+            end
+            current = {}
+        end
+    end
+    local nsB, SB = boot({ specIndex = 1, me = BOB })
+    Stub.deliver(keep, "Alice-Forever")
+    Stub.advance(2)
+    local asked = {}
+    for _, r in ipairs(ops(nsB, SB.sent, "R")) do asked[r.f .. "-" .. r.t] = true end
+    assert(asked["2-2"], "trou 2")
+    assert(asked["4-5"], "trou 4-5")
 end)
 
 test("vecteurs : un nouveau venu rattrape l'historique via un relais", function()
