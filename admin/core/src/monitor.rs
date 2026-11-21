@@ -430,6 +430,14 @@ pub fn build(ch: &Chronicle, now: i64, installed: Option<&str>) -> Monitor {
     m.health.equipped = members.iter().filter(|x| x.equipped).count();
     m.health.missing = members.iter().map(|x| x.missing_count).sum();
 
+    // Our own characters run the installed addon: the channel never tells us our own
+    // version (an older addon recorded its own echo as a peer, with a stale version).
+    if let Some(inst) = installed {
+        for x in members.iter_mut().filter(|x| x.mine) {
+            x.version = Some(inst.to_string());
+        }
+    }
+
     // 5. Alerts.
     let mut alerts = Vec::new();
     if m.health.rejected > 0 {
@@ -611,6 +619,11 @@ mod tests {
         assert_eq!(m.members.len(), 4, "{:#?}", m.members);
         let dakey = member(&m, "Dakey Dak");
         assert!(dakey.equipped && dakey.mine && dakey.in_roster);
+        assert_eq!(
+            dakey.version.as_deref(),
+            Some("1.0.1"),
+            "own row: installed version"
+        );
         assert_eq!(dakey.shared, 2);
         let renaa = member(&m, "Renaa Fitzherak");
         assert!(renaa.equipped && !renaa.mine && renaa.is_new);
