@@ -5,6 +5,33 @@ const { listen } = window.__TAURI__.event;
 
 const $ = (id) => document.getElementById(id);
 
+const timeOf = (secs) =>
+  new Date(secs * 1000).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+
+function setMessage(el, text, kind = "") {
+  el.textContent = text;
+  el.className = kind ? `message ${kind}` : "message";
+}
+
+function renderLauncher(s) {
+  $("launcher-installed").textContent = s.launcherVersion;
+  $("launcher-available").textContent = s.launcherLatest ?? "—";
+  $("check-launcher").disabled = s.launcherBusy;
+  const msg = $("launcher-message");
+  const newer = s.launcherLatest && s.launcherLatest !== s.launcherVersion;
+  if (s.launcherBusy && newer) {
+    setMessage(msg, `Installation de la version ${s.launcherLatest}… le launcher va redémarrer.`);
+  } else if (s.launcherBusy) {
+    setMessage(msg, "Vérification…");
+  } else if (s.launcherError) {
+    setMessage(msg, s.launcherError, "error");
+  } else if (s.launcherLastCheck) {
+    setMessage(msg, `À jour (vérifié à ${timeOf(s.launcherLastCheck)})`, "ok");
+  } else {
+    setMessage(msg, "");
+  }
+}
+
 function render(s) {
   $("installed").textContent = s.installed ?? "pas installé";
   $("available").textContent = s.available ?? "—";
@@ -13,22 +40,19 @@ function render(s) {
   $("check").disabled = s.busy;
   $("autostart").checked = s.autostart;
   $("test").checked = s.testChannel;
-  $("version").textContent = `Launcher ${s.launcherVersion}`;
+  renderLauncher(s);
 
   const msg = $("message");
-  msg.className = "";
   if (s.busy) {
-    msg.textContent = "Vérification…";
+    setMessage(msg, "Vérification…");
   } else if (s.error) {
-    msg.textContent = s.error;
-    msg.className = "error";
+    setMessage(msg, s.error, "error");
   } else if (s.lastCheck) {
-    const at = new Date(s.lastCheck * 1000).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
     const upToDate = s.installed && s.installed === s.available;
-    msg.textContent = (upToDate ? "À jour" : "Aucune version publiée") + ` (vérifié à ${at})`;
-    msg.className = upToDate ? "ok" : "";
+    setMessage(msg, (upToDate ? "À jour" : "Aucune version publiée") + ` (vérifié à ${timeOf(s.lastCheck)})`,
+      upToDate ? "ok" : "");
   } else {
-    msg.textContent = "";
+    setMessage(msg, "");
   }
 
   $("notes-card").hidden = !s.notes;
@@ -36,9 +60,7 @@ function render(s) {
 }
 
 function showError(e) {
-  const msg = $("message");
-  msg.textContent = String(e);
-  msg.className = "error";
+  setMessage($("message"), String(e), "error");
 }
 
 async function call(command, args) {
@@ -51,6 +73,7 @@ async function call(command, args) {
 }
 
 $("check").addEventListener("click", () => call("check_now"));
+$("check-launcher").addEventListener("click", () => call("check_launcher_now"));
 $("pick").addEventListener("click", () => call("pick_wow_folder"));
 $("open").addEventListener("click", () => call("open_addons_folder"));
 $("autostart").addEventListener("change", (e) => call("set_autostart", { enabled: e.target.checked }));

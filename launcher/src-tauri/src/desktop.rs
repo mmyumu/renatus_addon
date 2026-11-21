@@ -38,6 +38,17 @@ struct State {
     last_check: Option<u64>,
     error: Option<String>,
     busy: bool,
+    launcher: LauncherCheck,
+}
+
+/// State of the launcher's own update check.
+#[derive(Default)]
+struct LauncherCheck {
+    /// Newest launcher version seen on GitHub.
+    latest: Option<String>,
+    last_check: Option<u64>,
+    error: Option<String>,
+    busy: bool,
 }
 
 /// What the window shows.
@@ -55,6 +66,10 @@ struct View {
     test_channel: bool,
     autostart: bool,
     launcher_version: String,
+    launcher_latest: Option<String>,
+    launcher_last_check: Option<u64>,
+    launcher_error: Option<String>,
+    launcher_busy: bool,
 }
 
 fn view(app: &AppHandle) -> View {
@@ -72,6 +87,10 @@ fn view(app: &AppHandle) -> View {
         test_channel: s.config.test_channel,
         autostart: s.config.autostart,
         launcher_version: app.package_info().version.to_string(),
+        launcher_latest: s.launcher.latest.clone(),
+        launcher_last_check: s.launcher.last_check,
+        launcher_error: s.launcher.error.clone(),
+        launcher_busy: s.launcher.busy,
     }
 }
 
@@ -255,13 +274,46 @@ async fn check(app: &AppHandle) {
     }
 }
 
-async fn self_update(app: &AppHandle) -> Result<(), String> {
+/// Checks for a new launcher version (periodically or on demand) and installs it,
+/// which restarts the launcher.
+async fn self_update(app: &AppHandle) {
+    {
+        let shared = app.state::<Shared>();
+        let mut s = shared.state.lock().unwrap();
+        if s.launcher.busy {
+            return;
+        }
+        s.launcher.busy = true;
+        s.launcher.error = None;
+    }
+    publish(app);
+
+    let result = install_launcher_update(app).await;
+    {
+        let shared = app.state::<Shared>();
+        let mut s = shared.state.lock().unwrap();
+        s.launcher.busy = false;
+        s.launcher.last_check = Some(now());
+        if let Err(e) = result {
+            s.launcher.error = Some(format!("Mise à jour du launcher impossible : {e}"));
+        }
+    }
+    publish(app);
+}
+
+async fn install_launcher_update(app: &AppHandle) -> Result<(), String> {
     let update = app
         .updater()
         .map_err(|e| e.to_string())?
         .check()
         .await
         .map_err(|e| e.to_string())?;
+    let latest = update
+        .as_ref()
+        .map(|u| u.version.clone())
+        .unwrap_or_else(|| app.package_info().version.to_string());
+    app.state::<Shared>().state.lock().unwrap().launcher.latest = Some(latest);
+    publish(app);
     if let Some(update) = update {
         update
             .download_and_install(|_, _| {}, || {})
@@ -284,6 +336,11 @@ fn get_state(app: AppHandle) -> View {
 #[tauri::command]
 fn check_now(app: AppHandle) {
     app.state::<Shared>().wake.notify_one();
+}
+
+#[tauri::command]
+fn check_launcher_now(app: AppHandle) {
+    tauri::async_runtime::spawn(async move { self_update(&app).await });
 }
 
 #[tauri::command]
@@ -364,7 +421,7 @@ fn show_window(app: &AppHandle) {
 
 fn build_tray(app: &tauri::App) -> tauri::Result<()> {
     let open = MenuItem::with_id(app, "open", "Ouvrir", true, None::<&str>)?;
-    let check = MenuItem::with_id(app, "check", "Vérifier maintenant", true, None::<&str>)?;
+    let check = MenuItem::with_id(app, "check", "Vérifier l'addon", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quitter", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&open, &check, &quit])?;
     let mut tray = TrayIconBuilder::with_id("main")
@@ -427,6 +484,7 @@ pub fn run() {
                     last_check: None,
                     error: None,
                     busy: false,
+                    launcher: LauncherCheck::default(),
                 }),
                 wake: Notify::new(),
             });
@@ -451,7 +509,7 @@ pub fn run() {
             if !cfg!(debug_assertions) {
                 tauri::async_runtime::spawn(async move {
                     loop {
-                        let _ = self_update(&handle).await;
+                        self_update(&handle).await;
                         tokio::time::sleep(SELF_UPDATE_EVERY).await;
                     }
                 });
@@ -468,6 +526,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_state,
             check_now,
+            check_launcher_now,
             pick_wow_folder,
             set_test_channel,
             set_autostart,

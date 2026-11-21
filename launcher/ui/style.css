@@ -37,9 +37,10 @@ h1 { margin: 0; color: var(--gold); font: 600 28px Georgia, "Times New Roman", s
 .path { margin: 4px 0 8px; word-break: break-all; font-size: 13px; }
 .buttons { display: flex; gap: 8px; }
 
-#message { min-height: 20px; margin: 8px 0; }
-#message.ok { color: var(--ok); }
-#message.error { color: var(--error); }
+.title { color: var(--gold); font-weight: 600; margin-bottom: 6px; }
+.message { min-height: 20px; margin: 8px 0; }
+.message.ok { color: var(--ok); }
+.message.error { color: var(--error); }
 
 button {
   background: #4a3420;

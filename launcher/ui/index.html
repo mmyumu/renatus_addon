@@ -13,10 +13,19 @@
   </header>
 
   <section class="card" id="status">
+    <div class="title">Addon</div>
     <div class="row"><span class="label">Installé</span><span id="installed">—</span></div>
     <div class="row"><span class="label">Dernière version</span><span id="available">—</span></div>
-    <p id="message"></p>
-    <button id="check">Vérifier maintenant</button>
+    <p id="message" class="message"></p>
+    <button id="check">Vérifier l'addon</button>
+  </section>
+
+  <section class="card" id="launcher">
+    <div class="title">Launcher</div>
+    <div class="row"><span class="label">Installé</span><span id="launcher-installed">—</span></div>
+    <div class="row"><span class="label">Dernière version</span><span id="launcher-available">—</span></div>
+    <p id="launcher-message" class="message"></p>
+    <button id="check-launcher">Vérifier le launcher</button>
   </section>
 
   <section class="card">
@@ -38,6 +47,6 @@
     <label><input type="checkbox" id="test"> Recevoir les versions de test</label>
   </section>
 
-  <footer>Fermer cette fenêtre laisse le launcher actif près de l'horloge. <span id="version"></span></footer>
+  <footer>Fermer cette fenêtre laisse le launcher actif près de l'horloge.</footer>
 </body>
 </html>

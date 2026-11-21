@@ -14,7 +14,8 @@ Petite application Windows qui garde l'addon Renatus à jour tout seul.
    première installation demande de redémarrer le jeu une fois).
 
 Fermer la fenêtre laisse le launcher actif ; clic droit sur l'icône → **Quitter** pour l'arrêter.
-Il se met lui-même à jour quand une nouvelle version du launcher sort.
+Il se met lui-même à jour quand une nouvelle version du launcher sort (toutes les 6 heures).
+Deux boutons forcent la vérification tout de suite : **Vérifier l'addon** et **Vérifier le launcher**.
 
 **Désinstaller** : Paramètres Windows → Applications → *Renatus Launcher* → Désinstaller.
 L'addon reste dans le jeu (supprimer `Interface\AddOns\Renatus` pour l'enlever aussi).
@@ -39,7 +40,7 @@ L'addon reste dans le jeu (supprimer `Interface\AddOns\Renatus` pour l'enlever a
   Ne compile que sous Windows ; depuis WSL : `launcher/scripts/build-windows.sh`
   (`LAUNCHER_WIN_TOOLS=C:\...` pour un dossier avec `node\` et `toolchain\` portables).
 - `launcher/ui` : HTML/CSS/JS sans outil de build.
-- L'icône vient de `uv run tools/make_launcher_icon.py`.
+- L'icône vient de `uv run tools/make_app_icons.py`.
 
 Sécurité : le launcher ne télécharge que depuis ce dépôt, en HTTPS, n'exécute rien de ce qu'il
 télécharge et n'écrit que dans `Interface\AddOns\Renatus` (il retire l'ancien `Renatus_Press`). Il n'installe
