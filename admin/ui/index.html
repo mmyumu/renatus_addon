@@ -12,6 +12,7 @@
     <h1>Renatus <span>Admin</span></h1>
     <nav>
       <button class="tab active" data-tab="home">Accueil</button>
+      <button class="tab" data-tab="monitor">Suivi</button>
       <button class="tab" data-tab="rival">Guilde rivale</button>
       <button class="tab" data-tab="gazette">Gazette</button>
       <button class="tab" data-tab="editor">Éditeur</button>
@@ -63,6 +64,68 @@
       <div class="card">
         <div class="label">Journal de l'application</div>
         <pre id="log" class="log"></pre>
+      </div>
+    </section>
+
+    <!-- Suivi -->
+    <section class="page" id="page-monitor" hidden>
+      <div class="grid">
+        <div class="card">
+          <div class="label">Membres équipés</div>
+          <div class="big" id="mon-equipped">—</div>
+          <p class="hint" id="mon-equipped-hint"></p>
+        </div>
+        <div class="card">
+          <div class="label">Synchro</div>
+          <div class="row"><span>Dernier événement reçu</span><span id="mon-last-rx">—</span></div>
+          <div class="row"><span>Délai médian de réception</span><span id="mon-delay">—</span></div>
+          <div class="row"><span>Reçus de l'auteur / relayés</span><span id="mon-direct">—</span></div>
+          <div class="row"><span>Manquants · rejetés</span><span id="mon-missing">—</span></div>
+        </div>
+        <div class="card">
+          <div class="label">Données</div>
+          <div class="row"><span>Dernière écriture du jeu</span><span id="mon-saved-at">—</span></div>
+          <div class="row"><span>Liste de guilde relevée</span><span id="mon-roster-at">—</span></div>
+          <p class="hint">Mis à jour à chaque <b>/reload</b> ou déconnexion en jeu.</p>
+        </div>
+      </div>
+      <div class="card" id="mon-alerts-box">
+        <div class="label">Alertes</div>
+        <ul id="mon-alerts" class="alerts"></ul>
+      </div>
+      <div class="card">
+        <div class="facts-head">
+          <span>Membres</span>
+          <div class="facts-tools">
+            <select id="mon-members-filter">
+              <option value="all">Tous</option>
+              <option value="equipped">Équipés</option>
+              <option value="missing">Sans addon</option>
+            </select>
+          </div>
+        </div>
+        <table id="mon-members">
+          <thead><tr><th>Personnage</th><th>Classe</th><th>Niv.</th><th>Rang</th><th>Addon</th><th>Apparu</th><th>Dernière activité</th><th>Événements</th></tr></thead>
+          <tbody></tbody>
+        </table>
+        <p class="hint">« Équipé » : a publié un événement ou a été vu sur le canal de l'addon. La version n'est connue qu'avec la nouvelle version de l'addon.</p>
+      </div>
+      <div class="card">
+        <div class="label">Activité des 30 derniers jours</div>
+        <div id="mon-activity" class="activity"></div>
+      </div>
+      <div class="card">
+        <div class="facts-head">
+          <span>Derniers événements</span>
+          <div class="facts-tools">
+            <select id="mon-feed-who"><option value="">Tout le monde</option></select>
+            <select id="mon-feed-kind"><option value="">Tous les types</option></select>
+          </div>
+        </div>
+        <table id="mon-feed">
+          <thead><tr><th>Quand</th><th>Qui</th><th>Quoi</th><th>Détail</th><th>Réception</th></tr></thead>
+          <tbody></tbody>
+        </table>
       </div>
     </section>
 

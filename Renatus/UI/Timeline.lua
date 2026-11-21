@@ -68,7 +68,10 @@ local function rowTooltip(row)
         if Types.DEDUCED[field] then table.insert(lines, { "Supposé — " .. Types.DEDUCED[field], 0.75, 0.75, 0.75 }) end
     end
     if ev.rx then
-        table.insert(lines, { ev.rx.direct and ("Reçu directement de " .. tostring(ev.rx.by))
+        -- Older addons compared the full sender name ("Renaa Fitzherak") with "Renaa".
+        local by = tostring(ev.rx.by)
+        local direct = ev.rx.direct or by == ev.n or by:match("^(%S+)") == ev.n
+        table.insert(lines, { direct and ("Reçu directement de " .. tostring(ev.rx.by))
             or ("Relayé par " .. tostring(ev.rx.by) .. " (copie de l'original de " .. Types.Who(ev) .. ")"), 0.6, 0.6, 0.6 })
     end
     local issue = cited[ev.id]

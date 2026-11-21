@@ -476,6 +476,7 @@ mod tests {
         Chronicle {
             events: map,
             press_done: Map::new(),
+            ..Chronicle::default()
         }
     }
 

@@ -437,7 +437,21 @@ function Store.Roster()
                 class = class, online = online, guid = type(guid) == "string" and guid or nil })
         end
     end
+    Store.SnapshotRoster(roster)
     return roster
+end
+
+-- Snapshot of the guild roster for Renatus Admin's monitoring (local, at most every 10 min).
+function Store.SnapshotRoster(roster)
+    local mon = ns.db and ns.db.monitor
+    if not mon or #roster == 0 then return end
+    local now = (GetServerTime and GetServerTime()) or time()
+    if mon.roster and now - (mon.roster.at or 0) < 600 then return end
+    local members = {}
+    for _, m in ipairs(roster) do
+        members[#members + 1] = { name = m.name, rank = m.rank, level = m.level, class = m.class, guid = m.guid }
+    end
+    mon.roster = { at = now, members = members }
 end
 
 -- Name to display for an event author: the roster's full name on WoW Forever

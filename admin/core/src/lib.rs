@@ -16,6 +16,7 @@ pub mod gazette;
 pub mod issues;
 pub mod llm;
 pub mod lua;
+pub mod monitor;
 pub mod ops;
 pub mod paths;
 pub mod press;

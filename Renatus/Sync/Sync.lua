@@ -112,7 +112,7 @@ function Sync.SendVector(force)
     Transport.Send(function()
         local v = {}
         for author, info in pairs(computeVector()) do v[author] = info.max end
-        return encode({ o = "V", pr = Sync.PROTO, v = v })
+        return encode({ o = "V", pr = Sync.PROTO, ve = ns.version, v = v })
     end, P.CONTROL)
     return true
 end
@@ -196,18 +196,26 @@ end
 function handlers.E(sender, msg)
     if type(msg.e) == "table" and msg.e.g == nil then msg.e.g = msg.g end
     local ev, why = Sync.Validate(msg.e, ns.Context.GuildKey())
+    local mon = ns.db.monitor.sync
     if not ev then
         Sync.rejected = (Sync.rejected or 0) + 1
         Sync.lastReject = why
+        mon.rejected = (mon.rejected or 0) + 1
+        mon.lastReject = ("%s (de %s)"):format(tostring(why), tostring(Transport.ShortName(sender)))
+        mon.lastRejectAt = now()
         return
     end
     seenOnWire[ev.id] = clock()
     if ns.db.events[ev.id] then return end
     local from = Transport.ShortName(sender)
     -- "verified": received from the author themselves; otherwise relayed by another member.
-    ev.rx = { by = from, direct = (from == ev.n) or nil, at = now() }
+    -- On WoW Forever the sender is the full name ("Renaa Fitzherak") while UnitName gives "Renaa".
+    local direct = from == ev.n or (from and from:match("^(%S+)")) == ev.n
+    ev.rx = { by = from, direct = direct or nil, at = now() }
     if ns.Store.Insert(ev) then
         Sync.received = (Sync.received or 0) + 1
+        mon.received = (mon.received or 0) + 1
+        mon.lastReceived = now()
         vectorCache = nil
         requestMissing(ev.a, ev.s - 1)
     end
@@ -220,6 +228,12 @@ local function onMessage(sender, text)
     if not guildKey or not ns.Context.SameGuild(msg.g, guildKey) then return end
     local name = Transport.ShortName(sender)
     Sync.peers[name] = { seen = now(), proto = msg.pr or (Sync.peers[name] and Sync.peers[name].proto) }
+    -- Persisted for Renatus Admin's monitoring (local only).
+    local peers = ns.db.monitor.peers
+    local p = peers[name] or { first = now() }
+    p.seen, p.proto = now(), msg.pr or p.proto
+    if type(msg.ve) == "string" and #msg.ve <= 24 then p.ver = msg.ve end
+    peers[name] = p
     local h = handlers[msg.o]
     if h then h(sender, msg) end
 end

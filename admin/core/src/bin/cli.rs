@@ -14,6 +14,7 @@ const HELP: &str = "Renatus admin : renatus-admin [options] <commande>
 
 Commandes :
   status            ce que l'app voit (journal de l'addon, journaux de combat, presse en attente)
+  monitor [json]    suivi : membres équipés, santé de la synchro, alertes, derniers événements
   facts [jours]     faits partagés de la période, avec leurs identifiants (défaut : 7 jours)
   deaths [fichier]  causes de mort et affrontements PvP des journaux de combat -> Press.lua
   articles [dossier] articles .md écrits à la main -> Press.lua, hors numéro
@@ -203,6 +204,86 @@ fn run() -> Result<(), String> {
                 }
             );
             println!("Presse en attente de validation en jeu : {}", st.pending);
+        }
+        "monitor" => {
+            let p = paths(&args, &cfg)?;
+            let st = ops::status(&p);
+            if let Some(e) = &st.error {
+                println!("{e}");
+                return Ok(());
+            }
+            if arg1.map(String::as_str) == Some("json") {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&st).map_err(|e| e.to_string())?
+                );
+                return Ok(());
+            }
+            let Some(m) = st.monitor else { return Ok(()) };
+            let when = |t: Option<i64>| {
+                t.and_then(|t| chrono::DateTime::from_timestamp(t, 0))
+                    .map(|d| {
+                        d.with_timezone(&chrono::Local)
+                            .format("%d/%m %H:%M")
+                            .to_string()
+                    })
+                    .unwrap_or_else(|| "—".into())
+            };
+            let h = &m.health;
+            println!(
+                "Synchro : {} membre(s) vu(s) sur le canal, {} équipé(s), {} reçu(s), {} rejeté(s), {} manquant(s)",
+                h.peers, h.equipped, h.received, h.rejected, h.missing
+            );
+            println!(
+                "  dernier reçu {} ; délai médian {} ; directs {} / relayés {} ; roster de {} membre(s) relevé {}",
+                when(h.last_received),
+                h.median_delay.map_or("—".into(), |d| format!("{d} s")),
+                h.direct,
+                h.relayed,
+                h.roster_size,
+                when(h.roster_at)
+            );
+            println!("\nAlertes :");
+            for a in &m.alerts {
+                println!("  [{}] {}", a.level, a.text);
+            }
+            println!("\nMembres :");
+            for x in &m.members {
+                println!(
+                    "  {:<22} {:<8} addon {:<8} {:>4} év.  premier {}  dernier {}{}{}",
+                    x.name,
+                    x.class.as_deref().unwrap_or(""),
+                    if x.equipped {
+                        x.version.as_deref().unwrap_or("oui")
+                    } else {
+                        "non"
+                    },
+                    x.shared,
+                    when(x.first_seen),
+                    when(x.last_activity),
+                    if x.is_new { "  NOUVEAU" } else { "" },
+                    if x.missing_count > 0 {
+                        format!("  {} manquant(s)", x.missing_count)
+                    } else {
+                        String::new()
+                    }
+                );
+            }
+            println!("\nDerniers événements :");
+            for f in m.feed.iter().take(30) {
+                println!(
+                    "  {}  {:<10} {:<18} {}{}",
+                    when(Some(f.t)),
+                    f.name,
+                    f.label,
+                    f.detail,
+                    match (&f.by, f.direct) {
+                        (Some(b), true) => format!("  (reçu de {b})"),
+                        (Some(b), false) => format!("  (relayé par {b})"),
+                        _ => String::new(),
+                    }
+                );
+            }
         }
         "facts" => {
             let p = paths(&args, &cfg)?;

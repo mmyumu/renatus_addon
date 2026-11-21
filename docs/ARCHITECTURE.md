@@ -236,6 +236,7 @@ Inchangés par rapport à la v1 :
 - Identifiant d'auteur = GUID du joueur. Identifiant de guilde = `Nom-Royaume`.
 - Séquence publique par auteur ; les événements privés ne consomment pas de séquence.
 - `RenatusDB.guilds[guilde].events`, plus des tombstones.
+- `RenatusDB.monitor` : état de santé local, jamais diffusé, lu par l'onglet **Suivi** de Renatus Admin : membres vus sur le canal de l'addon (`peers[nom] = { first, seen, proto, ver }`, la version arrive dans le message `V` sous `ve`), compteurs de synchro persistants (`sync`, avec le dernier motif de rejet), instantané de la liste de guilde (`roster`, au plus toutes les 10 min).
 - Plafond configurable : on purge d'abord les événements **reçus** anciens et peu importants.
 - Types inconnus conservés et relayés sans être affichés.
 
@@ -280,7 +281,7 @@ Une **expédition** est une période d'activité cohérente. Elle est détectée
 |---|---|---|---|
 | **Rencontre** d'un joueur de la guilde rivale (nom, guilde, niveau, race, classe, lieu) | cible, survol, barres de nom (`NAME_PLATE_UNIT_ADDED`) + `GetGuildInfo(unit)` | `OBS` | Probable en monde ouvert **[V10]** |
 | Notre mort en zone PvP | `PLAYER_DEAD` + liste des ennemis vus dans les 30 dernières secondes | `OBS` (mort) + `DED` (« ennemis présents ») | Oui, **sans tueur** |
-| Participation à un kill (crédit d'honneur) | `CHAT_MSG_COMBAT_HONOR_GAIN` si Forever a le système d'honneur Classic | `OBS` (« a contribué », pas « a tué ») | **[V10]**, hors instance |
+| Participation à un kill (victoire honorable) | `CHAT_MSG_COMBAT_HONOR_GAIN` (« %s meurt (victoire honorable : %s)… », `COMBATLOG_HONORGAIN`), repli sur `PLAYER_PVP_KILLS_CHANGED` + `GetPVPSessionStats()` | `PVP_KILL`, `OBS` (« a contribué », pas « a tué ») ; `DED` si le jeu a compté sans nommer la victime | Oui (modèle et compteur confirmés sur Forever le 21/11/2026), hors champ de bataille. Victime nommée seulement si elle est de la guilde rivale ; sinon race, classe, niveau |
 | Coup fatal, tueur, sort utilisé | Fichier de journal de combat | `LOG` | Via le compagnon (§8) |
 | Victoire ou défaite déclarée | Formulaire « Déclarer un affrontement » | `MAN`, confirmable par d'autres membres présents | Oui |
 
@@ -510,7 +511,7 @@ Points nouveaux :
 | V7 | Payloads de niveau, quête, boss, mort, métiers, butin, hauts faits, en instance et hors instance |
 | V8 | `PlaySoundFile` avec un son de l'addon |
 | V9 | Format de `UnitGUID` et de `GetGuildInfo` |
-| V10 | **PvP** : un joueur ennemi en cible, survol ou barre de nom donne-t-il nom, guilde, niveau, race et classe ? `CHAT_MSG_COMBAT_HONOR_GAIN` existe-t-il ? |
+| V10 | ✅ partiel (21/11/2026) : `COMBATLOG_HONORGAIN` et `GetPVPSessionStats()` existent ; l'arrivée de `CHAT_MSG_COMBAT_HONOR_GAIN` reste à voir à la prochaine victoire. **PvP** : un joueur ennemi en cible, survol ou barre de nom donne-t-il nom, guilde, niveau, race et classe ? `CHAT_MSG_COMBAT_HONOR_GAIN` existe-t-il ? |
 | V11 | `/combatlog` écrit-il un fichier dans `_forever_/Logs/` ? (vérification à faire à la main) |
 
 Mode d'emploi :

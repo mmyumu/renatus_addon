@@ -57,6 +57,8 @@ pub struct Status {
     pub admin_version: Option<String>,
     pub configured_rival: Option<String>,
     pub wanted: Vec<String>,
+    /// "Suivi" tab: members, sync health, recent events.
+    pub monitor: Option<crate::monitor::Monitor>,
 }
 
 pub fn load(paths: &WowPaths) -> Result<(PathBuf, Chronicle), String> {
@@ -88,6 +90,7 @@ pub fn status(paths: &WowPaths) -> Status {
         admin_version: crate::addon::installed_version(&addons, ADMIN_ADDON),
         configured_rival: None,
         wanted: Vec::new(),
+        monitor: None,
     };
     match load(paths) {
         Err(e) => st.error = Some(e),
@@ -106,6 +109,11 @@ pub fn status(paths: &WowPaths) -> Status {
             st.pending = st.pending_items.len();
             st.configured_rival = ch.configured_rival();
             st.wanted = ch.wanted().into_values().collect();
+            st.monitor = Some(crate::monitor::build(
+                &ch,
+                now(),
+                st.renatus_version.as_deref(),
+            ));
         }
     }
     st

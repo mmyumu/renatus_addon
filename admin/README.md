@@ -15,6 +15,11 @@ Rien n'est diffusé à la guilde sans ce clic, sauf l'effectif de la guilde riva
 
 - **Accueil** : versions des addons, bouton pour installer ou mettre à jour `Renatus_Admin`
   (le launcher des membres ne l'installe jamais), état du journal, éléments en attente.
+- **Suivi** : tout ce que voit le journal de l'officier, pour vérifier que l'addon marche chez
+  chacun. Membres de la guilde (équipés ou non, version de l'addon, badge *nouveau* les 7
+  premiers jours, dernière activité, événements manquants), santé de la synchro (dernier reçu,
+  délai, reçus directs ou relayés, rejets et motif), alertes, activité des 30 derniers jours et
+  flux des derniers événements filtrable par membre et par type. Lecture seule.
 - **Guilde rivale** : nom ou lien de l'armurerie (`https://armorywowforever.com/g/forever/eu/pvp/...`).
   Propose en jeu le réglage de guilde (la guilde rivale de tous les membres) et l'effectif relevé
   (niveau, classe, race, rang ; score d'équipement, niveau d'objet et dernière connexion pour les
@@ -49,7 +54,7 @@ Code sur le Raspberry Pi : `["ssh", "pi5", "cd /tmp && ~/.local/bin/claude -p --
 ```text
 cd admin && cargo build --release
 target/release/renatus-admin config wowPath "C:/MyGames/World of Warcraft/_forever_"
-target/release/renatus-admin status | facts | deaths | articles <dossier> | gazette [--show]
+target/release/renatus-admin status | monitor [json] | facts | deaths | articles <dossier> | gazette [--show]
 target/release/renatus-admin rival "<nom ou lien>" | run | install-admin
 ```
 

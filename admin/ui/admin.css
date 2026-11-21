@@ -106,3 +106,18 @@ code { font-family: Consolas, monospace; color: var(--gold); }
 .subtabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 10px; }
 .subtab { background: transparent; border-color: transparent; border-radius: 4px 4px 0 0; }
 .subtab.active { border-color: var(--gold); border-bottom-color: var(--bg); background: #4a3420; }
+
+/* Suivi */
+ul.alerts { list-style: none; margin: 0; padding: 0; }
+ul.alerts li { padding: 4px 0 4px 10px; border-left: 3px solid var(--muted); margin-bottom: 4px; font-size: 13px; user-select: text; }
+ul.alerts li.warn { border-left-color: var(--error); }
+ul.alerts li.ok { border-left-color: var(--ok); }
+.badge { display: inline-block; font-size: 11px; padding: 0 5px; border-radius: 3px; margin-left: 6px; border: 1px solid var(--gold); color: var(--gold); }
+.badge.warn { border-color: var(--error); color: var(--error); }
+tr.absent td { color: var(--muted); }
+tr.mine td:first-child::after { content: " (toi)"; color: var(--muted); }
+.activity { display: flex; align-items: flex-end; gap: 2px; height: 80px; }
+.activity .bar-day { flex: 1; background: var(--gold); opacity: 0.8; min-height: 1px; border-radius: 2px 2px 0 0; }
+.activity .bar-day.zero { background: var(--border); }
+#mon-feed td, #mon-members td { user-select: text; }
+#mon-feed .muted, #mon-members .muted { color: var(--muted); }

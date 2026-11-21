@@ -24,6 +24,10 @@ const MATCH_WINDOW: f64 = 5.0;
 pub struct Chronicle {
     pub events: Map<String, Value>,
     pub press_done: Map<String, Value>,
+    /// `RenatusDB.monitor`: local health data kept by the addon (see `monitor`).
+    pub monitor: Value,
+    /// GUIDs of this account's characters (`RenatusDB.seq`).
+    pub own: std::collections::BTreeSet<String>,
 }
 
 pub fn str_of<'a>(v: &'a Value, key: &str) -> Option<&'a str> {
@@ -54,7 +58,18 @@ impl Chronicle {
             Some(Value::Object(m)) => m.clone(),
             _ => Map::new(),
         };
-        Self { events, press_done }
+        let monitor = db.get("monitor").cloned().unwrap_or(Value::Null);
+        let own = db
+            .get("seq")
+            .and_then(Value::as_object)
+            .map(|m| m.keys().cloned().collect())
+            .unwrap_or_default();
+        Self {
+            events,
+            press_done,
+            monitor,
+            own,
+        }
     }
 
     pub fn load(path: &std::path::Path) -> Result<Self, String> {
@@ -88,7 +103,13 @@ impl Chronicle {
     /// Lowercase names of enemies known to the registry.
     pub fn known_enemies(&self) -> BTreeSet<String> {
         let mut names = BTreeSet::new();
-        for kind in ["ENEMY_SEEN", "ENEMY_NOTE", "WANTED", "PVP_CLASH"] {
+        for kind in [
+            "ENEMY_SEEN",
+            "ENEMY_NOTE",
+            "WANTED",
+            "PVP_CLASH",
+            "PVP_KILL",
+        ] {
             for e in self.of_kind(kind) {
                 if let Some(n) = str_of(payload(e), "name").filter(|n| !n.is_empty()) {
                     names.insert(n.to_lowercase());

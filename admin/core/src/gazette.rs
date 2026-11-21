@@ -206,7 +206,13 @@ impl Rivals {
     fn new(ch: &Chronicle) -> Self {
         let mut info: HashMap<String, (String, String, String)> = HashMap::new();
         let mut guild = None;
-        for kind in ["ENEMY_SEEN", "ENEMY_NOTE", "WANTED", "PVP_CLASH"] {
+        for kind in [
+            "ENEMY_SEEN",
+            "ENEMY_NOTE",
+            "WANTED",
+            "PVP_CLASH",
+            "PVP_KILL",
+        ] {
             let mut evs: Vec<&Value> = ch.of_kind(kind).collect();
             evs.sort_by(|a, b| num_of(a, "t").total_cmp(&num_of(b, "t")));
             for e in evs {
@@ -288,6 +294,132 @@ pub(crate) fn local(t: f64) -> chrono::DateTime<Local> {
         .timestamp_opt(t as i64, 0)
         .single()
         .unwrap_or_else(Local::now)
+}
+
+/// Within this gap, fights with enemy players belong to the same "affrontement".
+const FIGHT_GAP: f64 = 1800.0;
+/// From this many fights, they are told as one affrontement instead of one by one.
+const FIGHT_MIN: usize = 3;
+
+/// One fight with enemy players: honorable kill, declared clash, or death with enemies around.
+struct Fight {
+    t: f64,
+    id: String,
+    text: String,
+    member: String,
+    win: bool,
+    zone: String,
+    rivals: Vec<String>,
+}
+
+impl Fight {
+    fn of(
+        e: &Value,
+        who: &str,
+        zone: &str,
+        text: &str,
+        id: &str,
+        rivals: &mut Rivals,
+    ) -> Option<Fight> {
+        let p = payload(e);
+        let k = str_of(e, "k")?;
+        let named = |key: &str| str_of(p, key).filter(|n| !n.is_empty());
+        let (win, member, names): (bool, String, Vec<String>) = match k {
+            "PVP_KILL" => (
+                true,
+                who.to_string(),
+                named("name").map(str::to_string).into_iter().collect(),
+            ),
+            "PVP_CLASH" => (
+                s(p, "result") == "win",
+                named("member").unwrap_or(who).to_string(),
+                named("name")
+                    .or_else(|| named("enemy"))
+                    .map(str::to_string)
+                    .into_iter()
+                    .collect(),
+            ),
+            "DEATH" => {
+                let enemies = names_list(p.get("enemies").unwrap_or(&Value::Null));
+                let by_player = p.get("killer").and_then(|k| k.get("cl")).is_some();
+                if enemies.is_empty() && !by_player {
+                    return None;
+                }
+                (false, who.to_string(), enemies)
+            }
+            _ => return None,
+        };
+        Some(Fight {
+            t: num_of(e, "t"),
+            id: id.to_string(),
+            text: text.to_string(),
+            member,
+            win,
+            zone: zone.to_string(),
+            rivals: names.iter().map(|n| rivals.alias(Some(n))).collect(),
+        })
+    }
+}
+
+/// Fights close in time -> one fact per affrontement (alone or few: one fact each).
+fn fight_facts(mut fights: Vec<Fight>) -> Vec<(f64, String, Vec<String>)> {
+    fights.sort_by(|a, b| a.t.total_cmp(&b.t));
+    let mut groups: Vec<Vec<Fight>> = Vec::new();
+    for f in fights {
+        match groups.last_mut() {
+            Some(g) if f.t - g[g.len() - 1].t <= FIGHT_GAP => g.push(f),
+            _ => groups.push(vec![f]),
+        }
+    }
+    let mut out = Vec::new();
+    for g in groups {
+        if g.len() < FIGHT_MIN {
+            out.extend(g.into_iter().map(|f| (f.t, f.text, vec![f.id])));
+            continue;
+        }
+        let uniq = |it: &mut dyn Iterator<Item = String>| {
+            let mut v: Vec<String> = Vec::new();
+            for x in it {
+                if !x.is_empty() && !v.contains(&x) {
+                    v.push(x);
+                }
+            }
+            v
+        };
+        let members = uniq(&mut g.iter().map(|f| f.member.clone()));
+        let zones = uniq(&mut g.iter().map(|f| f.zone.clone()));
+        let rivals = uniq(&mut g.iter().flat_map(|f| f.rivals.clone()));
+        let wins = g.iter().filter(|f| f.win).count();
+        let losses = g.len() - wins;
+        let major = g.len() >= 5 || members.len() >= 2;
+        let (start, end) = (g[0].t, g[g.len() - 1].t);
+        let hour = |t: f64| local(t).format("%Hh%M").to_string();
+        let mut text = format!(
+            "{} {}de {} à {} : {} face à la faction adverse — {} victoire(s) honorable(s) ou déclarée(s), {} mort(s) ou défaite(s) côté guilde",
+            if major { "AFFRONTEMENT MAJEUR" } else { "Escarmouche" },
+            if zones.is_empty() { String::new() } else { format!("à {} ", zones.join(", ")) },
+            hour(start),
+            hour(end),
+            members.join(", "),
+            wins,
+            losses
+        );
+        if !rivals.is_empty() {
+            text += &format!(
+                " ; membres de la guilde rivale impliqués : {}",
+                rivals.join(", ")
+            );
+        }
+        let detail: Vec<String> = g.iter().take(8).map(|f| f.text.clone()).collect();
+        text += &format!(". Détail : {}", detail.join(" ; "));
+        if g.len() > 8 {
+            text += &format!(" ; et {} autre(s)", g.len() - 8);
+        }
+        let mut refs: Vec<String> = g.iter().map(|f| f.id.clone()).collect();
+        refs.truncate(20);
+        out.push((end, text, refs));
+    }
+    out
 }
 
 fn when(t: f64) -> String {
@@ -389,6 +521,8 @@ pub fn build_split(ch: &Chronicle, since: f64, until: f64, split: f64) -> Brief 
     // grouped per (author, recent?)
     let mut seen_rivals: BTreeMap<(String, bool), Vec<&Value>> = BTreeMap::new();
     let mut quests: BTreeMap<(String, bool), Vec<&Value>> = BTreeMap::new();
+    // Fights with enemy players: close ones become a single "affrontement" fact.
+    let mut fights: Vec<Fight> = Vec::new();
 
     for e in events {
         let author = str_of(e, "a").unwrap_or("").to_string();
@@ -554,6 +688,27 @@ pub fn build_split(ch: &Chronicle, since: f64, until: f64, split: f64) -> Brief 
                 let enemy = str_of(p, "name").or_else(|| str_of(p, "enemy"));
                 Some(format!("{member} {verb} {}", rivals.alias(enemy)))
             }
+            "PVP_KILL" => {
+                let victim = match str_of(p, "name").filter(|n| !n.is_empty()) {
+                    Some(name) => rivals.alias(Some(name)),
+                    None => {
+                        let mut v = format!("un {} {}", s(p, "race"), class_fr(&s(p, "class")))
+                            .split_whitespace()
+                            .collect::<Vec<_>>()
+                            .join(" ");
+                        if v == "un" {
+                            v = "un ennemi".into();
+                        }
+                        if !s(p, "level").is_empty() {
+                            v += &format!(" de niveau {}", s(p, "level"));
+                        }
+                        v
+                    }
+                };
+                Some(format!(
+                    "{who} remporte une victoire honorable sur {victim}{at}"
+                ))
+            }
             "WANTED" => {
                 let mut t = format!(
                     "{who} placarde un avis de recherche contre {}",
@@ -619,8 +774,13 @@ pub fn build_split(ch: &Chronicle, since: f64, until: f64, split: f64) -> Brief 
             continue;
         }
         let id = str_of(e, "id").unwrap_or("").to_string();
+        if let Some(fight) = Fight::of(e, &who, &zone, &text, &id, &mut rivals) {
+            fights.push(fight);
+            continue;
+        }
         raw.push((num_of(e, "t"), text, vec![id]));
     }
+    raw.extend(fight_facts(fights));
 
     for ((author, _), evs) in &seen_rivals {
         let who = authors.get(author).cloned().unwrap_or_else(|| "?".into());
@@ -720,7 +880,8 @@ Règles impératives :
    sauf des intertitres : une ligne qui commence par « ## ».
 7. Varie les formats (Une, Brève, Nécrologie, Chronique PvP, Carnet mondain…) et les styles
    (journaliste sarcastique, chroniqueur épique, rédacteur de faits divers…).
-8. L'ordre des articles compte : le premier fait la une.
+8. L'ordre des articles compte : le premier fait la une. Un fait « AFFRONTEMENT MAJEUR » mérite
+   un article à lui seul (la une, sauf événement plus marquant) ; une « Escarmouche », une brève.
 9. Facultatif, pour la mise en page : « exergue » = une phrase courte (120 caractères au plus)
    recopiée MOT POUR MOT du corps de l'article ; « portrait » = le nom d'UN personnage nommé
    dans l'article, si l'article tourne autour de lui.
@@ -1051,6 +1212,65 @@ mod tests {
         assert_eq!(notes.len(), 2, "{notes:?}");
         assert_eq!(requested_template(answer).as_deref(), Some("grande_une"));
         assert!(prompt(&brief).contains("« portrait »"));
+    }
+
+    #[test]
+    fn fights_close_in_time_become_one_affrontement() {
+        let mut ch = chronicle();
+        let kill = |id: &str, t: i64, p: Value| ev(id, "A", "Alice", "PVP_KILL", t, p);
+        let orc = json!({"race": "Orc", "class": "WARRIOR", "level": 25});
+        for (id, t, p) in [
+            (
+                "A:10",
+                5000,
+                json!({"name": "Gorbash", "guild": "Les Crocs"}),
+            ),
+            ("A:11", 5300, orc.clone()),
+            ("A:12", 5600, orc.clone()),
+            ("A:13", 6000, orc.clone()),
+            ("A:14", 6200, orc.clone()),
+            // more than 30 min later: told on its own
+            ("A:15", 9000, orc.clone()),
+        ] {
+            let (k, v) = kill(id, t, p);
+            ch.events.insert(k, v);
+        }
+        let (k, v) = ev(
+            "A:16",
+            "A",
+            "Alice",
+            "PVP_CLASH",
+            6100,
+            json!({"name": "Gorbash", "result": "loss"}),
+        );
+        ch.events.insert(k, v);
+        let brief = build(&ch, 4000.0, 10000.0);
+        let texts: Vec<&str> = brief.facts.iter().map(|f| f.text.as_str()).collect();
+        assert_eq!(texts.len(), 2, "{texts:#?}");
+        let big = brief
+            .facts
+            .iter()
+            .find(|f| f.text.contains("AFFRONTEMENT MAJEUR"))
+            .expect("regroupé");
+        assert!(
+            big.text.contains("5 victoire(s)") && big.text.contains("1 mort(s)"),
+            "{}",
+            big.text
+        );
+        assert!(
+            big.text.contains("Rival A") && !big.text.contains("Gorbash"),
+            "{}",
+            big.text
+        );
+        assert!(
+            big.text.contains("un Orc guerrier de niveau 25"),
+            "{}",
+            big.text
+        );
+        assert_eq!(big.refs.len(), 6);
+        assert!(texts.iter().any(|t| t
+            .ends_with("Alice remporte une victoire honorable sur un Orc guerrier de niveau 25")));
+        assert!(prompt(&brief).contains("AFFRONTEMENT MAJEUR"));
     }
 
     #[test]

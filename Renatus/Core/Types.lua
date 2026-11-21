@@ -115,6 +115,21 @@ local TYPES = {
             end
             return resultText(ev.p)
         end },
+    -- Honorable kill (Collectors/Enemies.lua): p.name and p.guild only for the rival guild,
+    -- else p.race, p.class, p.className, p.level of an unnamed enemy. prov DED: the game
+    -- counted a kill without naming the victim.
+    PVP_KILL = { cat = "pvp", icon = "Interface\\Icons\\INV_BannerPVP_02", importance = 3,
+        text = function(ev)
+            local p = ev.p
+            if p.name then
+                return "remporte une victoire honorable sur " .. p.name .. (p.guild and (" <" .. p.guild .. ">") or "")
+            end
+            local who = table.concat({ p.race or "", p.className and string.lower(p.className) or "" }, " "):gsub("^%s+", ""):gsub("%s+$", "")
+            if who == "" then who = "ennemi" end
+            local s = "remporte une victoire honorable sur un " .. who
+            if p.level then s = s .. " de niveau " .. p.level end
+            return s
+        end },
     ENEMY_NOTE = { cat = "pvp", icon = "Interface\\Icons\\INV_Misc_Note_02", importance = 1,
         text = function(ev)
             if ev.p.nickname then return "surnomme " .. tostring(ev.p.name) .. " « " .. ev.p.nickname .. " »" end

@@ -45,6 +45,7 @@ function render(s) {
   $("sv-error").textContent = st?.error ?? "";
   $("pending").textContent = st?.pending ?? 0;
   renderPending(st?.pendingItems ?? [], busy);
+  renderMonitor(st);
   const log = $("log");
   log.textContent = s.log.map((l) => `${when(l.at)}  ${l.text}`).join("\n");
   log.scrollTop = log.scrollHeight;
@@ -94,6 +95,136 @@ function render(s) {
     $("auto-gazette").checked = s.config.autoGazette;
     $("test-channel").checked = s.config.testChannel;
   }
+}
+
+// Suivi: members, sync health, recent events (read-only, built in Rust: monitor.rs).
+function ago(t) {
+  if (!t) return "—";
+  const s = Math.max(0, Date.now() / 1000 - t);
+  if (s < 90) return "à l'instant";
+  if (s < 3600) return `il y a ${Math.round(s / 60)} min`;
+  if (s < 86400 * 2) return `il y a ${Math.round(s / 3600)} h`;
+  return `il y a ${Math.round(s / 86400)} j`;
+}
+
+function duration(d) {
+  if (d == null) return "—";
+  if (d < 90) return `${d} s`;
+  if (d < 5400) return `${Math.round(d / 60)} min`;
+  return `${Math.round(d / 3600)} h`;
+}
+
+function cell(tr, text, cls) {
+  const td = document.createElement("td");
+  td.textContent = text ?? "";
+  if (cls) td.className = cls;
+  tr.appendChild(td);
+  return td;
+}
+
+function badge(td, text, cls = "") {
+  const b = document.createElement("span");
+  b.className = `badge ${cls}`;
+  b.textContent = text;
+  td.appendChild(b);
+}
+
+function fillSelect(sel, values, label) {
+  const keep = sel.value;
+  sel.length = 1;
+  for (const v of values) sel.add(new Option(label ? label(v) : v, v));
+  sel.value = values.includes(keep) ? keep : "";
+}
+
+function renderMonitor(st) {
+  const m = st && !st.error ? st.monitor : null;
+  const h = m?.health;
+  const others = m ? m.members.filter((x) => x.equipped && !x.mine).length : 0;
+  $("mon-equipped").textContent = m ? h.equipped : "—";
+  $("mon-equipped-hint").textContent = m
+    ? `dont ${others} autre(s) que toi` + (h.rosterSize ? ` · ${h.rosterSize} membre(s) dans la guilde` : "")
+    : "";
+  $("mon-last-rx").textContent = m ? ago(h.lastReceived) : "—";
+  $("mon-delay").textContent = m ? duration(h.medianDelay) : "—";
+  $("mon-direct").textContent = m ? `${h.direct} / ${h.relayed}` : "—";
+  $("mon-missing").textContent = m ? `${h.missing} · ${h.rejected}` : "—";
+  $("mon-missing").className = m && (h.missing || h.rejected) ? "error" : "";
+  $("mon-saved-at").textContent = st?.savedAt ? `${when(st.savedAt)} (${ago(st.savedAt)})` : "—";
+  $("mon-roster-at").textContent = m?.health.rosterAt ? when(h.rosterAt) : "pas encore";
+
+  const ul = $("mon-alerts");
+  ul.textContent = "";
+  const alerts = m ? m.alerts : [];
+  if (m && !alerts.some((a) => a.level === "warn")) alerts.unshift({ level: "ok", text: "Aucun problème détecté." });
+  for (const a of alerts) {
+    const li = document.createElement("li");
+    li.className = a.level;
+    li.textContent = a.text;
+    ul.appendChild(li);
+  }
+  $("mon-alerts-box").hidden = !m;
+
+  // Members
+  const filter = $("mon-members-filter").value;
+  const body = $("mon-members").querySelector("tbody");
+  body.textContent = "";
+  for (const x of m?.members ?? []) {
+    if (filter === "equipped" && !x.equipped) continue;
+    if (filter === "missing" && x.equipped) continue;
+    const tr = document.createElement("tr");
+    tr.className = (x.equipped ? "" : "absent") + (x.mine ? " mine" : "");
+    const name = cell(tr, x.name);
+    if (x.isNew) badge(name, "nouveau");
+    if (x.equipped && !x.inRoster && m.health.rosterAt) badge(name, "hors guilde ?", "warn");
+    cell(tr, CLASSES[x.class] ?? x.class ?? "");
+    cell(tr, x.level ?? "");
+    cell(tr, x.rank == null ? "" : x.rank === 0 ? "Chef" : x.rank);
+    const addon = cell(tr, x.equipped ? (x.version ?? "oui") : "non");
+    if (x.equipped && x.version && st.renatusVersion && x.version !== st.renatusVersion) badge(addon, "ancienne ?", "warn");
+    cell(tr, x.firstSeen ? when(x.firstSeen) : "—");
+    const last = cell(tr, x.lastActivity ? ago(x.lastActivity) : "—");
+    if (x.lastKind) last.title = `dernier événement : ${x.lastKind}`;
+    const n = cell(tr, x.equipped ? x.shared : "");
+    if (x.missingCount) badge(n, `${x.missingCount} manquant(s)`, "warn");
+    body.appendChild(tr);
+  }
+
+  // Activity
+  const act = $("mon-activity");
+  act.textContent = "";
+  const max = Math.max(1, ...(m?.activity ?? []).map((d) => d.count));
+  for (const d of m?.activity ?? []) {
+    const b = document.createElement("div");
+    b.className = "bar-day" + (d.count ? "" : " zero");
+    b.style.height = `${Math.max(2, (d.count / max) * 100)}%`;
+    b.title = `${d.day.split("-").reverse().join("/")} : ${d.count} événement(s)`;
+    act.appendChild(b);
+  }
+
+  // Feed
+  const feed = m?.feed ?? [];
+  fillSelect($("mon-feed-who"), [...new Set(feed.map((f) => f.name))].sort());
+  const kinds = new Map(feed.map((f) => [f.kind, f.label]));
+  fillSelect($("mon-feed-kind"), [...kinds.keys()].sort((a, b) => kinds.get(a).localeCompare(kinds.get(b))), (k) => kinds.get(k));
+  const who = $("mon-feed-who").value;
+  const kind = $("mon-feed-kind").value;
+  const fb = $("mon-feed").querySelector("tbody");
+  fb.textContent = "";
+  for (const f of feed) {
+    if ((who && f.name !== who) || (kind && f.kind !== kind)) continue;
+    const tr = document.createElement("tr");
+    cell(tr, when(f.t));
+    cell(tr, f.name);
+    const what = cell(tr, f.label);
+    if (!f.shared) badge(what, "privé");
+    cell(tr, f.detail);
+    cell(tr, f.by ? `${f.direct ? "de" : "relayé par"} ${f.by}${f.delay != null ? ` · ${duration(f.delay)}` : ""}` : "ici", "muted");
+    fb.appendChild(tr);
+  }
+}
+
+for (const id of ["mon-members-filter", "mon-feed-who", "mon-feed-kind"]) {
+  $(id).addEventListener("change", () => state && renderMonitor(state.status));
 }
 
 const TEMPLATES = {

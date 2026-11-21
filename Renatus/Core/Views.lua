@@ -216,18 +216,21 @@ function Views.Enemies(ds)
     for i = #ds.events, 1, -1 do
         local ev = ds.events[i]
         local p = ev.p or {}
-        if ev.k == "ENEMY_SEEN" or ev.k == "ENEMY_NOTE" or ev.k == "PVP_CLASH" or ev.k == "WANTED" then
+        -- An honorable kill names its victim only for the rival guild.
+        local kill = ev.k == "PVP_KILL" and p.name ~= nil
+        if ev.k == "ENEMY_SEEN" or ev.k == "ENEMY_NOTE" or ev.k == "PVP_CLASH" or ev.k == "WANTED" or kill then
             local e = get(p.name or "?")
             see(e, "guild", p.guild, ev.t)
             see(e, "class", p.class, ev.t)
             see(e, "race", p.race, ev.t)
             see(e, "realm", p.realm, ev.t)
             if p.level then see(e, "level", p.level, ev.t) end
-            if ev.k == "ENEMY_SEEN" or ev.k == "PVP_CLASH" then
+            if ev.k == "ENEMY_SEEN" or ev.k == "PVP_CLASH" or kill then
                 e.lastSeen, e.lastZone = ev.t, ns.Types.Zone(ev)
                 e.members[p.member or who(ev)] = true
                 table.insert(e.encounters, 1, ev)
             end
+            if kill then e.wins[ev.prov] = (e.wins[ev.prov] or 0) + 1 end
             if ev.k == "PVP_CLASH" then
                 if p.result == "win" then e.wins[ev.prov] = (e.wins[ev.prov] or 0) + 1
                 elseif p.result == "loss" then

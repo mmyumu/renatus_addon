@@ -671,6 +671,18 @@ test("reception : evenement insere, verifie (recu de l'auteur), visible dans Gui
     eq(#ns.Views.Filter(ds.events, { guild = ds.guildKey }), 1)
 end)
 
+test("reception : nom complet de Forever (Alice Liddell) = recu directement de l'auteur", function()
+    local nsA, SA = boot({ specIndex = 1, me = ALICE })
+    nsA.char.privacy.combat = "G"
+    Stub.fire("PLAYER_DEAD")
+    Stub.advance(2)
+    local ns = boot({ specIndex = 1, me = BOB })
+    Stub.deliver(SA.sent, "Alice Liddell-Forever")
+    local ev = ns.db.events["Player-1-AAA:1"]
+    eq(ev.rx.by, "Alice Liddell"); eq(ev.rx.direct, true)
+    eq(ns.db.monitor.sync.received, 1)
+end)
+
 test("message long (article) : decoupe en morceaux <= 255 octets et reassemble", function()
     local ns, S = boot({ specIndex = 1, me = ALICE })
     local body = string.rep("La rédaction s'étonne ; ~ encore. ", 60)
@@ -780,6 +792,41 @@ test("rejets : autre guilde, prive, identifiant falsifie", function()
     eq(ns.Store.Count(), 1)
     eq(ns.db.events["Player-1-AAA:1"].secret, nil, "champ hors schema retire")
     eq(ns.db.events["Player-1-AAA:1"].rx.direct, nil, "envoye par un autre que l'auteur : relaye")
+end)
+
+test("suivi : pair persiste avec sa version, compteurs de synchro et rejets gardes", function()
+    local _, SC = boot({ specIndex = 1, me = CAROL })
+    Stub.advance(31)
+    local carolV = SC.sent
+    local ns = boot({ specIndex = 1, me = BOB })
+    Stub.deliver(carolV, "Carol-Forever")
+    local p = ns.db.monitor.peers.Carol
+    assert(p, "pair persiste")
+    eq(p.ver, ns.version); eq(p.proto, ns.Sync.PROTO)
+    assert(p.first and p.seen >= p.first)
+    local text = ns.Serialize.Encode({ o = "E", g = "Les Testeurs-Forever", e = { a = "Player-1-AAA", s = 1 } })
+    Stub.deliver({ { prefix = "Renatus", channel = "GUILD", msg = "S" .. text } }, "Mallory-Forever")
+    eq(ns.db.monitor.sync.rejected, 1)
+    assert(ns.db.monitor.sync.lastReject:find("Mallory"), "motif et expediteur")
+    -- persisted across a reload
+    local saved, savedC = RenatusDB, RenatusCharDB
+    local ns2 = boot({ specIndex = 1, me = BOB, savedAccount = saved, savedChar = savedC })
+    eq(ns2.db.monitor.sync.rejected, 1)
+    eq(ns2.db.monitor.peers.Carol.ver, ns.version)
+end)
+
+test("suivi : instantane du roster de guilde, au plus toutes les 10 min", function()
+    local ns, S = boot({ specIndex = 1, me = BOB, roster = {
+        { name = "Bob", rank = 1, level = 30, class = "MAGE", guid = BOB.guid },
+        { name = "Dave", rank = 3, level = 12, class = "ROGUE" },
+    } })
+    ns.Store.Roster()
+    local r = ns.db.monitor.roster
+    assert(r, "instantane")
+    eq(#r.members, 2); eq(r.members[2].name, "Dave"); eq(r.members[2].class, "ROGUE")
+    table.insert(S.roster, { name = "Eve" })
+    ns.Store.Roster()
+    eq(#ns.db.monitor.roster.members, 2, "pas avant 10 min")
 end)
 
 test("pas d'envoi en instance ni en combat ; reprise a la sortie", function()
@@ -948,6 +995,85 @@ test("mort juste apres avoir vu un rival : present (suppose), pas tueur", functi
     local withEnemies = 0
     for _, d in ipairs(eventsOf(ns, "DEATH")) do if d.p.enemies then withEnemies = withEnemies + 1 end end
     eq(withEnemies, 1, "fenetre de 30 s")
+end)
+
+local HONOR_FR = "%s meurt (victoire honorable : %s). Vous gagnez %d points d'honneur."
+
+local function withPvpApi(kills)
+    COMBATLOG_HONORGAIN = HONOR_FR
+    local state = { kills = kills or 0 }
+    function GetPVPSessionStats() return state.kills, 0 end
+    function UnitIsEnemy(_, unit) return unit ~= "player" end
+    return state
+end
+
+local function withoutPvpApi()
+    COMBATLOG_HONORGAIN, GetPVPSessionStats, UnitIsEnemy = nil, nil, nil
+end
+
+test("victoire honorable : modele du message, toutes langues", function()
+    local ns = boot({ specIndex = 1 })
+    local p = ns.EnemyWatch.HonorPattern(HONOR_FR)
+    eq(("Gorbash meurt (victoire honorable : Soldat). Vous gagnez 12 points d'honneur."):match(p), "Gorbash")
+    local en = ns.EnemyWatch.HonorPattern("%s dies, honorable kill Rank: %s (Estimated Honor Points: %d)")
+    eq(("Thrall dies, honorable kill Rank: Grunt (Estimated Honor Points: 5)"):match(en), "Thrall")
+    eq(ns.EnemyWatch.HonorPattern("%s"), nil)
+    eq(ns.EnemyWatch.HonorPattern(nil), nil)
+end)
+
+test("victoire honorable sur un rival : nomme, compte dans sa fiche", function()
+    withPvpApi()
+    local ns = boot({ specIndex = 1, units = { target = GORBASH } })
+    ns.char.rivalGuild = "Les Crocs de Sang"
+    ns.char.privacy.pvp = "G"
+    Stub.fire("PLAYER_TARGET_CHANGED")
+    Stub.fire("CHAT_MSG_COMBAT_HONOR_GAIN", "Gorbash meurt (victoire honorable : Soldat). Vous gagnez 12 points d'honneur.")
+    Stub.fire("CHAT_MSG_COMBAT_HONOR_GAIN", "Gorbash meurt (victoire honorable : Soldat). Vous gagnez 12 points d'honneur.")
+    local kills = eventsOf(ns, "PVP_KILL")
+    eq(#kills, 1, "annonce une seule fois")
+    eq(kills[1].p.name, "Gorbash"); eq(kills[1].p.guild, "Les Crocs de Sang"); eq(kills[1].p.level, 25)
+    eq(kills[1].vis, "G"); eq(kills[1].prov, "OBS")
+    local enemies = ns.Views.Enemies(ns.Store.Dataset())
+    eq(ns.Views.Total(enemies[1].wins), 1)
+    assert(ns.Types.Raw(kills[1]):find("victoire honorable sur Gorbash"), ns.Types.Raw(kills[1]))
+    withoutPvpApi()
+end)
+
+test("victoire honorable hors guilde rivale : race, classe, niveau, jamais le nom", function()
+    withPvpApi()
+    local passant = { name = "Passant", guild = "Les Gentils", level = 22, race = "Tauren", class = "Druide" }
+    local ns = boot({ specIndex = 1, units = { mouseover = passant } })
+    ns.char.rivalGuild = "Les Crocs de Sang"
+    Stub.fire("UPDATE_MOUSEOVER_UNIT")
+    Stub.fire("CHAT_MSG_COMBAT_HONOR_GAIN", "Passant meurt (victoire honorable : Soldat). Vous gagnez 9 points d'honneur.")
+    local k = eventsOf(ns, "PVP_KILL")[1]
+    assert(k, "victoire enregistree")
+    eq(k.p.name, nil); eq(k.p.race, "Tauren"); eq(k.p.level, 22)
+    eq(#eventsOf(ns, "ENEMY_SEEN"), 0, "pas de fiche pour un non-rival")
+    for _, v in pairs(k.p) do assert(v ~= "Passant", "nom enregistre !") end
+    assert(ns.Types.Raw(k):find("un Tauren druide de niveau 22"), ns.Types.Raw(k))
+    withoutPvpApi()
+end)
+
+test("victoire honorable : rien en champ de bataille ; compteur sans message = deduite", function()
+    local api = withPvpApi(3)
+    local ns, S = boot({ specIndex = 1, instance = { type = "pvp", name = "Goulet", iid = 489 } })
+    Stub.fire("CHAT_MSG_COMBAT_HONOR_GAIN", "Gorbash meurt (victoire honorable : Soldat). Vous gagnez 12 points d'honneur.")
+    eq(#eventsOf(ns, "PVP_KILL"), 0, "champ de bataille")
+    Stub.advance(10)
+    S.instance = nil
+    api.kills = 4
+    Stub.fire("PLAYER_PVP_KILLS_CHANGED")
+    Stub.advance(3)
+    local k = eventsOf(ns, "PVP_KILL")
+    eq(#k, 1); eq(k[1].prov, "DED")
+    -- with the message, the counter does not add a second one
+    api.kills = 5
+    Stub.fire("CHAT_MSG_COMBAT_HONOR_GAIN", "Grom meurt (victoire honorable : Soldat). Vous gagnez 12 points d'honneur.")
+    Stub.fire("PLAYER_PVP_KILLS_CHANGED")
+    Stub.advance(3)
+    eq(#eventsOf(ns, "PVP_KILL"), 2)
+    withoutPvpApi()
 end)
 
 print("Reglages de guilde (officiers)")

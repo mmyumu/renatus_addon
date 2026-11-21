@@ -18,6 +18,10 @@ local ACCOUNT_DEFAULTS = {
     collection = {},  -- album: [cardId] = number of copies
     tombstones = {},  -- [deleted event id] = author GUID (deletion received before the event)
     played = {},      -- [guid] = { ["YYYY-MM-DD"] = true }: days played (1 booster each)
+    -- Local health data, never broadcast; read by Renatus Admin's "Suivi" tab:
+    -- peers[name] = { first, seen, proto, ver }, sync = { received, rejected, lastReject, lastRejectAt },
+    -- roster = { at, members = { { name, rank, level, class, guid } } }
+    monitor = { peers = {}, sync = {} },
 }
 
 local CHAR_DEFAULTS = {
