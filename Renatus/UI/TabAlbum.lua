@@ -902,7 +902,7 @@ local function build(c)
     c.booster:SetPoint("TOPRIGHT", -4, -6)
     UI.Tooltip(c.booster, function()
         return "Booster", { "5 cartes. Le contenu est déterminé par l'identifiant du booster : impossible de relancer le tirage.",
-            "On en gagne 1 par jour joué, +1 par niveau, boss vaincu ou sortie avec un membre de la guilde (5 par jour au plus)." }
+            Album.DescribeRule(ns.Store.Dataset().isDemo and Album.DEFAULT_RULE or ns.GuildConfig.Boosters()) }
     end)
 
     local seriesOpts = { { value = "all", label = "Toutes les séries" },

@@ -1875,6 +1875,50 @@ test("album : boosters gagnes (jour joue, niveau), ouverture enregistree, serie 
     eq(total, 5)
 end)
 
+test("album : regle des boosters par jour, une nouvelle regle ne reprend rien", function()
+    local ns = boot({ specIndex = 1 })
+    local A = ns.Album
+    local D = 86400
+    local t0 = 1800000000
+    local me = "Player-1-ME"
+    local function lvl(t) return { a = me, k = "LEVEL_UP", t = t } end
+    -- day 1: played + 2 levels; day 2: played + 6 levels; day 3: played only
+    local events = { lvl(t0), lvl(t0 + 60), lvl(t0 + D), lvl(t0 + D), lvl(t0 + D), lvl(t0 + D), lvl(t0 + D), lvl(t0 + D) }
+    local played = { [A.DayKey(t0 + 2 * D)] = true }
+    eq(A.Earned(events, me, played), 3 + 5 + 1, "regle par defaut, plafond 5")
+    -- stingier rule from day 2: day 1 keeps the old one
+    local rules = { { from = A.DayKey(t0 + D), rule = A.Rule({ day = 0, bonus = 1, cap = 2 }) } }
+    eq(A.Earned(events, me, played, rules), 3 + 2 + 0)
+    -- out of range / missing values
+    local r = A.Rule({ day = -3, bonus = "x", cap = 99 })
+    eq(r.day, 0); eq(r.bonus, 1); eq(r.cap, 20)
+end)
+
+test("album : regle des boosters diffusee par un officier depuis Renatus_Admin", function()
+    local ns, Adm = bootAdmin({ specIndex = 1, rank = 1, roster = OFFICERS })
+    Stub.fire("PLAYER_LEVEL_UP", 21)
+    eq(ns.Store.Dataset().boosters, 2, "regle par defaut")
+    ns.GuildConfig.Publish({ rival = "Les Crocs" })
+    Adm.Open("boosters")
+    local page = Adm.window.pages.boosters
+    eq(page.fields.cap:GetText(), "5")
+    assert(page.info:GetText():find("par défaut"), page.info:GetText())
+    page.fields.day:SetText("2"); page.fields.bonus:SetText("3"); page.fields.cap:SetText("4")
+    page.publish:Click()
+    eq(ns.Store.Dataset().boosters, 4, "2 + 3, plafond 4")
+    eq(ns.GuildConfig.Rival(), "Les Crocs", "guilde rivale gardee")
+    assert(page.info:GetText():find("Testeur"), page.info:GetText())
+    -- changing the rival keeps the booster rule
+    ns.GuildConfig.Publish({ rival = "Autres" })
+    eq(ns.GuildConfig.Boosters().cap, 4)
+    -- a member's own config does not count
+    local ns2 = bootAdmin({ specIndex = 1, rank = 3, roster = { { name = "Testeur", rank = 3 }, { name = "Carol", rank = 4 } } })
+    local ev = { v = 1, id = "Player-1-CCC:1", a = "Player-1-CCC", n = "Carol", s = 1, t = 1000, k = "GUILD_CONFIG",
+        g = ns2.Context.GuildKey(), vis = "G", prov = "MAN", p = { boosters = { day = 9, bonus = 9, cap = 20 } } }
+    assert(ns2.Store.Insert(ev))
+    eq(ns2.GuildConfig.Boosters().cap, 5)
+end)
+
 test("album : icone de carte = premiere presente sur le client, sinon la generique", function()
     local ns = boot({ specIndex = 1 })
     local present = { ["Interface\\Icons\\Achievement_Zone_Westfall_01"] = true }

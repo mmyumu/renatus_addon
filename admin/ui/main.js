@@ -294,7 +294,10 @@ function pendingLabel(i) {
       return `${(p.cards ?? []).length} carte(s)`;
     case "DEATH_CAUSE": return `${p.victim ?? "?"} : ${p.cause ?? "?"}`;
     case "PVP_CLASH": return `${p.member ?? "?"} ${p.result === "win" ? "a vaincu" : "a été vaincu par"} ${p.name ?? "?"}`;
-    case "GUILD_CONFIG": return `guilde rivale : ${p.rival || "aucune"}`;
+    case "GUILD_CONFIG": {
+      const b = p.boosters;
+      return `guilde rivale : ${p.rival || "aucune"}` + (b ? ` ; boosters ${b.day}/jour, +${b.bonus} bonus, ${b.cap} max` : "");
+    }
     default: return i.note ?? i.id;
   }
 }

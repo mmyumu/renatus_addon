@@ -2,6 +2,7 @@
 -- window so that the Renatus addon looks the same for everyone.
 --   Rédaction      gazette items from the Renatus Admin app: preview, publish, ignore
 --   Guilde rivale  rival guild in force, app proposals (setting + armory roster), manual entry
+--   Boosters       how many boosters members earn (guild setting)
 --   Diagnostic     sync status, local data, unsupported events, demo mode
 -- Publishing is for officers (A.IsOfficer); everyone else can only look.
 local _, A = ...
@@ -328,11 +329,73 @@ local function buildReset(f, page)
 end
 
 ------------------------------------------------------------------------
+-- Boosters
+------------------------------------------------------------------------
+local BOOSTER_FIELDS = {
+    { key = "day", label = "Par jour joué" },
+    { key = "bonus", label = "Bonus par niveau, boss ou sortie" },
+    { key = "cap", label = "Maximum par jour" },
+}
+
+local function buildBoosters(f, page)
+    local cur = UI.Section(page, "En vigueur dans la guilde", 340)
+    cur:SetPoint("TOPLEFT", 0, 0)
+    page.info = UI.Text(page, 12)
+    page.info:SetPoint("TOPLEFT", 0, -28)
+    page.info:SetWidth(BODY_W)
+
+    local edit = UI.Section(page, "Nouvelle règle", 340)
+    edit:SetPoint("TOPLEFT", 0, -104)
+    local hint = UI.Text(page, 10, UI.C.dim)
+    hint:SetPoint("TOPLEFT", 0, -130)
+    hint:SetWidth(BODY_W)
+    hint:SetText("La règle vaut pour tous les membres à partir du jour où elle est diffusée. "
+        .. "Les jours passés gardent la règle d'alors : personne ne perd de booster déjà gagné.")
+    page.fields = {}
+    for i, def in ipairs(BOOSTER_FIELDS) do
+        local lim = R.Album.RULE_LIMITS[def.key]
+        local label = UI.Text(page, 12)
+        label:SetPoint("TOPLEFT", 0, -160 - (i - 1) * 32)
+        label:SetText(("%s (%d à %d)"):format(def.label, lim[1], lim[2]))
+        local box = UI.EditBox(page, 60, 24, false, 2)
+        box:SetPoint("TOPLEFT", 280, -154 - (i - 1) * 32)
+        page.fields[def.key] = box
+    end
+    page.publish = UI.Button(page, "Diffuser", 100, 22, function()
+        local rule = {}
+        for key, box in pairs(page.fields) do rule[key] = tonumber(box:GetText()) end
+        local _, why = GC.Publish({ boosters = rule })
+        notify(why)
+        for _, box in pairs(page.fields) do box.edit:ClearFocus() end
+        f:Refresh()
+    end)
+    page.publish:SetPoint("TOPLEFT", 0, -262)
+    UI.Tooltip(page.publish, "Diffuser à la guilde", { "Valeurs hors limites ramenées dans les limites, case vide = règle par défaut.",
+        A.RankHelp() })
+
+    function page:Refresh()
+        local rule, ev = GC.Boosters()
+        local lines = { "|cffd4a017" .. R.Album.DescribeRule(rule) .. "|r" }
+        if ev then
+            table.insert(lines, ("Diffusée par %s, %s."):format(tostring(ev.n), UI.Ago(ev.t)))
+        else
+            table.insert(lines, "Règle par défaut (aucune règle diffusée).")
+        end
+        self.info:SetText(table.concat(lines, "\n"))
+        for key, box in pairs(self.fields) do
+            if not box.edit:HasFocus() then box:SetText(tostring(rule[key])) end
+        end
+        self.publish:SetDisabled(not A.IsOfficer())
+    end
+end
+
+------------------------------------------------------------------------
 -- Window
 ------------------------------------------------------------------------
 local PAGES = {
     { key = "press", label = "Rédaction", build = buildPress },
     { key = "rival", label = "Guilde rivale", build = buildRival },
+    { key = "boosters", label = "Boosters", build = buildBoosters },
     { key = "diag", label = "Diagnostic", build = buildDiag },
     { key = "reset", label = "Remise à zéro", build = buildReset },
 }

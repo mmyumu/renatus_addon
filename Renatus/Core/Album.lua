@@ -40,10 +40,40 @@ for _, s in ipairs(ns.Cards.SERIES) do
     table.insert(Album.SERIES, { key = s.key, label = s.label, family = "azeroth" })
 end
 
--- Boosters (docs/ARCHITECTURE.md §9.2, "generous" rule): 1 per day played,
--- +1 per level gained, boss defeated, outing with a guild member; at most 5 a day.
-Album.DAILY_CAP = 5
+-- Boosters (docs/ARCHITECTURE.md §9.2): `day` per day played, + `bonus` per level
+-- gained, boss defeated, outing with a guild member; at most `cap` a day. The numbers
+-- are a guild setting (GUILD_CONFIG.p.boosters, published by an officer); this is the
+-- rule before any such setting ("generous" rule).
+Album.DEFAULT_RULE = { day = 1, bonus = 1, cap = 5 }
+Album.RULE_LIMITS = { day = { 0, 10 }, bonus = { 0, 10 }, cap = { 1, 20 } }
 Album.BONUS = { LEVEL_UP = true, BOSS_KILL = true }
+
+-- A valid rule from untrusted input (missing or bad fields take the default).
+function Album.Rule(r)
+    local out = {}
+    for k, lim in pairs(Album.RULE_LIMITS) do
+        local v = type(r) == "table" and tonumber(r[k])
+        v = v and math.floor(v) or Album.DEFAULT_RULE[k]
+        out[k] = math.max(lim[1], math.min(lim[2], v))
+    end
+    return out
+end
+
+-- Rule in force on a day ("YYYY-MM-DD"): the last one published on or before that
+-- day. `rules` = { { from = dayKey, rule = rule }, ... } sorted by `from`.
+function Album.RuleOn(rules, key)
+    local found = Album.DEFAULT_RULE
+    for _, r in ipairs(rules or {}) do
+        if r.from <= key then found = r.rule else break end
+    end
+    return found
+end
+
+function Album.DescribeRule(r)
+    r = Album.Rule(r)
+    return ("On en gagne %d par jour joué, +%d par niveau, boss vaincu ou sortie avec un membre de la guilde (%d par jour au plus).")
+        :format(r.day, r.bonus, r.cap)
+end
 
 Album.BOOSTER_SIZE = 5
 
@@ -394,11 +424,13 @@ end
 local function dayKey(t) return date("%Y-%m-%d", t) end
 Album.DayKey = dayKey
 
--- Boosters earned by `me`: from their own events and the days they played.
-function Album.Earned(events, me, playedDays)
-    local days = {}
+-- Boosters earned by `me`: from their own events and the days they played. Each day
+-- is counted with the rule in force that day (`rules`, see Album.RuleOn), so changing
+-- the rule never takes back boosters already earned.
+function Album.Earned(events, me, playedDays, rules)
+    local days = {} -- [dayKey] = bonus events that day
     local function day(key)
-        days[key] = days[key] or 1
+        days[key] = days[key] or 0
         return key
     end
     for key in pairs(playedDays or {}) do day(key) end
@@ -414,7 +446,10 @@ function Album.Earned(events, me, playedDays)
         end
     end
     local total = 0
-    for _, n in pairs(days) do total = total + math.min(Album.DAILY_CAP, n) end
+    for key, n in pairs(days) do
+        local r = Album.RuleOn(rules, key)
+        total = total + math.min(r.cap, r.day + r.bonus * n)
+    end
     return total
 end
 

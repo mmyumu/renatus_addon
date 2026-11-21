@@ -1,7 +1,7 @@
 -- Core/GuildConfig.lua: guild-wide settings, published by an officer (docs §7.3).
 --
 -- A GUILD_CONFIG event is an ordinary shared event (always "G") whose payload is the
--- whole configuration: { rival = "Guild name" }. It travels with the sync like any
+-- whole configuration: { rival = "Guild name", boosters = { day, bonus, cap } }. It travels with the sync like any
 -- other event. Every client decides on its own which one applies:
 --   - its author must be, in the guild roster seen by this client, at rank
 --     OFFICER_MAX_RANK or above (0 = guild master, 1 = the rank below, ...);
@@ -16,7 +16,7 @@ ns.GuildConfig = GuildConfig
 -- Highest rank index (0 = guild master) allowed to publish guild settings.
 GuildConfig.OFFICER_MAX_RANK = 1
 
-local cache -- { config = event or false }, invalidated by new events and roster updates
+local cache -- { config = event or false, rules = list }, invalidated by new events and roster updates
 
 local function trim(s)
     if type(s) ~= "string" then return nil end
@@ -43,21 +43,57 @@ function GuildConfig.CanPublish()
     return GuildConfig.IsOfficerRank(rank)
 end
 
--- The GUILD_CONFIG event in force (or nil).
-function GuildConfig.Current()
-    if cache then return cache.config or nil end
+-- Valid GUILD_CONFIG events (author of officer rank in the current roster), oldest first.
+local function validConfigs()
     local guildKey = ns.Context.GuildKey()
-    local best
+    local list = {}
     for _, ev in pairs(ns.db.events) do
         if ev.k == "GUILD_CONFIG" and ev.vis == "G" and not ev.del and ns.Context.SameGuild(ev.g, guildKey)
-            and type(ev.p) == "table" and GuildConfig.IsOfficerRank(rankOf(ev.n, ev.a))
-            and (not best or ev.t > best.t or (ev.t == best.t and ev.id > best.id)) then
-            best = ev
+            and type(ev.p) == "table" and GuildConfig.IsOfficerRank(rankOf(ev.n, ev.a)) then
+            list[#list + 1] = ev
         end
     end
+    table.sort(list, function(a, b)
+        if a.t ~= b.t then return a.t < b.t end
+        return a.id < b.id
+    end)
+    return list
+end
+
+local function load()
+    if cache then return cache end
+    local list = validConfigs()
+    -- Booster rules over time: each config carrying one starts it on its day.
+    local rules = {}
+    for _, ev in ipairs(list) do
+        if type(ev.p.boosters) == "table" then
+            local from = ns.Album.DayKey(ev.t)
+            if rules[#rules] and rules[#rules].from == from then table.remove(rules) end
+            rules[#rules + 1] = { from = from, rule = ns.Album.Rule(ev.p.boosters), ev = ev }
+        end
+    end
+    local result = { config = list[#list] or false, rules = rules }
     -- An empty roster usually means it is not loaded yet: do not cache that answer.
-    if #ns.Store.Roster() > 0 then cache = { config = best or false } end
-    return best
+    if #ns.Store.Roster() > 0 then cache = result end
+    return result
+end
+
+-- The GUILD_CONFIG event in force (or nil).
+function GuildConfig.Current()
+    return load().config or nil
+end
+
+-- Booster rules published over time, for Album.Earned / Album.RuleOn.
+function GuildConfig.BoosterRules()
+    return load().rules
+end
+
+-- Booster rule in force today, and the event that set it (nil = default rule).
+function GuildConfig.Boosters()
+    local rules = load().rules
+    local last = rules[#rules]
+    if last then return last.rule, last.ev end
+    return ns.Album.DEFAULT_RULE, nil
 end
 
 function GuildConfig.Invalidate() cache = nil end
@@ -108,6 +144,7 @@ end
 
 -- Publishes a new configuration (officers only). Fields left out are kept from the
 -- configuration in force, so publishing { rival = "X" } does not reset the rest.
+-- { boosters = { day, bonus, cap } } applies from the day it is published on.
 function GuildConfig.Publish(fields)
     if not GuildConfig.CanPublish() then return nil, "rang" end
     local payload = {}
@@ -115,6 +152,7 @@ function GuildConfig.Publish(fields)
     if cur then for k, v in pairs(cur.p) do payload[k] = v end end
     for k, v in pairs(fields or {}) do payload[k] = v end
     payload.rival = trim(payload.rival)
+    if payload.boosters ~= nil then payload.boosters = ns.Album.Rule(payload.boosters) end
     local ev = ns.Store.Add("GUILD_CONFIG", payload, { vis = "G", prov = "MAN", noExp = true, loc = {} })
     GuildConfig.Invalidate()
     return ev

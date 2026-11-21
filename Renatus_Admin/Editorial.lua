@@ -107,7 +107,12 @@ function Press.Label(item)
         return ("Effectif de %s : %d membre(s)"):format(tostring(p.guild), p.count or n)
     end
     if item.kind == "GUILD_CONFIG" then
-        return "Guilde rivale : " .. (R.GuildConfig.Trim(p.rival) or "aucune")
+        local text = "Guilde rivale : " .. (R.GuildConfig.Trim(p.rival) or "aucune")
+        if type(p.boosters) == "table" then
+            local r = R.Album.Rule(p.boosters)
+            text = text .. (" ; boosters %d/jour, +%d bonus, %d max"):format(r.day, r.bonus, r.cap)
+        end
+        return text
     end
     return k.label
 end
