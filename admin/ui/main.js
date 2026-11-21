@@ -189,8 +189,10 @@ function renderDraft(d, busy) {
   const articles = d.items.filter((i) => i.kind === "ARTICLE");
   const layout = d.items.find((i) => i.kind === "EDITION");
   const template = layout ? TEMPLATES[layout.p.template] ?? layout.p.template : "aucune";
+  const cards = d.items.filter((i) => i.kind === "CARD_SET").flatMap((i) => i.p.cards);
   $("draft-title").textContent =
-    `Brouillon · rédigé le ${when(d.at)} · ${articles.length} article(s) · maquette : ${template}`;
+    `Brouillon · rédigé le ${when(d.at)} · ${articles.length} article(s) · maquette : ${template} · ${cards.length} carte(s)`;
+  renderCards(cards);
   $("draft-notes").textContent = d.notes.join("\n");
   const list = $("draft-articles");
   list.textContent = "";
@@ -218,6 +220,31 @@ function renderDraft(d, busy) {
   }
   $("draft-answer").textContent = d.answer ?? "(aucune réponse)";
   $("propose-gazette").disabled = busy || d.items.length === 0;
+}
+
+// Album cards published with the issue: number, rarity, name, text.
+const RARITY = { common: "Commune", uncommon: "Peu commune", rare: "Rare", epic: "Épique", legendary: "Légendaire" };
+function renderCards(cards) {
+  const box = $("draft-cards");
+  box.textContent = "";
+  if (cards.length === 0) return;
+  const h = document.createElement("div");
+  h.className = "label";
+  h.textContent = `Cartes de l'album (${cards.length})`;
+  box.appendChild(h);
+  for (const c of cards) {
+    const div = document.createElement("div");
+    div.className = `album-card ${c.r}`;
+    const meta = document.createElement("div");
+    meta.className = "meta";
+    meta.textContent = [`N° ${String(c.no).padStart(3, "0")}`, RARITY[c.r] ?? c.r, c.s].join(" · ");
+    const name = document.createElement("strong");
+    name.textContent = c.n;
+    const text = document.createElement("div");
+    text.textContent = c.f;
+    div.append(meta, name, text);
+    box.appendChild(div);
+  }
 }
 
 function report(e) {

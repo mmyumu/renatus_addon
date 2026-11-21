@@ -428,6 +428,15 @@ Les enrichissements `LOG` (causes de mort, coups fataux PvP) passent par le mêm
 - Visuel : textures du jeu (cadres de hauts faits, bordures de qualité d'objet, icônes de classe), plus le texte. Des illustrations personnalisées (`.tga`/`.blp`) pourront être ajoutées plus tard. Aucune image de personne réelle.
 - Le catalogue est **versionné** (`catalogueVersion`) et recalculé de façon identique chez tous à partir des événements partagés.
 
+### 9.1 bis Catalogue publié (v0.12.0-test.8)
+
+- **Une seule vérité, diffusée en pair à pair.** Le catalogue = le **set de base** Azeroth (`Core/Cards.lua`, numéros `B-001…`, daté du 19/11/2026) + les cartes des événements **`CARD_SET`** publiés par un officier (même règle de confiance que les mises en page, `Views.TrustedOfficer`). Chaque carte a un **numéro** (`no`) et une **date de publication** (celle de l'événement). Un id déjà publié garde son premier numéro.
+- **Qui crée les cartes** : l'app admin, avec chaque numéro de la gazette (`admin/core/src/cards.rs`). Les règles choisissent les cartes (4 variantes par membre, un palier tous les 10 niveaux, premier kill d'un boss, sortie à 2+, anecdote, mort au tueur connu, article publié, ennemi qui compte) ; l'IA n'écrit que le nom et le texte, et seulement pour les membres qui ont accepté la gazette IA. Les `CARD_SET` (découpés sous 4 ko) partent dans `Press.lua` avec le numéro ; publier la mise en page dans `Renatus_Admin` publie aussi ses cartes.
+- **Transition** : tant qu'aucun `CARD_SET` n'existe, les cartes de guilde sont calculées localement comme avant (`Album.Legacy`). Les cartes possédées absentes du catalogue restent affichées (« ancienne édition »), jamais tirées.
+- **Profil de carte** (`CARD_PROFILE`, `Collectors/Profile.lua`) : chaque membre envoie sa race, son sexe, sa classe, ses objets portés et son choix « ne pas apparaître dans l'album des autres » (désormais réellement respecté).
+- **Illustration** : fond par série (textures générées), puis modèle 3D (créature `npc` du set de base, ou le membre habillé de ses objets), sinon icône nette en médaillon. Les modèles sont sous `pcall` et vérifiés : un modèle vide laisse la place à l'icône. **À valider en jeu sur Forever.**
+- **Ouverture** : le paquet tremble et se déchire, les cartes sortent face cachée ; clic pour en retourner une, ou « Tout retourner ». Clic sur une carte de l'album : vue agrandie.
+
 ### 9.2 Boosters : trois modèles proposés (à choisir)
 
 | Modèle | Règle | Avantages | Inconvénients |

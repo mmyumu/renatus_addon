@@ -132,7 +132,7 @@ local function sendEvent(id, delay)
             if not text or #text > Sync.MAX_EVENT_BYTES then return nil end
             seenOnWire[id] = clock()
             return text
-        end, (ns.db.events[id] and (ns.db.events[id].k == "ARTICLE" or ns.db.events[id].k == "EDITION")) and P.BULK or P.EVENT)
+        end, (ns.db.events[id] and (ns.db.events[id].k == "ARTICLE" or ns.db.events[id].k == "EDITION" or ns.db.events[id].k == "CARD_SET")) and P.BULK or P.EVENT)
     end
     if delay and delay > 0 and C_Timer then C_Timer.After(delay, enqueue) else enqueue() end
 end

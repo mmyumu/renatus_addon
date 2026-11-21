@@ -99,7 +99,10 @@ local function buildCanvas()
         if UI.Notifier then UI.Notifier:Update() end
     end)
     f.widget:SetPoint("TOPLEFT", x, y - 48)
-    f.optOut = UI.Checkbox(f, "Ne pas apparaître dans l'album des autres", function(v) ns.char.albumOptOut = v end)
+    f.optOut = UI.Checkbox(f, "Ne pas apparaître dans l'album des autres", function(v)
+        ns.char.albumOptOut = v
+        if ns.Profile then ns.Profile.Publish() end
+    end)
     f.optOut:SetPoint("TOPLEFT", x, y - 72)
 
     function f:Refresh()
@@ -187,7 +190,8 @@ local function buildNative()
     P.checkbox("exportConsent", char, "exportConsent", "La gazette rédigée par IA peut parler de moi", true,
         CONSENT_HELP, function(v) ns.Consent.SetConsent(v) end)
     P.checkbox("albumOptOut", char, "albumOptOut", "Ne pas apparaître dans l'album des autres", false,
-        "Ta carte de membre n'est plus proposée dans l'album de guilde.")
+        "Tes cartes de membre ne sont plus proposées dans l'album des autres.",
+        function() if ns.Profile then ns.Profile.Publish() end end)
 
     -- Voice page
     local vcat, vlayout

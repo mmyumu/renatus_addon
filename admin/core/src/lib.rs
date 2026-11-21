@@ -1,12 +1,13 @@
 //! Platform-independent logic of the Renatus admin app (officers and editor):
 //! reading the addon's journal (SavedVariables) and combat logs, the rival guild
-//! from the armory, the AI gazette and its page layout, and writing Renatus_Admin/Press.lua. The
+//! from the armory, the AI gazette, its page layout and the album cards, and writing Renatus_Admin/Press.lua. The
 //! Tauri shell (src-tauri, Windows only) and the `renatus-admin` command line
 //! both drive `ops`.
 
 pub mod addon;
 pub mod armory;
 pub mod articles;
+pub mod cards;
 pub mod chronicle;
 pub mod combatlog;
 pub mod config;

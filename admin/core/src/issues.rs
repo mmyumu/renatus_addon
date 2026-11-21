@@ -132,6 +132,9 @@ pub struct Selection {
     pub candidates: Vec<Candidate>,
     #[serde(skip)]
     pub brief: Brief,
+    /// Card sets waiting in Press.lua: their cards are not proposed again (cards.rs).
+    #[serde(skip)]
+    pub pending_cards: Vec<Value>,
 }
 
 impl Selection {
@@ -187,6 +190,11 @@ pub fn prepare(ch: &Chronicle, pending: &[Value], now: f64) -> Selection {
         after_issue: last.is_some(),
         candidates,
         brief,
+        pending_cards: pending
+            .iter()
+            .filter(|i| crate::chronicle::str_of(i, "kind") == Some("CARD_SET"))
+            .cloned()
+            .collect(),
     }
 }
 

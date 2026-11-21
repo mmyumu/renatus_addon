@@ -61,8 +61,12 @@ impl Chronicle {
         Ok(Self::from_saved(&crate::lua::load(path)?))
     }
 
+    /// Events still standing: a deleted one (tombstone, `del`) is only an empty shell kept
+    /// for the sync.
     pub fn all(&self) -> impl Iterator<Item = &Value> {
-        self.events.values().filter(|e| e.is_object())
+        self.events
+            .values()
+            .filter(|e| e.is_object() && e.get("del").is_none())
     }
 
     pub fn of_kind<'a>(&'a self, kind: &'a str) -> impl Iterator<Item = &'a Value> + 'a {

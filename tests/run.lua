@@ -1769,6 +1769,190 @@ test("album : booster distribue face cachee, cartes retournees une a une ; filtr
     Stub.advance(2)
 end)
 
+local function foreign(ns, author, name, s, kind, p, t)
+    local ev = { v = 1, id = author .. ":" .. s, a = author, n = name, s = s, k = kind, t = t or 1000, vis = "G",
+        g = ns.Context.GuildKey(), p = p }
+    assert(ns.Store.Insert(ev))
+    return ev
+end
+
+local function cardSet(set, first)
+    return { set = set, cards = {
+        { id = "M:Player-1-ABC:rare", no = first, s = "members", r = "rare", n = "Testeur l'Intrépide",
+            f = "Il tient la porte. Personne ne sait pourquoi.", cl = "WARRIOR", g = "Player-1-ABC" },
+        { id = "M:Player-1-BOB:common", no = first + 1, s = "members", r = "common", n = "Bob", g = "Player-1-BOB" },
+        { id = "X:boss1", no = first + 2, s = "expeditions", r = "epic", n = "Hogger tombe", ic = "INV_Misc_Head_Gnoll_01",
+            npc = 448 },
+        { id = "bad", r = "nope", n = "Rarete inconnue" },
+    } }
+end
+
+test("catalogue publie : cartes d'un officier numerotees et datees, celles d'un non-officier ignorees", function()
+    local roster = { { name = "Testeur", rank = 3 }, { name = "Off", rank = 1 }, { name = "Bob", rank = 5 } }
+    local ns = boot({ specIndex = 1, roster = roster })
+    local ds = ns.Store.Dataset()
+    local before = ns.Album.Catalogue(ds)
+    eq(before.published, false, "avant le premier set : calcul local")
+    foreign(ns, "Player-1-BOB", "Bob", 1, "CARD_SET", { set = "x", cards = { { id = "Z:1", no = 1, s = "faits", r = "legendary", n = "Triche" } } })
+    foreign(ns, "Player-1-OFF", "Off", 1, "CARD_SET", cardSet("E1", 1), 2000)
+    ds = ns.Store.Dataset()
+    local cards = ns.Album.Catalogue(ds)
+    eq(cards.published, true)
+    local byId = {}
+    for _, c in ipairs(cards) do byId[c.id] = c end
+    eq(byId["Z:1"], nil, "set d'un non-officier ignore")
+    eq(byId["bad"], nil, "carte invalide ignoree")
+    local mine = byId["M:Player-1-ABC:rare"]
+    eq(mine.no, 1); eq(mine.t, 2000); eq(mine.guid, "Player-1-ABC")
+    eq(byId["X:boss1"].npc, 448)
+    eq(byId["X:boss1"].icon, "Interface\\Icons\\INV_Misc_Head_Gnoll_01")
+    eq(byId["AZ:est:elwynn"].no, "B-001", "set de base numerote")
+    eq(ns.UI.CardNumber(mine), "N° 001")
+    eq(ns.UI.CardNumber(byId["AZ:est:elwynn"]), "N° B-001")
+    -- republished later: the first number stays
+    foreign(ns, "Player-1-OFF", "Off", 2, "CARD_SET", cardSet("E2", 50), 3000)
+    byId = {}
+    for _, c in ipairs(ns.Album.Catalogue(ns.Store.Dataset())) do byId[c.id] = c end
+    eq(byId["M:Player-1-ABC:rare"].no, 1, "numero stable")
+end)
+
+test("catalogue publie : cartes possedees hors catalogue gardees, opt-out d'un membre respecte", function()
+    local roster = { { name = "Testeur", rank = 3 }, { name = "Off", rank = 1 }, { name = "Bob", rank = 5 } }
+    local ns = boot({ specIndex = 1, roster = roster })
+    ns.Store.Add("BOOSTER_OPEN", { n = 1, cards = { "A:ancienne", "M:Player-1-BOB:common" } }, { keep = true, noExp = true, loc = {} })
+    foreign(ns, "Player-1-OFF", "Off", 1, "CARD_SET", cardSet("E1", 1), 2000)
+    foreign(ns, "Player-1-BOB", "Bob", 1, "CARD_PROFILE", { optOut = true, race = 1, sex = 2 }, 2100)
+    local ds = ns.Store.Dataset()
+    eq(ds.optOut["Player-1-BOB"], true)
+    local cards = ns.Album.Catalogue(ds)
+    for _, c in ipairs(cards) do assert(c.guid ~= "Player-1-BOB", "membre qui refuse l'album : pas tire") end
+    local orphans = ns.Album.Orphans(ds, cards, ds.collection)
+    eq(#orphans, 2, "carte ancienne + carte du membre retire, toujours dans la collection")
+    for _, c in ipairs(orphans) do eq(c.orphan, true) end
+    ns.UI.Open("album")
+    local c = RenatusMainFrame.containers.album
+    c.onlyOwned = true; c:Refresh()
+    local shown = 0
+    for _, f in ipairs(c.cards) do if f:IsShown() then shown = shown + 1 end end
+    eq(shown, 2, "les deux cartes possedees restent visibles")
+end)
+
+test("profil de carte : race, sexe, objets ; envoye seulement s'il change ; opt-out", function()
+    local ns = boot({ specIndex = 1 })
+    function UnitSex() return 3 end
+    function GetInventoryItemID(_, slot) if slot == 5 then return 12345 end end
+    local ev = ns.Profile.Publish()
+    eq(ev.k, "CARD_PROFILE"); eq(ev.p.sex, 3); eq(ev.p.items, "5:12345"); eq(ev.p.optOut, nil)
+    eq(ns.Profile.Publish(), nil, "rien n'a change")
+    ns.char.albumOptOut = true
+    local ev2 = ns.Profile.Publish()
+    eq(ev2.p.optOut, true)
+    eq(ns.Store.Dataset().optOut[ns.Context.Me()], nil, "son propre album n'est pas concerne")
+    UnitSex, GetInventoryItemID = nil, nil
+end)
+
+test("booster : le paquet s'ouvre, cartes face cachee, une retournee au clic, puis toutes", function()
+    local ns = boot({ specIndex = 1 })
+    SlashCmdList.RENATUS("demo")
+    ns.UI.Open("album")
+    local c = RenatusMainFrame.containers.album
+    c.booster:Click()
+    local r = c.reveal
+    eq(r.stage, "pack")
+    assert(r.pack:IsShown(), "paquet")
+    r.cards[1]:Click()
+    eq(r.cards[1].turned, false, "pas avant l'ouverture")
+    Stub.advance(2)
+    eq(r.stage, "deal")
+    eq(r.cards[1].owned, false, "face cachee")
+    r.cards[1]:Click()
+    Stub.advance(0.5)
+    eq(r.cards[1].owned, true, "retournee")
+    eq(r.revealed, 1)
+    assert(not r.ok:IsShown(), "pas encore fini")
+    r.all:Click()
+    Stub.advance(2)
+    eq(r.revealed, 5); eq(r.stage, "done")
+    assert(r.ok:IsShown() and not r.all:IsShown())
+    -- zoom on an owned card of the grid
+    c.onlyOwned = true; c:Refresh()
+    c.cards[1]:Click()
+    assert(c.zoom and c.zoom:IsShown(), "carte agrandie")
+    local z = ns.UI.ShowCardZoom(ns.Cards.LIST[1], 1)
+    eq(z.card.no:GetText(), "N° B-001")
+    eq(z.card.date:GetText(), "19/11/2026")
+end)
+
+test("catalogue publie : un CARD_SET au plus gros passe la synchro (taille)", function()
+    local ns = boot({ specIndex = 1, roster = OFFICER.roster, rank = 0 })
+    local cards = {}
+    for i = 1, 11 do   -- more than the app packs under 4000 bytes, with long accented texts
+        cards[i] = { id = "M:Player-1-ABCDEFGH:legendary" .. i, no = 100 + i, s = "members", r = "legendary",
+            n = ("é"):rep(20), f = ("à"):rep(140), cl = "WARRIOR", g = "Player-1-ABCDEFGH" }
+    end
+    local ev = ns.Store.Add("CARD_SET", { set = "2026-11-21-0120", cards = cards }, { vis = "G", prov = "GEN", noExp = true, loc = {} })
+    local text = ns.Serialize.Encode({ o = "E", e = ev, g = ns.Context.GuildKey() })
+    assert(#text <= ns.Sync.MAX_EVENT_BYTES, "trop gros pour la synchro : " .. #text)
+end)
+
+test("renatus_admin : publier le numero publie ses cartes ; apercu des cartes", function()
+    local ns, A = bootAdmin(OFFICER)
+    withPress({
+        { id = "ia:E1:a", kind = "ARTICLE", refs = {}, p = { title = "Une", body = "Un", edition = "E1", order = 1, key = "a" } },
+        { id = "ia:E1:maquette", kind = "EDITION", p = { edition = "E1", cells = { { pg = 1, r = 1, w = 12, b = { { t = "story", a = "@1" } } } } } },
+        { id = "cards:E1:1", kind = "CARD_SET", p = cardSet("E1", 1) },
+    })
+    local Press = A.Press
+    local cs = Press.Pending(function(i) return i.kind == "CARD_SET" end)[1]
+    assert(Press.Label(cs):find("4 carte%(s%), n° 1 à 3"), Press.Label(cs))
+    local r = Press.Preview(cs)
+    eq(r.stage, "done", "apercu : face visible")
+    eq(r.cards[1].owned, true)
+    eq(#eventsOf(ns, "CARD_SET"), 0, "apercu : rien de publie")
+    local ed = Press.Pending(function(i) return i.kind == "EDITION" end)[1]
+    assert(Press.Publish(ed))
+    local ev = eventsOf(ns, "CARD_SET")[1]
+    eq(ev.prov, "GEN"); eq(ev.vis, "G"); eq(ev.p.set, "E1")
+    eq(ns.Album.Catalogue(ns.Store.Dataset()).published, true)
+    RenatusPress = nil
+end)
+
+test("remise a zero : seulement ce qui est coche, pour toute la guilde ; reglages gardes", function()
+    local ns, A = bootAdmin(OFFICER)
+    withPress({
+        { id = "ia:E1:a", kind = "ARTICLE", refs = {}, p = { title = "Une", body = "Un", edition = "E1", order = 1, key = "a" } },
+        { id = "ia:E1:maquette", kind = "EDITION", p = { edition = "E1", cells = { { pg = 1, r = 1, w = 12, b = { { t = "story", a = "@1" } } } } } },
+        { id = "cards:E1:1", kind = "CARD_SET", p = cardSet("E1", 1) },
+    })
+    assert(A.Press.Publish(A.Press.Pending(function(i) return i.kind == "EDITION" end)[1]))
+    ns.UI.Open("album")
+    RenatusMainFrame.containers.album.booster:Click()
+    local anecdote = ns.Store.AddManual("ANECDOTE", { title = "Reste" })
+    local consent = ns.Consent and ns.Consent.SetConsent and ns.Consent.SetConsent(true)
+    -- the tab: gazette, cards and boosters ticked by default, journal not
+    A.Open("reset")
+    local page = RenatusAdminFrame.pages.reset
+    eq(page.checks.gazette:GetChecked(), true); eq(page.checks.journal:GetChecked(), false)
+    page.go:Click()
+    eq(page.go.label:GetText(), "Confirmer ?", "deux clics")
+    eq(ns.Store.Dataset().boostersOpened, 1, "rien avant confirmation")
+    page.go:Click()
+    local ds = ns.Store.Dataset()
+    eq(#ds.articles, 0, "plus de gazette")
+    eq(ns.Album.Catalogue(ds).published, false, "plus de cartes publiees")
+    eq(ds.boostersOpened, 0); eq(next(ds.collection), nil, "collection videe")
+    eq(ds.boosters, 1, "le booster du jour revient")
+    eq(#eventsOf(ns, "TOMBSTONE"), 4, "une pierre tombale par evenement partage (ouverture comprise)")
+    assert(not ns.db.events[anecdote.id].del, "journal non coche : garde")
+    assert(page.info:GetText():find("4 événement"), page.info:GetText())
+    -- then the journal alone: settings stay
+    eq(A.Reset({ journal = true }) >= 1, true)
+    assert(ns.db.events[anecdote.id].del, "journal retire")
+    for _, ev in ipairs(eventsOf(ns, "AI_CONSENT")) do assert(not ev.del, "consentement garde") end
+    for _, ev in ipairs(eventsOf(ns, "TOMBSTONE")) do assert(not ev.del, "pierres tombales jamais retirees") end
+    RenatusPress = nil
+end)
+
 print("Mise en page de la gazette (Newsprint)")
 
 -- Texts currently drawn on the gazette canvas.

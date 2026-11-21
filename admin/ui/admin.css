@@ -65,3 +65,11 @@ th { text-align: left; color: var(--muted); font-weight: 400; border-bottom: 1px
 td { padding: 4px; border-bottom: 1px solid #3a2c1e; }
 tr.known td { color: var(--gold); }
 code { font-family: Consolas, monospace; color: var(--gold); }
+#draft-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; margin-top: 10px; }
+#draft-cards .label { grid-column: 1 / -1; }
+.album-card { border: 1px solid var(--border); border-left: 4px solid #cfcfcf; border-radius: 4px; padding: 6px 8px; user-select: text; }
+.album-card .meta { color: var(--muted); font-size: 11px; }
+.album-card.uncommon { border-left-color: #1eff00; }
+.album-card.rare { border-left-color: #0070dd; }
+.album-card.epic { border-left-color: #a335ee; }
+.album-card.legendary { border-left-color: #ff8000; }

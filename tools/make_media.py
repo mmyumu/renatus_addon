@@ -503,6 +503,185 @@ def gazette_icon(size=128):
     return np.asarray(small).astype(np.float64)
 
 
+def _to_np(im):
+    return np.asarray(im.convert("RGBA")).astype(np.float64)
+
+
+def _sky(w, h, top, bottom, seed):
+    y = np.linspace(0, 1, h)[:, None] * np.ones((1, w))
+    col = lerp(top, bottom, y)
+    col = col + (noise((h, w), 1.6, seed)[..., None] - 0.5) * 18
+    img = rgba(h, w)
+    img[..., :3] = col
+    img[..., 3] = 255
+    return img
+
+
+def _ridge(img, base, amp, beta, seed, color, haze=0.0):
+    """Mountain / foliage silhouette: filled below a noisy ridge line."""
+    h, w = img.shape[:2]
+    line = noise((1, w), beta, seed)[0]
+    line = base * h - (line - 0.5) * amp * h
+    y = np.arange(h)[:, None]
+    k = np.clip(y - line[None, :] + 0.5, 0, 1)
+    shade = np.clip((y - line[None, :]) / (h * 0.5), 0, 1)
+    col = lerp(color, np.array(color) * 0.55, shade)
+    col = lerp(col, img[..., :3], haze)
+    img[..., :3] = img[..., :3] * (1 - k[..., None]) + col * k[..., None]
+    return img
+
+
+def cardbg_lieu(w=256, h=128):
+    """Card backdrop for places: dusk sky, three mountain ranges, mist."""
+    img = _sky(w, h, (96, 138, 184), (236, 196, 140), 50)
+    img = _ridge(img, 0.55, 0.45, 1.8, 51, (92, 104, 128), haze=0.45)
+    img = _ridge(img, 0.72, 0.35, 1.9, 52, (60, 84, 70), haze=0.2)
+    img = _ridge(img, 0.88, 0.25, 2.0, 53, (34, 52, 36))
+    return img
+
+
+def cardbg_donjon(w=256, h=128):
+    """Card backdrop for dungeons and exploits: stone wall, arch, torchlight."""
+    y, x = np.mgrid[0:h, 0:w].astype(np.float64) + 0.5
+    stone = noise((h, w), 1.2, 60)
+    img = rgba(h, w)
+    img[..., :3] = lerp((46, 40, 38), (86, 76, 68), stone)
+    # bricks
+    row = (y // 16).astype(int)
+    off = (row % 2) * 16
+    mortar = ((y % 16) < 1.5) | (((x + off) % 32) < 1.5)
+    img[..., :3] = np.where(mortar[..., None], img[..., :3] * 0.55, img[..., :3])
+    # dark arch in the middle
+    cx = w / 2
+    r = np.hypot((x - cx) / 0.9, (y - h * 0.62))
+    inside = (r < h * 0.42) | ((np.abs(x - cx) < h * 0.38) & (y > h * 0.62))
+    img[..., :3] = np.where(inside[..., None], img[..., :3] * 0.18, img[..., :3])
+    # torchlight on both sides
+    for tx in (w * 0.12, w * 0.88):
+        g = np.exp(-((x - tx) ** 2 + (y - h * 0.35) ** 2) / (2 * (h * 0.28) ** 2))
+        img[..., :3] = img[..., :3] + g[..., None] * np.array((150, 80, 20))
+    img[..., 3] = 255
+    return img
+
+
+def cardbg_guilde(w=256, h=128):
+    """Card backdrop for people: red tapestry, gold lozenges, soft light behind the head."""
+    y, x = np.mgrid[0:h, 0:w].astype(np.float64) + 0.5
+    cloth = noise((h, w), 0.9, 70)
+    img = rgba(h, w)
+    img[..., :3] = lerp((84, 14, 12), (128, 28, 22), cloth)
+    u, v = (x % 32) - 16, (y % 32) - 16
+    loz = np.abs(u) + np.abs(v)
+    gold = (np.abs(loz - 11) < 1.2)
+    img[..., :3] = np.where(gold[..., None], lerp(img[..., :3], (200, 150, 70), 0.55), img[..., :3])
+    halo = np.exp(-((x - w / 2) ** 2 / (2 * (w * 0.22) ** 2) + (y - h * 0.4) ** 2 / (2 * (h * 0.45) ** 2)))
+    img[..., :3] = img[..., :3] + halo[..., None] * np.array((90, 60, 30))
+    img[..., 3] = 255
+    return img
+
+
+def cardbg_bestiaire(w=256, h=128):
+    """Card backdrop for beasts: forest clearing, foliage silhouettes."""
+    img = _sky(w, h, (120, 160, 110), (206, 214, 150), 80)
+    img = _ridge(img, 0.45, 0.7, 2.4, 81, (54, 92, 50), haze=0.5)
+    img = _ridge(img, 0.7, 0.6, 2.6, 82, (32, 64, 30), haze=0.15)
+    img = _ridge(img, 0.92, 0.2, 1.4, 83, (70, 54, 30))
+    return img
+
+
+def cardbg_ennemi(w=256, h=128):
+    """Card backdrop for enemies: blood-red dusk, smoke, claw marks."""
+    y, x = np.mgrid[0:h, 0:w].astype(np.float64) + 0.5
+    img = _sky(w, h, (40, 10, 10), (150, 40, 20), 90)
+    smoke = noise((h, w), 1.8, 91)
+    img[..., :3] = lerp(img[..., :3], (30, 20, 20), smooth(0.45, 0.9, smoke) * 0.7)
+    for i, off in enumerate((-18, 0, 18)):
+        d = np.abs((x - w * 0.62 - off) - (y - h / 2) * 0.55)
+        k = np.clip(2.2 - d, 0, 1) * ((y > h * 0.12) & (y < h * 0.88))
+        img[..., :3] = lerp(img[..., :3], (12, 4, 4), k * 0.8)
+    img[..., 3] = 255
+    return img
+
+
+def cardbg_presse(w=256, h=128):
+    """Card backdrop for press cards (front pages, news items): sepia newsprint columns."""
+    y, x = np.mgrid[0:h, 0:w].astype(np.float64) + 0.5
+    p = paper(256)[:h, :w, :3]
+    img = rgba(h, w)
+    img[..., :3] = p
+    rng = np.random.default_rng(100)
+    for col in range(4):
+        x0, x1 = 10 + col * 61, 10 + col * 61 + 54
+        yy = 10
+        while yy < h - 8:
+            end = x1 if rng.random() > 0.2 else x0 + (x1 - x0) * rng.uniform(0.4, 0.8)
+            k = (x >= x0) & (x <= end) & (y >= yy) & (y < yy + 2)
+            img[..., :3] = np.where(k[..., None], lerp(img[..., :3], (110, 88, 60), 0.6), img[..., :3])
+            yy += 6
+    img[..., 3] = 255
+    return img
+
+
+def cardbg_tresor(w=256, h=128):
+    """Card backdrop for treasures: deep purple vault with gold sparkles."""
+    y, x = np.mgrid[0:h, 0:w].astype(np.float64) + 0.5
+    img = _sky(w, h, (34, 18, 52), (86, 46, 96), 110)
+    rng = np.random.default_rng(111)
+    for _ in range(40):
+        cx, cy, r = rng.uniform(0, w), rng.uniform(0, h), rng.uniform(0.6, 2.2)
+        g = np.exp(-((x - cx) ** 2 + (y - cy) ** 2) / (2 * r * r))
+        img[..., :3] = img[..., :3] + g[..., None] * np.array((255, 210, 120)) * rng.uniform(0.4, 1)
+    halo = np.exp(-((x - w / 2) ** 2 + (y - h / 2) ** 2) / (2 * (h * 0.4) ** 2))
+    img[..., :3] = img[..., :3] + halo[..., None] * np.array((80, 60, 20))
+    img[..., 3] = 255
+    return img
+
+
+def booster(w=128, h=256):
+    """Sealed booster pack: crimped foil ends, red body, gold emblem, the album's name."""
+    from PIL import ImageDraw
+    S = 4
+    W, H = w * S, h * S
+    y, x = np.mgrid[0:H, 0:W].astype(np.float64) + 0.5
+    body = rgba(H, W)
+    shine = np.clip(1 - np.abs((x / W) - 0.32 - (y / H) * 0.25) * 3.2, 0, 1)
+    base = lerp((120, 20, 16), (170, 36, 26), noise((H, W), 1.4, 120))
+    body[..., :3] = base + shine[..., None] * 70
+    # side shading
+    edge = np.minimum(x, W - x) / W
+    body[..., :3] = body[..., :3] * (0.6 + 0.4 * smooth(0, 0.12, edge))[..., None]
+    body[..., 3] = 255
+    # crimped ends (silver foil with teeth)
+    crimp = (y < H * 0.075) | (y > H * 0.925)
+    teeth = (np.sin(x / W * np.pi * 36) > 0)
+    foil = lerp((150, 150, 160), (230, 230, 240), noise((H, W), 0.8, 121))
+    body[..., :3] = np.where(crimp[..., None], foil * np.where(teeth, 1.0, 0.8)[..., None], body[..., :3])
+    zig = (y < H * 0.02 + (np.abs(((x / W * 36) % 1) - 0.5)) * H * 0.02) | (y > H * 0.98 - (np.abs(((x / W * 36) % 1) - 0.5)) * H * 0.02)
+    body[..., 3] = np.where(zig, 0, 255)
+    im = Image.fromarray(np.clip(body, 0, 255).astype(np.uint8), "RGBA")
+    d = ImageDraw.Draw(im)
+    gold, dark = (232, 186, 92, 255), (60, 10, 8, 255)
+    # gold frame
+    d.rectangle([W * 0.08, H * 0.1, W * 0.92, H * 0.9], outline=gold, width=S * 2)
+    # emblem: a fan of three cards
+    cx, cy = W / 2, H * 0.47
+    for ang, col in ((-22, (210, 200, 170, 255)), (0, (236, 226, 196, 255)), (22, (210, 200, 170, 255))):
+        card = Image.new("RGBA", (int(W * 0.34), int(W * 0.48)), (0, 0, 0, 0))
+        cd = ImageDraw.Draw(card)
+        cd.rounded_rectangle([0, 0, card.width - 1, card.height - 1], radius=S * 3, fill=col, outline=gold, width=S * 2)
+        cd.ellipse([card.width * 0.3, card.height * 0.3, card.width * 0.7, card.height * 0.58], fill=(150, 30, 20, 255))
+        rot = card.rotate(-ang, resample=Image.BICUBIC, expand=True)
+        im.alpha_composite(rot, (int(cx - rot.width / 2 + ang * S * 0.9), int(cy - rot.height / 2)))
+    font = _serif(int(H * 0.06))
+    for text, ty, size in (("RENATUS", H * 0.16, 0.075), ("BOOSTER", H * 0.74, 0.06), ("5 cartes", H * 0.82, 0.04)):
+        f = _serif(int(H * size)) or font
+        if f:
+            tw = d.textlength(text, font=f)
+            d.text(((W - tw) / 2 + S, ty + S), text, font=f, fill=dark)
+            d.text(((W - tw) / 2, ty), text, font=f, fill=gold)
+    return np.asarray(im.resize((w, h), Image.LANCZOS)).astype(np.float64)
+
+
 TEXTURES = {
     "leather": leather,
     "frame": frame,
@@ -520,6 +699,14 @@ TEXTURES = {
     "gem": gem,
     "glow": glow,
     "gazette": gazette_icon,
+    "booster": booster,
+    "cardbg_lieu": cardbg_lieu,
+    "cardbg_donjon": cardbg_donjon,
+    "cardbg_guilde": cardbg_guilde,
+    "cardbg_bestiaire": cardbg_bestiaire,
+    "cardbg_ennemi": cardbg_ennemi,
+    "cardbg_presse": cardbg_presse,
+    "cardbg_tresor": cardbg_tresor,
 }
 
 

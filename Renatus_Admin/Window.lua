@@ -54,6 +54,21 @@ local function preview(item)
             end
         end
         table.insert(lines, "\n|cff999999« Aperçu dans la gazette » montre les pages telles que la guilde les verra.|r")
+        local sets = Press.EditionCards(item)
+        if #sets > 0 then
+            table.insert(lines, "")
+            for _, cs in ipairs(sets) do table.insert(lines, "Avec : " .. Press.Label(cs)) end
+        end
+    elseif item.kind == "CARD_SET" then
+        table.insert(lines, "|cffd4a017" .. Press.Label(item) .. "|r")
+        table.insert(lines, "|cff999999Publiées avec la mise en page du même numéro. « Aperçu » les montre comme dans l'album.|r")
+        table.insert(lines, "")
+        for _, c in ipairs(type(p.cards) == "table" and p.cards or {}) do
+            local r = R.Album.Rarity(c.r)
+            table.insert(lines, ("|c%sN° %s  %s|r  (%s)"):format(UI.ColorHex(r.color[1], r.color[2], r.color[3]),
+                tostring(c.no or "?"), tostring(c.n), r.label))
+            if c.f then table.insert(lines, "   |cffbbbbbb" .. tostring(c.f) .. "|r") end
+        end
     else
         table.insert(lines, Press.Label(item))
     end
@@ -108,18 +123,18 @@ local function buildPress(f, page)
     page.list:SetPoint("TOPLEFT", 0, -34)
     page.preview = UI.ScrollText(page, BODY_W - 456, 330, 12)
     page.preview:SetPoint("TOPLEFT", 456, -34)
-    page.look = UI.Button(page, "Aperçu dans la gazette", 190, 22, function()
+    page.look = UI.Button(page, "Aperçu", 190, 22, function()
         if page.selected then Press.Preview(page.selected) end
     end)
     page.look:SetPoint("TOPLEFT", 456, -372)
-    UI.Tooltip(page.look, "Aperçu dans la gazette", { "Ouvre la gazette des membres sur cet élément, comme s'il était publié.",
+    UI.Tooltip(page.look, "Aperçu", { "Ouvre la gazette (ou l'album, pour des cartes) sur cet élément, comme s'il était publié.",
         "Rien n'est diffusé." })
     function page:Refresh()
         self.list:Update()
         if self.selected and R.db.pressDone[self.selected.id] then self.selected = nil end
         self.preview:SetText(preview(self.selected))
         local k = self.selected and self.selected.kind
-        self.look:SetDisabled(k ~= "ARTICLE" and k ~= "EDITION")
+        self.look:SetDisabled(k ~= "ARTICLE" and k ~= "EDITION" and k ~= "CARD_SET")
     end
 end
 
@@ -243,12 +258,68 @@ local function buildDiag(f, page)
 end
 
 ------------------------------------------------------------------------
+-- Remise à zéro: remove some of one's own events, for the whole guild
+------------------------------------------------------------------------
+local function buildReset(f, page)
+    local sec = UI.Section(page, "Repartir de zéro", 340)
+    sec:SetPoint("TOPLEFT", 0, 0)
+    local hint = UI.Text(page, 11, UI.C.dim)
+    hint:SetPoint("TOPLEFT", 0, -30)
+    hint:SetWidth(BODY_W)
+    hint:SetText("Retire tes propres événements cochés, pour toute la guilde (la synchro prévient chacun, même hors ligne). "
+        .. "Les autres membres ne sont pas touchés. Tes jours de jeu restent : tes boosters reviennent.")
+    page.checks = {}
+    for i, g in ipairs(A.RESET_GROUPS) do
+        local cb = UI.Checkbox(page, g.label, function() page.confirm = nil; page:Refresh() end)
+        cb:SetPoint("TOPLEFT", -4, -64 - (i - 1) * 28)
+        cb:SetChecked(g.default and true or false)
+        page.checks[g.key] = cb
+    end
+    local y = -64 - #A.RESET_GROUPS * 28 - 12
+    page.go = UI.Button(page, "Retirer", 150, 24, function()
+        local selected, any = {}, false
+        for key, cb in pairs(page.checks) do
+            if cb:GetChecked() then selected[key] = true; any = true end
+        end
+        if not any then return end
+        if not page.confirm then
+            page.confirm = true
+            page:Refresh()
+            return
+        end
+        page.confirm = nil
+        local n = A.Reset(selected)
+        page.result = ("%d événement(s) retiré(s). Fais /reload ; pour une nouvelle gazette, rédige-la dans l'application."):format(n)
+        page:Refresh()
+        f:Refresh()
+    end)
+    page.go:SetPoint("TOPLEFT", 0, y)
+    page.info = UI.Text(page, 11)
+    page.info:SetPoint("TOPLEFT", 0, y - 34)
+    page.info:SetWidth(BODY_W)
+
+    function page:Refresh()
+        local any = false
+        for _, cb in pairs(self.checks) do if cb:GetChecked() then any = true end end
+        self.go:SetDisabled(not any or not A.IsOfficer())
+        self.go:SetLabel(self.confirm and "Confirmer ?" or "Retirer")
+        if self.confirm then
+            self.info:SetText("|cffff6644Retirer pour toute la guilde ce qui est coché ? Reclique pour confirmer. "
+                .. "C'est définitif.|r")
+        else
+            self.info:SetText(self.result or (A.IsOfficer() and "" or A.RankHelp()))
+        end
+    end
+end
+
+------------------------------------------------------------------------
 -- Window
 ------------------------------------------------------------------------
 local PAGES = {
     { key = "press", label = "Rédaction", build = buildPress },
     { key = "rival", label = "Guilde rivale", build = buildRival },
     { key = "diag", label = "Diagnostic", build = buildDiag },
+    { key = "reset", label = "Remise à zéro", build = buildReset },
 }
 
 local function build()

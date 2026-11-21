@@ -393,6 +393,21 @@ local function trustedLayout(ds, layout)
     if #roster == 0 then return true end
     return ns.GuildConfig.IsOfficerRank(ns.GuildConfig.RankOf(layout.n, layout.a))
 end
+Views.TrustedOfficer = trustedLayout
+
+-- Latest card profile (CARD_PROFILE) of each author: [guid] = payload.
+function Views.Profiles(events)
+    local best = {}
+    for _, ev in ipairs(events or {}) do
+        if ev.k == "CARD_PROFILE" and ev.a and not ev.del and type(ev.p) == "table"
+            and (not best[ev.a] or (ev.t or 0) > (best[ev.a].t or 0)) then
+            best[ev.a] = ev
+        end
+    end
+    local out = {}
+    for guid, ev in pairs(best) do out[guid] = ev.p end
+    return out
+end
 
 -- Issues of the gazette, most recent first, and [event id] = issue citing that event.
 -- An issue is one publication: the articles sharing p.edition, laid out by the latest

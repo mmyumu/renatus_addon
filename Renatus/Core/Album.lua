@@ -1,5 +1,10 @@
--- Core/Album.lua: card catalogue (generated from events) and deterministic boosters.
--- No card battles: collection and trading only.
+-- Core/Album.lua: card catalogue and deterministic boosters.
+-- The catalogue is the same for everyone: the base set (Core/Cards.lua) plus the cards an
+-- officer published (CARD_SET events, written with the gazette by the admin app and spread
+-- by the sync like any event). Each card has a number and a publication date.
+-- Before the first CARD_SET, the guild cards are computed locally from the journal as
+-- before (Album.Legacy), so nothing disappears during the transition.
+-- No card battles: collection only.
 local _, ns = ...
 
 local Album = {}
@@ -77,7 +82,8 @@ local function levelRarity(lvl)
     return "common"
 end
 
-function Album.Catalogue(ds)
+-- Guild cards computed locally from the journal (before published sets existed).
+function Album.Legacy(ds)
     local cards = {}
     local function add(card) table.insert(cards, card) end
 
@@ -92,7 +98,7 @@ function Album.Catalogue(ds)
         if m.hasAddon and m.guid and not (ds.optOut and ds.optOut[m.guid]) then
             for _, variant in ipairs(MEMBER_VARIANTS) do
                 add({ id = "M:" .. m.guid .. ":" .. variant.rarity, series = "members", rarity = variant.rarity,
-                    name = m.display or m.name, class = m.class, flavor = variant.flavor(m) })
+                    name = m.display or m.name, class = m.class, guid = m.guid, flavor = variant.flavor(m) })
             end
             local top = 0
             for _, ev in ipairs(m.events) do
@@ -100,7 +106,7 @@ function Album.Catalogue(ds)
             end
             for lvl = 10, top, 10 do
                 add({ id = "L:" .. m.guid .. ":" .. lvl, series = "members", rarity = levelRarity(lvl),
-                    name = (m.display or m.name) .. ", niveau " .. lvl, class = m.class,
+                    name = (m.display or m.name) .. ", niveau " .. lvl, class = m.class, guid = m.guid,
                     flavor = lvl >= 60 and "Le sommet. La guilde s'incline (un peu)."
                         or ("Niveau " .. lvl .. " atteint. Le plus dur reste à venir, comme toujours.") })
             end
@@ -167,14 +173,105 @@ function Album.Catalogue(ds)
             icon = l.icon or "Interface\\Icons\\INV_Misc_Rune_01", flavor = l.flavor })
     end
 
-    -- Fixed Azeroth set.
-    for _, c in ipairs(ns.Cards.LIST) do add(c) end
+    return cards
+end
 
+------------------------------------------------------------------------
+-- Published cards (CARD_SET)
+------------------------------------------------------------------------
+local SERIES_KEYS = {}
+for _, s in ipairs(Album.SERIES) do SERIES_KEYS[s.key] = true end
+
+local function str(v, max)
+    if type(v) ~= "string" or v == "" then return nil end
+    return #v > max and v:sub(1, max) or v
+end
+
+-- One card of a CARD_SET payload, checked (it comes from the network).
+local function fromPayload(c, ev)
+    if type(c) ~= "table" then return nil end
+    local id, name = str(c.id, 80), str(c.n, 60)
+    if not id or not name or not RARITY_INDEX[c.r] then return nil end
+    local icon = str(c.ic, 80)
+    if icon and not icon:match("^[%w_]+$") then icon = nil end
+    return {
+        id = id, no = tonumber(c.no), series = SERIES_KEYS[c.s] and c.s or "faits", rarity = c.r, name = name,
+        flavor = str(c.f, 200) or "", class = str(c.cl, 20), guid = str(c.g, 40),
+        icon = icon and ("Interface\\Icons\\" .. icon) or nil, npc = tonumber(c.npc),
+        t = ev.t, set = str(ev.p.set, 40),
+    }
+end
+
+Album.FromPayload = fromPayload
+
+-- Cards published by officers, oldest publication first: an id keeps its first number.
+function Album.Published(ds)
+    local sets = {}
+    for _, ev in ipairs(ds.events or {}) do
+        if ev.k == "CARD_SET" and not ev.del and type(ev.p) == "table" and type(ev.p.cards) == "table"
+            and ns.Views.TrustedOfficer(ds, ev) then
+            table.insert(sets, ev)
+        end
+    end
+    table.sort(sets, function(a, b)
+        if (a.t or 0) ~= (b.t or 0) then return (a.t or 0) < (b.t or 0) end
+        return tostring(a.id) < tostring(b.id)
+    end)
+    local list, seen = {}, {}
+    for _, ev in ipairs(sets) do
+        for _, c in ipairs(ev.p.cards) do
+            local card = fromPayload(c, ev)
+            if card and not seen[card.id] then
+                seen[card.id] = true
+                table.insert(list, card)
+            end
+        end
+    end
+    return list
+end
+
+-- The catalogue boosters draw from: base set + published cards (or, before the first
+-- published set, the guild cards computed locally). Members who opted out are left out.
+function Album.Catalogue(ds)
+    local cards = {}
+    local published = Album.Published(ds)
+    local guild = #published > 0 and published or Album.Legacy(ds)
+    for _, c in ipairs(guild) do
+        if not (c.guid and ds.optOut and ds.optOut[c.guid]) then table.insert(cards, c) end
+    end
+    for _, c in ipairs(ns.Cards.LIST) do table.insert(cards, c) end
     table.sort(cards, function(a, b) return a.id < b.id end)
     local ids = {}
     for i, c in ipairs(cards) do ids[i] = c.id end
     cards.version = Album.Hash(table.concat(ids, "|"))
+    cards.published = #published > 0
     return cards
+end
+
+-- Owned cards missing from the catalogue (an older edition, an opted-out member): still
+-- shown in the album, never drawn. Looked up in the published sets, then the local cards.
+function Album.Orphans(ds, cards, collection)
+    local known = {}
+    for _, c in ipairs(cards) do known[c.id] = true end
+    local missing = {}
+    for id, n in pairs(collection or {}) do
+        if n > 0 and not known[id] then missing[#missing + 1] = id end
+    end
+    if #missing == 0 then return {} end
+    table.sort(missing)
+    local byId = {}
+    for _, c in ipairs(Album.Published(ds)) do byId[c.id] = c end
+    for _, c in ipairs(Album.Legacy(ds)) do byId[c.id] = byId[c.id] or c end
+    local out = {}
+    for _, id in ipairs(missing) do
+        local c = byId[id] or { id = id, series = "faits", rarity = "common", name = "Carte retirée",
+            flavor = "Cette carte n'est plus au catalogue. Elle reste dans ta collection." }
+        local copy = {}
+        for k, v in pairs(c) do copy[k] = v end
+        copy.orphan = true
+        out[#out + 1] = copy
+    end
+    return out
 end
 
 ------------------------------------------------------------------------

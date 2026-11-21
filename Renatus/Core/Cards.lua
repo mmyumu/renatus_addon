@@ -213,3 +213,29 @@ item("sulfuras", "legendary", "Sulfuras, Main de Ragnaros", { "INV_Hammer_Unique
 item("thunderfury", "legendary", "Lame-tonnerre", { "INV_Sword_39" }, "« Vous avez entendu parler de Lame-tonnerre, lame bénie du Cherchevent ? » Tout le monde.")
 item("atiesh", "legendary", "Atiesh, Grand bâton du Gardien", { "INV_Staff_Medivh", "INV_Staff_13" }, "Le bâton de Medivh. Quarante éclats, un portail, et beaucoup d'ennemis jaloux.")
 item("murlocfin", "rare", "Costume de murloc", { "INV_Misc_Head_Murloc_01" }, "Pour se fondre dans la foule à Sombrivage. « Mrglgl. »")
+
+-- 3D models (UI/TabAlbum.lua): creature ids, only those known for sure. A creature the
+-- client cannot show leaves the icon in place.
+local NPC = {
+    ["donjons:vancleef"] = 639, ["donjons:thredd"] = 1716, ["donjons:mutanus"] = 3654, ["donjons:arugal"] = 4275,
+    ["donjons:thermaplugg"] = 7800, ["donjons:charlga"] = 4421, ["donjons:amnennar"] = 7358,
+    ["donjons:whitemane"] = 3977, ["donjons:archaedas"] = 2748, ["donjons:theradras"] = 12201,
+    ["donjons:ukorz"] = 7267, ["donjons:eranikus"] = 5709, ["donjons:thaurissan"] = 9019,
+    ["donjons:drakkisath"] = 10363, ["donjons:rivendare"] = 10440, ["donjons:gandling"] = 1853,
+    ["donjons:onyxia"] = 10184, ["donjons:hakkar"] = 14834, ["donjons:nefarian"] = 11583,
+    ["donjons:ragnaros"] = 11502, ["donjons:cthun"] = 15727, ["donjons:kelthuzad"] = 15990,
+    ["personnages:lardeur"] = 448, ["personnages:thrall"] = 4949, ["personnages:jaina"] = 4968,
+    ["personnages:sylvanas"] = 10181, ["personnages:magni"] = 2784, ["personnages:cairne"] = 3057,
+    ["personnages:tyrande"] = 7999, ["personnages:voljin"] = 10540, ["personnages:bolvar"] = 1748,
+    ["personnages:nat"] = 12919, ["personnages:dughan"] = 240,
+    ["bestiaire:murloc"] = 515, ["bestiaire:kobold"] = 6, ["bestiaire:defias"] = 116,
+}
+for _, c in ipairs(list) do
+    c.npc = NPC[c.id:gsub("^AZ:", "")]
+end
+
+-- Base set: numbered in list order (B-001...), published with v0.10.0.
+Cards.BASE_DATE = 1795089600   -- 19/11/2026
+for i, c in ipairs(list) do
+    c.no, c.t = ("B-%03d"):format(i), Cards.BASE_DATE
+end

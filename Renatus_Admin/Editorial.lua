@@ -9,6 +9,8 @@
 --   ARTICLE                -> provenance GEN (editorial; facts are in refs)
 --   EDITION                -> provenance GEN: page layout of an edition (Renatus/UI/Newsprint.lua);
 --                             publishing it also publishes its pending articles (same p.edition)
+--                             and its cards (CARD_SET with p.set = the same key)
+--   CARD_SET               -> provenance GEN: cards of the album's catalogue (Renatus/Core/Album.lua)
 --   GUILD_CONFIG           -> guild settings (officers only, see Renatus/Core/GuildConfig.lua)
 --   RIVAL_ROSTER           -> provenance EXT: the rival guild's roster from the armory
 local _, A = ...
@@ -34,6 +36,7 @@ local KINDS = {
     PVP_CLASH = { prov = "LOG", label = "Affrontement (journal de combat)" },
     ARTICLE = { prov = "GEN", label = "Article" },
     EDITION = { prov = "GEN", label = "Mise en page" },
+    CARD_SET = { prov = "GEN", label = "Cartes de l'album" },
     GUILD_CONFIG = { label = "Réglage de guilde" },
     RIVAL_ROSTER = { prov = "EXT", label = "Armurerie" },
 }
@@ -78,6 +81,15 @@ function Press.Label(item)
     if item.kind == "PVP_CLASH" then
         return ("%s %s %s"):format(tostring(p.member), p.result == "win" and "a vaincu" or "a été vaincu par", tostring(p.name))
     end
+    if item.kind == "CARD_SET" then
+        local cards = type(p.cards) == "table" and p.cards or {}
+        local first, last
+        for _, c in ipairs(cards) do
+            local n = type(c) == "table" and tonumber(c.no)
+            if n then first, last = math.min(first or n, n), math.max(last or n, n) end
+        end
+        return ("Cartes : %d carte(s)%s"):format(#cards, first and last and (", n° %d à %d"):format(first, last) or "")
+    end
     if item.kind == "RIVAL_ROSTER" then
         local n = type(p.members) == "table" and #p.members or 0
         return ("Effectif de %s : %d membre(s)"):format(tostring(p.guild), p.count or n)
@@ -97,6 +109,13 @@ function Press.EditionArticles(edition)
     return out
 end
 
+-- Pending card sets of an edition (p.set = the edition key).
+function Press.EditionCards(edition)
+    local tag = edition.p and edition.p.edition
+    if not tag then return {} end
+    return Press.Pending(function(i) return i.kind == "CARD_SET" and i.p.set == tag end)
+end
+
 -- Article as the gazette shows it (preview of an unpublished edition).
 local function previewArticle(item)
     local p = item.p
@@ -114,7 +133,24 @@ function Press.Preview(item)
         R.UI.GazettePreview(arts, item.p)
     elseif item.kind == "ARTICLE" then
         R.UI.GazettePreview({ previewArticle(item) }, nil)
+    elseif item.kind == "CARD_SET" then
+        return Press.PreviewCards(item)
     end
+end
+
+-- Shows the cards of a set face up, as members will see them (the first five; "page"
+-- picks the next five).
+function Press.PreviewCards(item, page)
+    local cards = {}
+    local fake = { t = (GetServerTime and GetServerTime()) or time(), p = item.p }
+    for _, c in ipairs(type(item.p.cards) == "table" and item.p.cards or {}) do
+        local card = R.Album.FromPayload(c, fake)
+        if card then cards[#cards + 1] = card end
+    end
+    local from = ((page or 1) - 1) * R.Album.BOOSTER_SIZE
+    local shown = {}
+    for i = from + 1, math.min(#cards, from + R.Album.BOOSTER_SIZE) do shown[#shown + 1] = cards[i] end
+    return R.UI.CardsPreview(shown, ("Aperçu des cartes (%d à %d sur %d)"):format(from + 1, from + #shown, #cards))
 end
 
 -- Returns the published event, or nil and a reason.
@@ -123,8 +159,9 @@ function Press.Publish(item)
     if not A.IsOfficer() then return nil, "rang" end
     local ev, why
     if item.kind == "EDITION" then
-        -- Articles first: the layout refers to them.
+        -- Articles first: the layout refers to them. The issue's cards go with it.
         for _, a in ipairs(Press.EditionArticles(item)) do Press.Publish(a) end
+        for _, cs in ipairs(Press.EditionCards(item)) do Press.Publish(cs) end
     end
     if item.kind == "GUILD_CONFIG" then
         ev, why = R.GuildConfig.Publish({ rival = item.p.rival or false })
@@ -179,3 +216,37 @@ R:RegisterGameEvent("GUILD_ROSTER_UPDATE", function()
     autoDone = true
     Press.AutoRoster()
 end)
+
+-- "Remise à zéro": this officer's own events, by group, removed for everyone
+-- (Store.RetractOwn). "journal" is everything else they recorded, except settings
+-- (guild settings, armory roster, AI consent, card profile).
+A.RESET_GROUPS = {
+    { key = "gazette", kinds = { ARTICLE = true, EDITION = true }, default = true,
+        label = "Mes gazettes publiées (articles et mises en page)" },
+    { key = "cards", kinds = { CARD_SET = true }, default = true,
+        label = "Mes cartes publiées (catalogue de l'album)" },
+    { key = "boosters", kinds = { BOOSTER_OPEN = true }, default = true,
+        label = "Mes ouvertures de boosters (ma collection ; les boosters reviennent)" },
+    { key = "letters", kinds = { LETTER = true },
+        label = "Mes lettres au courrier des lecteurs" },
+    { key = "journal", rest = true,
+        label = "Mon journal : niveaux, morts, quêtes, sorties, rencontres, anecdotes…" },
+}
+local SETTINGS = { GUILD_CONFIG = true, RIVAL_ROSTER = true, AI_CONSENT = true, CARD_PROFILE = true, TOMBSTONE = true }
+
+-- selected: { gazette = true, ... }. Returns the number of events removed.
+function A.Reset(selected)
+    if not A.IsOfficer() then return 0 end
+    local grouped, wanted, rest = {}, {}, false
+    for _, g in ipairs(A.RESET_GROUPS) do
+        for k in pairs(g.kinds or {}) do
+            grouped[k] = true
+            if selected[g.key] then wanted[k] = true end
+        end
+        if g.rest and selected[g.key] then rest = true end
+    end
+    return R.Store.RetractOwn(function(ev)
+        if wanted[ev.k] then return true end
+        return rest and not grouped[ev.k] and not SETTINGS[ev.k]
+    end)
+end

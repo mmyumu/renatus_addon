@@ -12,7 +12,7 @@ use serde_json::{json, Value};
 
 use crate::chronicle::{num_of, payload, str_of, Chronicle};
 use crate::paths::{WowPaths, ADMIN_ADDON};
-use crate::{armory, articles, combatlog, edition, gazette, issues, llm, press};
+use crate::{armory, articles, cards, combatlog, edition, gazette, issues, llm, press};
 
 pub fn now() -> i64 {
     chrono::Utc::now().timestamp()
@@ -290,7 +290,44 @@ pub fn gazette(
     ));
     out.items = items;
     out.items.push(layout);
+    let (card_items, notes) = album_cards(ch, &sel.pending_cards, edition, command, timeout);
+    out.notes.extend(notes);
+    out.items.extend(card_items);
     out
+}
+
+/// The album cards published with an issue: chosen by rules, written by the AI when the
+/// members involved agreed to it (cards.rs).
+pub fn album_cards(
+    ch: &Chronicle,
+    pending: &[Value],
+    edition: &str,
+    command: &[String],
+    timeout: Duration,
+) -> (Vec<Value>, Vec<String>) {
+    let (done, last) = cards::published(ch, pending);
+    let mut list = cards::candidates(ch, &done);
+    if list.is_empty() {
+        return (
+            Vec::new(),
+            vec!["Aucune nouvelle carte pour l'album.".into()],
+        );
+    }
+    let mut notes = Vec::new();
+    if list.iter().any(|c| c.ai) {
+        match llm::run(&cards::prompt(&list), command, timeout) {
+            Ok(answer) => notes.extend(cards::apply(&mut list, &answer)),
+            Err(e) => notes.push(format!("Cartes : IA indisponible ({e}), textes simples.")),
+        }
+    }
+    let items = cards::items(&list, edition, last);
+    notes.push(format!(
+        "{} carte(s) pour l'album, n° {} à {}.",
+        list.len(),
+        last + 1,
+        last + list.len() as i64
+    ));
+    (items, notes)
 }
 
 /// The rival guild from the armory: GUILD_CONFIG (if it differs from the one in force)
@@ -401,7 +438,13 @@ mod tests {
             Duration::from_secs(1),
             "auto",
         );
-        assert_eq!(p.items.len(), 2, "{:?}", p.notes);
+        assert_eq!(p.items.len(), 3, "{:?}", p.notes);
+        assert_eq!(
+            p.items[2]["kind"], "CARD_SET",
+            "the member's cards come with the issue"
+        );
+        assert_eq!(p.items[2]["p"]["set"], sel.edition.as_str());
+        assert_eq!(p.items[2]["p"]["cards"][0]["no"], 1);
         assert_eq!(p.items[0]["p"]["edition"], sel.edition.as_str());
         assert_eq!(p.items[0]["p"]["order"], 1);
         assert_eq!(p.items[1]["kind"], "EDITION");

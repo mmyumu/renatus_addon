@@ -145,6 +145,14 @@ local TYPES = {
     -- Opening of a booster: p.n (number), p.cards (card ids), p.cv (catalogue version).
     BOOSTER_OPEN = { cat = "album", icon = "Interface\\Icons\\INV_Misc_Ticket_Tarot_Stack_01", importance = 0, hidden = true,
         text = function(ev) return "ouvre un booster" end },
+    -- Published cards of the album (Core/Album.lua): p.set (issue key), p.cards = { { id, no, s, r, n, f,
+    -- cl, g, ic, npc }, ... }. Counts only if an officer published it; never displayed.
+    CARD_SET = { cat = "album", icon = "Interface\\Icons\\INV_Misc_Ticket_Tarot_Stack_01", importance = 0, hidden = true,
+        text = function(ev) return "publie des cartes de l'album" end },
+    -- A member's card profile (Collectors/Profile.lua): race, sex, worn items (portrait on their
+    -- cards), optOut (not in the others' album). Never displayed.
+    CARD_PROFILE = { cat = "album", icon = "Interface\\Icons\\INV_Misc_Ticket_Tarot_Stack_01", importance = 0, hidden = true,
+        text = function(ev) return "met à jour son profil de carte" end },
     -- Deletion of one of the author's own events (refs[1]); never displayed.
     TOMBSTONE = { cat = "anecdote", icon = "Interface\\Icons\\INV_Misc_QuestionMark", importance = 0, hidden = true,
         text = function() return "supprime un de ses événements" end },

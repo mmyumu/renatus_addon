@@ -257,6 +257,12 @@ function Store.Dataset()
     }
     local rivalRoster = ns.GuildConfig.Roster()
     ds.rivalRoster = rivalRoster and rivalRoster.p or nil
+    -- Card profiles: portraits, and members who asked not to be in the others' album.
+    ds.profiles = ns.Views.Profiles(events)
+    ds.optOut = {}
+    for author, p in pairs(ds.profiles) do
+        if p.optOut and author ~= guid then ds.optOut[author] = true end
+    end
     local opened, collection = ns.Album.Opened(events, guid)
     ds.collection = collection
     ds.boostersOpened = opened
@@ -302,6 +308,31 @@ function Store.Delete(id)
     end
     local tomb = Store.Build("TOMBSTONE", {}, { vis = "G", prov = "MAN", refs = { id }, noExp = true, loc = {} })
     return Store.Insert(tomb) and true or false
+end
+
+-- Officer tool (Renatus_Admin, "Remise à zéro"): removes every own event that `keep`
+-- selects (a kind set { ARTICLE = true, ... } or a function(ev)), for everyone: shared ones
+-- are emptied by a tombstone, private ones simply dropped. Returns the number removed.
+function Store.RetractOwn(kinds)
+    local wanted = type(kinds) == "function" and kinds or function(ev) return kinds[ev.k] end
+    if Store.Dataset().isDemo then return 0 end
+    local me = Context.Me()
+    local ids = {}
+    for id, ev in pairs(ns.db.events) do
+        if ev.a == me and not ev.del and ev.k ~= "TOMBSTONE" and wanted(ev) then ids[#ids + 1] = id end
+    end
+    table.sort(ids)
+    for _, id in ipairs(ids) do
+        local ev = ns.db.events[id]
+        if ev.vis ~= "G" then
+            ns.db.events[id] = nil
+        else
+            Store.Insert(Store.Build("TOMBSTONE", {}, { vis = "G", prov = "MAN", refs = { id }, noExp = true, loc = {} }))
+        end
+    end
+    cache = nil
+    if #ids > 0 then ns.EventBus.Publish("CHRONICLE_EVENT", { k = "TOMBSTONE" }) end
+    return #ids
 end
 
 ------------------------------------------------------------------------

@@ -6,7 +6,9 @@ Les membres n'en ont pas besoin : ils ont le launcher et l'addon `Renatus`.
 Elle lit les fichiers du jeu (journal de l'addon, journaux de combat), l'armurerie publique, et
 n'écrit qu'un fichier : `Interface/AddOns/Renatus_Admin/Press.lua`. En jeu, avec l'addon
 `Renatus_Admin` : `/reload`, puis l'icône clé de la minimap (ou `/radmin`) : onglets **Rédaction**
-(articles) et **Guilde rivale** pour publier ou ignorer chaque élément (officiers seulement).
+(articles) et **Guilde rivale** pour publier ou ignorer chaque élément (officiers seulement),
+**Remise à zéro** pour retirer, pour toute la guilde, ses propres événements cochés (gazettes,
+cartes publiées, ouvertures de boosters, lettres, journal ; les réglages restent).
 Rien n'est diffusé à la guilde sans ce clic, sauf l'effectif de la guilde rivale déjà en vigueur.
 
 ## Ce qu'elle fait
@@ -25,7 +27,9 @@ Rien n'est diffusé à la guilde sans ce clic, sauf l'effectif de la guilde riva
   numéro sont décochés), aperçu exact de la demande, brouillon à relire (articles, rejets,
   réponse brute de l'IA) avant de le proposer en jeu, mise en page (maquette au choix de l'IA
   ou imposée dans les Réglages, voir `docs/ARCHITECTURE.md` §7.1 bis). Les articles écrits à la
-  main (`.md`, voir `exemple-article.md.txt`) entrent dans le numéro.
+  main (`.md`, voir `exemple-article.md.txt`) entrent dans le numéro. Les **cartes de l'album**
+  partent avec le numéro (`CARD_SET`, numérotées) : choisies par des règles, nommées et décrites
+  par l'IA pour les membres qui l'ont accepté ; publiées en jeu avec la mise en page.
 - **Automatique** : fenêtre ouverte, après chaque `/reload` ou déconnexion, elle analyse les
   journaux de combat s'il y en a et, si coché, rédige
   un numéro quand le précédent a une semaine (faits nouveaux seulement), puis le signale par
