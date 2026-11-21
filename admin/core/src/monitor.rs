@@ -88,6 +88,9 @@ pub struct Member {
     pub missing: Vec<i64>,
     pub missing_count: usize,
     pub is_new: bool,
+    /// Consent to the AI gazette: "yes", "no", or "never" (authored events but never
+    /// announced a choice: their facts are left out). None when the author is unknown.
+    pub ai_consent: Option<&'static str>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -378,7 +381,15 @@ pub fn build(ch: &Chronicle, now: i64, installed: Option<&str>) -> Monitor {
         }
     }
 
+    let consent = crate::gazette::consent(ch);
     for row in &mut members {
+        if row.equipped {
+            row.ai_consent = row.guid.as_ref().map(|g| match consent.get(g) {
+                Some(true) => "yes",
+                Some(false) => "no",
+                None => "never",
+            });
+        }
         row.is_new =
             row.equipped && !row.mine && row.first_seen.is_some_and(|f| now - f < NEW_DAYS * DAY);
     }
@@ -478,6 +489,15 @@ pub fn build(ch: &Chronicle, now: i64, installed: Option<&str>) -> Monitor {
             }
         }
     }
+    for x in members.iter().filter(|x| x.ai_consent == Some("never")) {
+        alerts.push(Alert {
+            level: "warn",
+            text: format!(
+                "{} n'a jamais annoncé son choix pour la gazette IA : ses faits en sont exclus. Remède : décocher puis recocher « La gazette rédigée par IA peut parler de moi » dans les options de Renatus.",
+                x.name
+            ),
+        });
+    }
     for x in members.iter().filter(|x| x.is_new && !x.mine) {
         alerts.push(Alert {
             level: "info",
@@ -553,6 +573,7 @@ mod tests {
             r#"RenatusDB = {{
                 ["events"] = {{
                     ["Player-1-A:1"] = {{ ["id"] = "Player-1-A:1", ["a"] = "Player-1-A", ["n"] = "Dakey", ["c"] = "ROGUE", ["k"] = "LEVEL_UP", ["s"] = 1, ["t"] = {t1}, ["vis"] = "G", ["p"] = {{ ["lvl"] = 20 }} }},
+                    ["Player-1-A:2"] = {{ ["id"] = "Player-1-A:2", ["a"] = "Player-1-A", ["n"] = "Dakey", ["k"] = "AI_CONSENT", ["s"] = 2, ["t"] = {t1}, ["vis"] = "G", ["p"] = {{ ["ok"] = true }} }},
                     ["Player-1-A:p1"] = {{ ["id"] = "Player-1-A:p1", ["a"] = "Player-1-A", ["n"] = "Dakey", ["k"] = "DEATH", ["t"] = {t2}, ["vis"] = "P", ["p"] = {{}} }},
                     ["Player-1-B:1"] = {{ ["id"] = "Player-1-B:1", ["a"] = "Player-1-B", ["n"] = "Renaa", ["k"] = "QUEST_DONE", ["s"] = 1, ["t"] = {t2}, ["vis"] = "G", ["p"] = {{ ["title"] = "Les loups" }}, ["rx"] = {{ ["by"] = "Renaa Fitzherak", ["at"] = {t3} }} }},
                     ["Player-1-B:4"] = {{ ["id"] = "Player-1-B:4", ["a"] = "Player-1-B", ["n"] = "Renaa", ["k"] = "BOOSTER_OPEN", ["s"] = 4, ["t"] = {t3}, ["vis"] = "G", ["p"] = {{ ["cards"] = {{ 1, 2, 3, 4, 5 }} }}, ["rx"] = {{ ["by"] = "Dakey", ["at"] = {t3} }} }},
@@ -590,13 +611,15 @@ mod tests {
         assert_eq!(m.members.len(), 4, "{:#?}", m.members);
         let dakey = member(&m, "Dakey Dak");
         assert!(dakey.equipped && dakey.mine && dakey.in_roster);
-        assert_eq!(dakey.shared, 1);
+        assert_eq!(dakey.shared, 2);
         let renaa = member(&m, "Renaa Fitzherak");
         assert!(renaa.equipped && !renaa.mine && renaa.is_new);
         assert_eq!(renaa.guid.as_deref(), Some("Player-1-B"));
         assert_eq!(renaa.version.as_deref(), Some("1.0.0"));
         assert_eq!(renaa.missing, vec![2, 3]);
         assert_eq!(renaa.last_kind.as_deref(), Some("BOOSTER_OPEN"));
+        assert_eq!(renaa.ai_consent, Some("never"));
+        assert_eq!(member(&m, "Dakey Dak").ai_consent, Some("yes"));
         let hurtige = member(&m, "Hurtige Henning");
         assert!(!hurtige.equipped && hurtige.in_roster);
         let ryju = member(&m, "Ryju Rey");
@@ -627,12 +650,15 @@ mod tests {
         );
         assert!(has("Nouveau membre équipé : Renaa"), "{texts:#?}");
         assert!(!has("Dakey Dak ne s'est"), "pas d'alerte sur soi-même");
+        assert!(has("Renaa Fitzherak n'a jamais annoncé"), "{texts:#?}");
+        assert!(!has("Dakey Dak n'a jamais"), "{texts:#?}");
+        assert!(!has("Ryju Rey n'a jamais"), "auteur inconnu : pas d'alerte");
     }
 
     #[test]
     fn feed_and_activity() {
         let m = build(&chronicle(), NOW, None);
-        assert_eq!(m.feed.len(), 4);
+        assert_eq!(m.feed.len(), 5);
         assert_eq!(m.feed[0].kind, "BOOSTER_OPEN");
         assert_eq!(m.feed[0].detail, "5 carte(s)");
         assert_eq!(m.feed[0].by.as_deref(), Some("Dakey"));
@@ -641,7 +667,7 @@ mod tests {
         assert_eq!(quest.detail, "Les loups");
         assert_eq!(quest.delay, Some(DAY));
         assert_eq!(m.activity.len(), ACTIVITY_DAYS as usize);
-        assert_eq!(m.activity.iter().map(|d| d.count).sum::<usize>(), 4);
+        assert_eq!(m.activity.iter().map(|d| d.count).sum::<usize>(), 5);
     }
 
     #[test]

@@ -181,6 +181,9 @@ function renderMonitor(st) {
     cell(tr, x.rank == null ? "" : x.rank === 0 ? "Chef" : x.rank);
     const addon = cell(tr, x.equipped ? (x.version ?? "oui") : "non");
     if (x.equipped && x.version && st.renatusVersion && x.version !== st.renatusVersion) badge(addon, "ancienne ?", "warn");
+    const ai = cell(tr, { yes: "oui", no: "non" }[x.aiConsent] ?? (x.equipped ? "—" : ""));
+    if (x.aiConsent === "never") badge(ai, "jamais annoncé", "warn");
+    else if (x.equipped && !x.aiConsent) ai.title = "inconnu : aucun événement reçu de ce personnage";
     cell(tr, x.firstSeen ? when(x.firstSeen) : "—");
     const last = cell(tr, x.lastActivity ? ago(x.lastActivity) : "—");
     if (x.lastKind) last.title = `dernier événement : ${x.lastKind}`;

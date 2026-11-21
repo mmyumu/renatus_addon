@@ -39,6 +39,16 @@ end
 function Consent:OnLogin()
     -- Characters saved when the default was "no" and who never chose: default "yes".
     if not ns.char.consentChosen and not lastConsent() then ns.char.exportConsent = true end
-    -- Choice made outside a guild, or default not announced yet: announce it now.
-    publishConsent(ns.char.exportConsent and true or false)
+    -- Choice made outside a guild, or default not announced yet: announce it now. At
+    -- PLAYER_LOGIN the guild is often not known yet (GetGuildInfo answers nil): try again
+    -- when the guild info arrives, until it goes through once.
+    local announced = false
+    local function announce()
+        if announced or not ns.Context.GuildKey() then return end
+        announced = true
+        publishConsent(ns.char.exportConsent and true or false)
+    end
+    announce()
+    ns:RegisterGameEvent("PLAYER_GUILD_UPDATE", announce)
+    ns:RegisterGameEvent("GUILD_ROSTER_UPDATE", announce)
 end

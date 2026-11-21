@@ -1440,6 +1440,22 @@ test("consentement gazette IA : publie et partage, le dernier choix compte", fun
     eq(ns2.Consent.LastConsent().p.ok, false)
 end)
 
+test("consentement IA : guilde inconnue a la connexion -> annonce quand elle arrive", function()
+    -- At PLAYER_LOGIN GetGuildInfo often answers nil although the player is in a guild.
+    local ns2 = boot({ specIndex = 1, consent = "default", guild = false })
+    eq(#eventsOf(ns2, "AI_CONSENT"), 0, "hors guilde : rien")
+    local S = Stub.reset(withConsent({ specIndex = 1, consent = "default" }))
+    S.guild = nil   -- IsInGuild() true, GetGuildInfo nil
+    local ns = Stub.loadAddon(ROOT, NAME)
+    eq(#eventsOf(ns, "AI_CONSENT"), 0, "guilde pas encore connue")
+    S.guild = "Les Testeurs"
+    Stub.fire("GUILD_ROSTER_UPDATE")
+    eq(#eventsOf(ns, "AI_CONSENT"), 1, "annonce a l'arrivee de la guilde")
+    eq(eventsOf(ns, "AI_CONSENT")[1].p.ok, true)
+    Stub.fire("GUILD_ROSTER_UPDATE")
+    eq(#eventsOf(ns, "AI_CONSENT"), 1, "une seule fois")
+end)
+
 test("consentement IA : ancien personnage jamais decide -> oui par defaut", function()
     local ns = boot({ specIndex = 1, savedChar = { schema = 1, exportConsent = false } })
     eq(ns.char.exportConsent, true)
