@@ -17,6 +17,7 @@ ns.Sync = Sync
 
 local Transport, Ser = ns.Transport, ns.Serialize
 local P = Transport.PRIORITY
+local trace = Transport.Trace
 
 Sync.PROTO = 1
 Sync.MAX_RANGE = 25            -- events per request
@@ -125,12 +126,17 @@ local function sendEvent(id, delay)
         Transport.Send(function()
             scheduled[id] = nil
             local seen = seenOnWire[id]
-            if seen and clock() - seen < 60 then return nil end
+            if seen and clock() - seen < 60 then trace("sendSkip", { id = id, why = "deja diffuse" }); return nil end
             local ev = ns.db.events[id]
-            if not ev or ev.vis ~= "G" then return nil end
-            local text = encode({ o = "E", e = wireCopy(ev) })
-            if not text or #text > Sync.MAX_EVENT_BYTES then return nil end
+            if not ev or ev.vis ~= "G" then trace("sendSkip", { id = id, why = "absent ou prive" }); return nil end
+            local text, err = encode({ o = "E", e = wireCopy(ev) })
+            if not text then trace("sendSkip", { id = id, k = ev.k, why = "encodage : " .. tostring(err) }); return nil end
+            if #text > Sync.MAX_EVENT_BYTES then
+                trace("sendSkip", { id = id, k = ev.k, why = "trop gros", len = #text })
+                return nil
+            end
             seenOnWire[id] = clock()
+            trace("sendE", { id = id, k = ev.k, len = #text })
             return text
         end, (ns.db.events[id] and (ns.db.events[id].k == "ARTICLE" or ns.db.events[id].k == "EDITION" or ns.db.events[id].k == "CARD_SET")) and P.BULK or P.EVENT)
     end
@@ -143,6 +149,7 @@ local function request(author, from, to)
     if requested[key] and clock() - requested[key] < 90 then return end
     requested[key] = clock()
     to = math.min(to, from + Sync.MAX_RANGE - 1)
+    trace("sendR", { a = author, f = from, t = to })
     Transport.Send(encode({ o = "R", a = author, f = from, t = to }), P.CONTROL)
 end
 
@@ -155,6 +162,19 @@ local function requestMissing(author, knownTop)
     local to = from
     while to < top and not hasEvent(author, to + 1) and to - from < Sync.MAX_RANGE - 1 do to = to + 1 end
     request(author, from, to)
+end
+
+-- Asks right away for every gap we know of (/renatus sync now).
+function Sync.RequestGaps()
+    local n = 0
+    for author, info in pairs(computeVector()) do
+        if info.top > info.max then
+            requested[author .. ":" .. (info.max + 1)] = nil
+            requestMissing(author)
+            n = n + 1
+        end
+    end
+    return n
 end
 
 ------------------------------------------------------------------------
@@ -187,17 +207,21 @@ function handlers.R(sender, msg)
     if msg.t < msg.f or msg.t - msg.f >= Sync.MAX_RANGE then return end
     local me = ns.Context.Me()
     local delay = (msg.a == me) and (0.2 + math.random() * 0.8) or (3 + math.random() * 5)
+    local have = 0
     for s = msg.f, msg.t do
         local id = msg.a .. ":" .. s
-        if ns.db.events[id] and ns.db.events[id].vis == "G" then sendEvent(id, delay) end
+        if ns.db.events[id] and ns.db.events[id].vis == "G" then have = have + 1; sendEvent(id, delay) end
     end
+    trace("gotR", { from = sender, a = msg.a, f = msg.f, t = msg.t, have = have })
 end
 
 function handlers.E(sender, msg)
     if type(msg.e) == "table" and msg.e.g == nil then msg.e.g = msg.g end
     local ev, why = Sync.Validate(msg.e, ns.Context.GuildKey())
     local mon = ns.db.monitor.sync
+    local e = type(msg.e) == "table" and msg.e or {}
     if not ev then
+        trace("gotE", { from = sender, id = tostring(e.id), k = tostring(e.k), result = "rejete : " .. tostring(why) })
         Sync.rejected = (Sync.rejected or 0) + 1
         Sync.lastReject = why
         mon.rejected = (mon.rejected or 0) + 1
@@ -206,13 +230,15 @@ function handlers.E(sender, msg)
         return
     end
     seenOnWire[ev.id] = clock()
-    if ns.db.events[ev.id] then return end
+    if ns.db.events[ev.id] then trace("gotE", { from = sender, id = ev.id, k = ev.k, result = "doublon" }); return end
     local from = Transport.ShortName(sender)
     -- "verified": received from the author themselves; otherwise relayed by another member.
     -- On WoW Forever the sender is the full name ("Renaa Fitzherak") while UnitName gives "Renaa".
     local direct = from == ev.n or (from and from:match("^(%S+)")) == ev.n
     ev.rx = { by = from, direct = direct or nil, at = now() }
-    if ns.Store.Insert(ev) then
+    local inserted = ns.Store.Insert(ev)
+    trace("gotE", { from = sender, id = ev.id, k = ev.k, result = inserted and "insere" or "refuse par le stockage" })
+    if inserted then
         Sync.received = (Sync.received or 0) + 1
         mon.received = (mon.received or 0) + 1
         mon.lastReceived = now()
@@ -223,9 +249,26 @@ end
 
 local function onMessage(sender, text)
     local msg = Ser.Decode(text)
-    if type(msg) ~= "table" or type(msg.o) ~= "string" then return end
+    if type(msg) ~= "table" or type(msg.o) ~= "string" then
+        trace("undecodable", { from = sender, len = #text, chunks = Transport.lastChunks, raw = text })
+        return
+    end
     local guildKey = ns.Context.GuildKey()
-    if not guildKey or not ns.Context.SameGuild(msg.g, guildKey) then return end
+    if not guildKey or not ns.Context.SameGuild(msg.g, guildKey) then
+        trace("otherGuild", { from = sender, o = msg.o, g = tostring(msg.g) })
+        return
+    end
+    if msg.o == "V" then
+        -- only the authors we are behind on (the full vector is large)
+        local mine, behind = computeVector(), {}
+        for author, max in pairs(type(msg.v) == "table" and msg.v or {}) do
+            local have = mine[author] and mine[author].max or 0
+            if isInt(max) and max > have then behind[#behind + 1] = ("%s:%d>%d"):format(author, max, have) end
+        end
+        trace("gotV", { from = sender, ve = msg.ve, behind = table.concat(behind, " ") })
+    elseif msg.o ~= "R" and msg.o ~= "E" then
+        trace("got" .. msg.o, { from = sender, len = #text })
+    end
     local name = Transport.ShortName(sender)
     Sync.peers[name] = { seen = now(), proto = msg.pr or (Sync.peers[name] and Sync.peers[name].proto) }
     -- Persisted for Renatus Admin's monitoring (local only).

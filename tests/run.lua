@@ -794,6 +794,86 @@ test("rejets : autre guilde, prive, identifiant falsifie", function()
     eq(ns.db.events["Player-1-AAA:1"].rx.direct, nil, "envoye par un autre que l'auteur : relaye")
 end)
 
+test("trace de synchro : desactivee par defaut, puis demandes, reponses et messages illisibles gardes", function()
+    local nsA, SA = boot({ specIndex = 1, me = ALICE })
+    nsA.char.privacy.combat = "G"
+    Stub.fire("PLAYER_DEAD"); Stub.fire("PLAYER_DEAD"); Stub.fire("PLAYER_DEAD")
+    Stub.advance(5)
+    local savedA, savedAC = RenatusDB, RenatusCharDB
+    -- keep only the chunks of event #3 for Bob
+    local onlyThird, current = {}, {}
+    for _, m in ipairs(SA.sent) do
+        table.insert(current, m)
+        local tag = m.msg:sub(1, 1)
+        if tag == "S" or tag == "L" then
+            local d = decodeSent(nsA, current)[1]
+            if d and d.o == "E" and d.e.s == 3 then for _, x in ipairs(current) do table.insert(onlyThird, x) end end
+            current = {}
+        end
+    end
+    local nsB, SB = boot({ specIndex = 1, me = BOB })
+    eq(nsB.db.monitor.trace.on, false, "trace coupee par defaut")
+    Stub.deliver(onlyThird, "Alice-Forever")
+    eq(#nsB.db.monitor.trace.entries, 0, "rien garde sans trace")
+    SlashCmdList.RENATUS("sync trace on")
+    eq(nsB.db.monitor.trace.on, true)
+    -- /renatus sync now asks again for the gap right away
+    SlashCmdList.RENATUS("sync now")
+    Stub.advance(2)
+    local rs = ops(nsB, SB.sent, "R")
+    eq(rs[#rs].f, 1); eq(rs[#rs].t, 2)
+    -- an unreadable message, a lost last chunk, an orphan chunk
+    Stub.deliver({ { prefix = "Renatus", channel = "GUILD", msg = "S{s1;" } }, "Alice-Forever")
+    Stub.deliver({ { prefix = "Renatus", channel = "GUILD", msg = "Fdebut" },
+        { prefix = "Renatus", channel = "GUILD", msg = "Fautre" } }, "Alice-Forever")
+    Stub.deliver({ { prefix = "Renatus", channel = "GUILD", msg = "Lfin" } }, "Dave-Forever")
+    local savedB, savedBC, bobR = RenatusDB, RenatusCharDB, SB.sent
+    -- Alice answers (her own trace is on too)
+    local nsA2, SA2 = boot({ specIndex = 1, me = ALICE, savedAccount = savedA, savedChar = savedAC })
+    nsA2.db.monitor.trace.on = true
+    Stub.deliver(bobR, "Bob-Forever")
+    Stub.advance(3)
+    local seen = {}
+    for _, e in ipairs(nsA2.db.monitor.trace.entries) do seen[e.w] = (seen[e.w] or 0) + 1 end
+    assert(seen.gotR, "demande recue tracee"); eq(seen.sendE, 2, "deux reponses tracees")
+    local answer = SA2.sent
+    local nsB2 = boot({ specIndex = 1, me = BOB, savedAccount = savedB, savedChar = savedBC })
+    Stub.deliver(answer, "Alice-Forever")
+    eq(nsB2.Sync.Vector()[ALICE.guid].max, 3)
+    local byKind = {}
+    for _, e in ipairs(nsB2.db.monitor.trace.entries) do byKind[e.w] = byKind[e.w] or e end
+    assert(byKind.sendR and byKind.sendR.f == 1 and byKind.sendR.t == 2, "demande envoyee tracee")
+    eq(byKind.undecodable.raw, "{s1;")
+    eq(byKind.lostEnd.raw, "debut")
+    eq(byKind.orphan.tag, "L")
+    eq(byKind.gotE.result, "insere")
+end)
+
+test("echo de nos propres messages sous notre nom complet (Forever) : ignore", function()
+    local ns, S = boot({ specIndex = 1, me = ALICE })
+    ns.db.monitor.peers["Alice Liddell"] = { first = 1, seen = 1 }   -- left by an older version
+    ns.char.privacy.combat = "G"
+    Stub.fire("PLAYER_DEAD")
+    Stub.advance(2)
+    assert(#S.sent >= 1)
+    local before = ns.Sync.Status().received
+    Stub.deliver(S.sent, "Alice Liddell-Forever")
+    eq(ns.db.monitor.peers["Alice Liddell"], nil, "pas un pair")
+    -- someone else with the same first name, sending something we did not send, still counts
+    local text = ns.Serialize.Encode({ o = "V", g = ns.Context.GuildKey(), pr = 1, v = {} })
+    Stub.deliver({ { prefix = "Renatus", channel = "GUILD", msg = "S" .. text } }, "Alice Autre-Forever")
+    assert(ns.db.monitor.peers["Alice Autre"], "homonyme garde")
+    eq(ns.Sync.Status().received, before)
+end)
+
+test("trace de synchro : bornee en nombre d'entrees", function()
+    local ns = boot({ specIndex = 1, me = BOB })
+    ns.db.monitor.trace.on = true
+    for i = 1, ns.Transport.TRACE_MAX + 50 do ns.Transport.Trace("x", { i = i }) end
+    eq(#ns.db.monitor.trace.entries, ns.Transport.TRACE_MAX)
+    eq(ns.db.monitor.trace.entries[1].i, 51)
+end)
+
 test("suivi : pair persiste avec sa version, compteurs de synchro et rejets gardes", function()
     local _, SC = boot({ specIndex = 1, me = CAROL })
     Stub.advance(31)

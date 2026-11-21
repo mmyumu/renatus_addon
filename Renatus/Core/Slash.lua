@@ -65,12 +65,45 @@ local function voiceCommand(args)
     end
 end
 
+-- /renatus sync: state, gaps, debugging trace.
+local function syncCommand(args)
+    local cmd, rest = args:match("^(%S*)%s*(.-)$")
+    cmd, rest = (cmd or ""):lower(), (rest or ""):lower()
+    local tr = ns.db.monitor.trace
+    if cmd == "trace" and (rest == "on" or rest == "off") then
+        tr.on = rest == "on"
+        ns.Print("trace de synchro %s (%d entrées). Fais /reload pour l'écrire sur le disque.", onOff(tr.on), #tr.entries)
+    elseif cmd == "trace" and rest == "clear" then
+        tr.entries = {}
+        ns.Print("trace de synchro vidée")
+    elseif cmd == "now" then
+        ns.Sync.SendVector(true)
+        ns.Print("synchro relancée : %d trou(s) redemandé(s)", ns.Sync.RequestGaps())
+    elseif cmd == "" or cmd == "status" then
+        local st = ns.Sync.Status()
+        ns.Print("envoi %s%s | file %d | reçus %d | rejetés %d | trace %s (%d)",
+            onOff(st.canSend), st.reason and (" (" .. st.reason .. ")") or "", st.queue,
+            st.received, st.rejected, onOff(tr.on), #tr.entries)
+        for author, info in pairs(ns.Sync.Vector()) do
+            if info.top > info.max then
+                local last = ns.db.events[author .. ":" .. info.top]
+                ns.Print("trou : %s, tout jusqu'au n° %d, connu jusqu'au n° %d",
+                    last and last.n or author, info.max, info.top)
+            end
+        end
+    else
+        ns.Print("/renatus sync [status] | now | trace on|off|clear")
+    end
+end
+
 SLASH_RENATUS1 = "/renatus"
 SlashCmdList.RENATUS = function(msg)
     local cmd, rest = (msg or ""):match("^(%S*)%s*(.-)$")
     cmd = (cmd or ""):lower()
     if cmd == "voice" then
         voiceCommand(rest)
+    elseif cmd == "sync" then
+        syncCommand(rest)
     elseif cmd == "demo" then
         ns.char.ui.demo = not ns.char.ui.demo
         ns.Print("mode démo %s", onOff(ns.char.ui.demo))
@@ -82,6 +115,7 @@ SlashCmdList.RENATUS = function(msg)
         ns.Print("/renatus : ouvrir la fenêtre")
         ns.Print("/renatus options : réglages (aussi dans Échap > Options > AddOns > Renatus)")
         ns.Print("/renatus voice ... : réglages de Renacoach (aussi /renacoach)")
+        ns.Print("/renatus sync [now | trace on|off|clear] : état de la synchro, diagnostic")
     elseif cmd == "" then
         ns.UI.Toggle()
     else

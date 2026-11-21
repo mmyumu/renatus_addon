@@ -25,6 +25,34 @@ local partial = {}     -- [sender] = { chunks }
 local handler          -- function(sender, text)
 local registered = false
 Transport.stats = { sent = 0, received = 0, dropped = 0, lastSent = nil, lastReceived = nil }
+Transport.lastChunks = 0   -- number of chunks of the message being handled
+
+------------------------------------------------------------------------
+-- Debugging trace (/renatus sync trace on): what goes over the wire, kept in
+-- RenatusDB.monitor.trace so it can be read after a /reload. Local only.
+------------------------------------------------------------------------
+Transport.TRACE_MAX = 600
+Transport.TRACE_RAW = 8000
+
+function Transport.Tracing()
+    local tr = ns.db and ns.db.monitor and ns.db.monitor.trace
+    return tr and tr.on and tr or nil
+end
+
+-- fields: plain values; `raw` (optional) is kept up to TRACE_RAW bytes.
+function Transport.Trace(what, fields)
+    local tr = Transport.Tracing()
+    if not tr then return end
+    local e = fields or {}
+    e.w = what
+    e.at = (GetServerTime and GetServerTime()) or time()
+    if type(e.raw) == "string" and #e.raw > Transport.TRACE_RAW then
+        e.rawLen, e.raw = #e.raw, e.raw:sub(1, Transport.TRACE_RAW)
+    end
+    local list = tr.entries
+    list[#list + 1] = e
+    while #list > Transport.TRACE_MAX do table.remove(list, 1) end
+end
 
 local function try(fn, ...) return ns.Try(fn, ...) end
 
@@ -76,12 +104,31 @@ local function split(text)
     return parts
 end
 
+-- Chunks we sent lately, to recognize them when the channel echoes them back:
+-- on WoW Forever the sender is "First Last" while UnitName gives only "First".
+local echo = {}        -- [chunk] = clock time
+local echoCount = 0
+local function clock() return (GetTime and GetTime()) or time() end
+
+local function rememberSent(msg)
+    if not echo[msg] then echoCount = echoCount + 1 end
+    echo[msg] = clock()
+    if echoCount > 300 then
+        local limit = clock() - 120
+        for k, at in pairs(echo) do
+            if at < limit then echo[k] = nil; echoCount = echoCount - 1 end
+        end
+    end
+end
+
 local function rawSend(msg)
     local send = api()
     if type(send) ~= "function" then return false end
     local ok, res = pcall(send, Transport.PREFIX, msg, "GUILD")
     -- Retail returns a code (0 = success); older versions return nothing or a boolean.
-    return ok and (res == nil or res == true or res == 0)
+    local sent = ok and (res == nil or res == true or res == 0)
+    if sent then rememberSent(msg) end
+    return sent
 end
 
 local function pump()
@@ -105,6 +152,7 @@ local function pump()
                 if item.index > #item.parts then table.remove(queue, 1) end
             else
                 tokens = 0 -- client-side throttle: wait for the next token
+                Transport.Trace("sendRefused", { part = item.index, parts = #item.parts })
             end
         end
     end
@@ -132,21 +180,44 @@ function Transport.OnAddonMessage(prefix, msg, channel, sender)
     msg, sender = ns.Safe(msg), ns.Safe(sender)
     if type(msg) ~= "string" or #msg < 1 or not sender then return end
     local _, me = ns.Context.Me()
-    if shortName(sender) == me then return end -- our own messages come back too
+    local from = shortName(sender)
+    if from == me then return end -- our own messages come back too
+    if from:match("^(%S+)") == me and echo[msg] and clock() - echo[msg] < 120 then
+        -- our own message under our full name: forget the peer entry it used to create
+        local peers = ns.db and ns.db.monitor and ns.db.monitor.peers
+        if peers then peers[from] = nil end
+        return
+    end
     local tag, body = msg:sub(1, 1), msg:sub(2)
-    local text
+    local text, chunks
     if tag == "S" then
-        text = body
+        text, chunks = body, 1
     elseif tag == "F" then
+        if partial[sender] then
+            -- the previous long message never got its last chunk
+            Transport.Trace("lostEnd", { from = sender, chunks = #partial[sender], raw = table.concat(partial[sender]) })
+        end
         partial[sender] = { body }
     elseif tag == "M" or tag == "L" then
         local acc = partial[sender]
-        if not acc then Transport.stats.dropped = Transport.stats.dropped + 1; return end
+        if not acc then
+            Transport.stats.dropped = Transport.stats.dropped + 1
+            Transport.Trace("orphan", { from = sender, tag = tag, raw = body })
+            return
+        end
         acc[#acc + 1] = body
-        if #acc > 200 then partial[sender] = nil; Transport.stats.dropped = Transport.stats.dropped + 1; return end
-        if tag == "L" then text = table.concat(acc); partial[sender] = nil end
+        if #acc > 200 then
+            partial[sender] = nil
+            Transport.stats.dropped = Transport.stats.dropped + 1
+            Transport.Trace("tooManyChunks", { from = sender })
+            return
+        end
+        if tag == "L" then text, chunks = table.concat(acc), #acc; partial[sender] = nil end
+    else
+        Transport.Trace("badTag", { from = sender, raw = msg })
     end
     if text then
+        Transport.lastChunks = chunks
         Transport.stats.received = Transport.stats.received + 1
         Transport.stats.lastReceived = (GetServerTime and GetServerTime()) or time()
         if handler then handler(sender, text) end

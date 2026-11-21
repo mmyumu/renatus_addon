@@ -20,8 +20,9 @@ local ACCOUNT_DEFAULTS = {
     played = {},      -- [guid] = { ["YYYY-MM-DD"] = true }: days played (1 booster each)
     -- Local health data, never broadcast; read by Renatus Admin's "Suivi" tab:
     -- peers[name] = { first, seen, proto, ver }, sync = { received, rejected, lastReject, lastRejectAt },
-    -- roster = { at, members = { { name, rank, level, class, guid } } }
-    monitor = { peers = {}, sync = {} },
+    -- roster = { at, members = { { name, rank, level, class, guid } } },
+    -- trace = { on, entries }: sync debugging trace (/renatus sync trace), off by default
+    monitor = { peers = {}, sync = {}, trace = { on = false, entries = {} } },
 }
 
 local CHAR_DEFAULTS = {
