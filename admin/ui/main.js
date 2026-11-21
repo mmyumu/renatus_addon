@@ -155,7 +155,7 @@ function fillFacts() {
   }
   $("selection-title").textContent = selection.afterIssue
     ? `Depuis le dernier numéro (écrit le ${day(selection.since)}) : ${recent.length} fait(s)`
-    : `7 derniers jours (pas encore de numéro) : ${recent.length} fait(s)`;
+    : `30 derniers jours (aucun numéro paru, ou remise à zéro) : ${recent.length} fait(s)`;
   $("facts-older-title").textContent = `Plus anciens (jusqu'à 30 jours) : ${older.length} fait(s)`;
   countFacts();
 }

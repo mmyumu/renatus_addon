@@ -14,8 +14,11 @@ use crate::chronicle::{num_of, payload, str_of, Chronicle};
 use crate::gazette::{self, Brief};
 
 const DAY: f64 = 86400.0;
-/// Without any previous issue, the new one covers this many days.
-pub const FIRST_DAYS: f64 = 7.0;
+/// Without any previous issue (the first one, or after a reset in Renatus_Admin), the new
+/// one covers this many days: every fact still listed comes back on top, ticked.
+pub const FIRST_DAYS: f64 = 30.0;
+/// Automatic mode: a new issue once the latest one is this old.
+pub const ISSUE_EVERY_DAYS: f64 = 7.0;
 /// Older facts listed (unticked) in the selection.
 pub const LOOKBACK_DAYS: f64 = 30.0;
 

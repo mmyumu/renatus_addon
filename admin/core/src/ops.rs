@@ -180,7 +180,7 @@ pub fn issue_due(paths: &WowPaths, ch: &Chronicle) -> bool {
         return false;
     }
     issues::last_issue_end(ch, &waiting)
-        .is_none_or(|t| now() as f64 - t >= issues::FIRST_DAYS * 86400.0)
+        .is_none_or(|t| now() as f64 - t >= issues::ISSUE_EVERY_DAYS * 86400.0)
 }
 
 pub fn brief_summary(b: &gazette::Brief, authors: usize) -> Vec<String> {
