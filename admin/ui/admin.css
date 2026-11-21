@@ -65,11 +65,44 @@ th { text-align: left; color: var(--muted); font-weight: 400; border-bottom: 1px
 td { padding: 4px; border-bottom: 1px solid #3a2c1e; }
 tr.known td { color: var(--gold); }
 code { font-family: Consolas, monospace; color: var(--gold); }
-#draft-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; margin-top: 10px; }
-#draft-cards .label { grid-column: 1 / -1; }
+#draft-cards, .pending-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; margin-top: 10px; }
+#draft-cards .label, .pending-cards .label { grid-column: 1 / -1; }
 .album-card { border: 1px solid var(--border); border-left: 4px solid #cfcfcf; border-radius: 4px; padding: 6px 8px; user-select: text; }
 .album-card .meta { color: var(--muted); font-size: 11px; }
 .album-card.uncommon { border-left-color: #1eff00; }
 .album-card.rare { border-left-color: #0070dd; }
 .album-card.epic { border-left-color: #a335ee; }
 .album-card.legendary { border-left-color: #ff8000; }
+
+/* Items waiting in Press.lua */
+.pending-item { border-top: 1px solid var(--border); padding: 8px 0; }
+.pending-item .head { display: flex; align-items: center; gap: 10px; }
+.pending-item .head .what { flex: 1; user-select: text; }
+.pending-item .head .kind { color: var(--muted); font-size: 12px; margin-right: 6px; }
+.pending-item .body { white-space: pre-wrap; user-select: text; line-height: 1.45; font-size: 13px; }
+.pending-item details { margin-top: 4px; }
+.album-card .remove { float: right; }
+
+/* Éditeur: published cards and issues */
+.catalogue { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 8px; margin-top: 10px; }
+.catalogue .album-card.withdrawn, .article.withdrawn { opacity: 0.55; }
+.flags { color: var(--gold); font-size: 11px; }
+.actions { display: flex; gap: 4px; margin-top: 6px; }
+.edit-form { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+.edit-form label { display: flex; flex-direction: column; gap: 2px; padding: 0; cursor: default; font-size: 12px; color: var(--muted); }
+.edit-form .inline { flex-direction: row; gap: 8px; }
+.edit-form .inline label { flex: 1; }
+.edit-form input[type="text"], .edit-form select { width: 100%; }
+.edit-form input[type="number"] { width: 100%; }
+.edit-form textarea { font-family: inherit; font-size: 13px; }
+.edit-form .error { font-size: 12px; margin: 0; }
+#archive details.issue { border-top: 1px solid var(--border); padding-top: 6px; }
+#archive details.issue > summary { color: var(--text); font-weight: 600; }
+.article .actions { margin-top: 4px; }
+
+/* Éditeur: shared header (stays visible while scrolling) and its sub-tabs */
+.editor-head { position: sticky; top: -14px; z-index: 2; background: var(--bg); padding-top: 14px; margin-top: -14px; }
+.editor-head .card { margin-bottom: 8px; }
+.subtabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 10px; }
+.subtab { background: transparent; border-color: transparent; border-radius: 4px 4px 0 0; }
+.subtab.active { border-color: var(--gold); border-bottom-color: var(--bg); background: #4a3420; }

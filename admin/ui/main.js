@@ -44,6 +44,7 @@ function render(s) {
   $("sv-error").hidden = !st?.error;
   $("sv-error").textContent = st?.error ?? "";
   $("pending").textContent = st?.pending ?? 0;
+  renderPending(st?.pendingItems ?? [], busy);
   const log = $("log");
   log.textContent = s.log.map((l) => `${when(l.at)}  ${l.text}`).join("\n");
   log.scrollTop = log.scrollHeight;
@@ -224,8 +225,21 @@ function renderDraft(d, busy) {
 
 // Album cards published with the issue: number, rarity, name, text.
 const RARITY = { common: "Commune", uncommon: "Peu commune", rare: "Rare", epic: "Épique", legendary: "Légendaire" };
-function renderCards(cards) {
-  const box = $("draft-cards");
+const SERIES = {
+  members: "Membres", founders: "Fondateurs", expeditions: "Exploits", une: "À la une",
+  faits: "Faits divers", sworn: "Avis de recherche", legends: "Légendes", butin: "Butin",
+  mobs: "Bestiaire de la guilde", terreurs: "Terreurs",
+  // base set (Renatus/Core/Cards.lua)
+  est: "Royaumes de l'Est", kalimdor: "Kalimdor", donjons: "Donjons et raids", personnages: "Personnages",
+  heros: "Classes et races", bestiaire: "Bestiaire", tresors: "Trésors et curiosités",
+};
+function cardMeta(c) {
+  return [c.no !== undefined && `N° ${String(c.no).padStart(3, "0")}`, RARITY[c.r] ?? c.r, SERIES[c.s] ?? c.s,
+    c.fo !== undefined && `force ${c.fo} · endurance ${c.en}`,
+    c.npc && `modèle 3D (créature ${c.npc})`, c.itm && `icône de l'objet ${c.itm}`].filter(Boolean).join(" · ");
+}
+// onRemove(card): adds a "Retirer" button on each card (pending sets).
+function renderCards(cards, box = $("draft-cards"), onRemove = null) {
   box.textContent = "";
   if (cards.length === 0) return;
   const h = document.createElement("div");
@@ -234,16 +248,422 @@ function renderCards(cards) {
   box.appendChild(h);
   for (const c of cards) {
     const div = document.createElement("div");
-    div.className = `album-card ${c.r}`;
+    div.className = `album-card ${c.r ?? ""}`;
     const meta = document.createElement("div");
     meta.className = "meta";
-    meta.textContent = [`N° ${String(c.no).padStart(3, "0")}`, RARITY[c.r] ?? c.r, c.s].join(" · ");
     const name = document.createElement("strong");
-    name.textContent = c.n;
     const text = document.createElement("div");
-    text.textContent = c.f;
+    if (c.del) {
+      meta.textContent = "Retrait du catalogue (ceux qui l'ont la gardent)";
+      name.textContent = c.id;
+    } else {
+      meta.textContent = cardMeta(c);
+      name.textContent = c.n;
+      text.textContent = c.f;
+    }
+    if (onRemove) {
+      const x = document.createElement("button");
+      x.className = "small remove";
+      x.textContent = "Retirer";
+      x.disabled = !!state?.busy;
+      x.addEventListener("click", () => onRemove(c));
+      div.appendChild(x);
+    }
     div.append(meta, name, text);
     box.appendChild(div);
+  }
+}
+
+// Items waiting in Press.lua: what each one is, its text, and a way to take it out.
+const KINDS = {
+  ARTICLE: "Article", EDITION: "Mise en page", CARD_SET: "Cartes de l'album", DEATH_CAUSE: "Mort",
+  PVP_CLASH: "Combat JcJ", GUILD_CONFIG: "Réglage de guilde", RIVAL_ROSTER: "Effectif rival",
+};
+function pendingLabel(i) {
+  const p = i.p ?? {};
+  switch (i.kind) {
+    case "ARTICLE":
+      if (p.replaces) return `${p.retract ? "Retrait" : "Correction"} : ${p.title ?? p.replaces}`;
+      return `${p.title ?? "(sans titre)"}${p.ia ? " · IA" : ""}`;
+    case "EDITION": return `${TEMPLATES[p.template] ?? p.template ?? "libre"} · ${(p.titles ?? []).filter(Boolean).join(", ") || "gazette"}`;
+    case "CARD_SET":
+      if (String(p.set ?? "").startsWith("fix:")) {
+        const c = (p.cards ?? [])[0] ?? {};
+        return c.del ? `Retrait de la carte ${c.id}` : `Correction : ${c.n ?? c.id}`;
+      }
+      return `${(p.cards ?? []).length} carte(s)`;
+    case "DEATH_CAUSE": return `${p.victim ?? "?"} : ${p.cause ?? "?"}`;
+    case "PVP_CLASH": return `${p.member ?? "?"} ${p.result === "win" ? "a vaincu" : "a été vaincu par"} ${p.name ?? "?"}`;
+    case "GUILD_CONFIG": return `guilde rivale : ${p.rival || "aucune"}`;
+    default: return i.note ?? i.id;
+  }
+}
+
+function confirmRemove(what, args) {
+  if (window.confirm(`Retirer ${what} de Press.lua ? Il ne sera pas proposé en jeu.`)) {
+    call("remove_pending", { items: [], cards: [], ...args });
+  }
+}
+
+function renderPending(items, busy) {
+  $("pending-box").hidden = items.length === 0;
+  $("pending-title").textContent = `En attente en jeu (${items.length})`;
+  const list = $("pending-list");
+  list.textContent = "";
+  for (const i of items) {
+    const div = document.createElement("div");
+    div.className = "pending-item";
+    const head = document.createElement("div");
+    head.className = "head";
+    const what = document.createElement("span");
+    what.className = "what";
+    const kind = document.createElement("span");
+    kind.className = "kind";
+    kind.textContent = KINDS[i.kind] ?? i.kind;
+    what.append(kind, pendingLabel(i));
+    const x = document.createElement("button");
+    x.className = "small";
+    x.textContent = "Retirer";
+    x.disabled = busy;
+    x.addEventListener("click", () => confirmRemove(`« ${pendingLabel(i)} »`, { items: [i.id] }));
+    head.append(what, x);
+    div.appendChild(head);
+    if (i.kind === "ARTICLE") {
+      const d = document.createElement("details");
+      const sum = document.createElement("summary");
+      sum.textContent = [i.p.format, i.p.style].filter(Boolean).join(" · ") || "Lire";
+      const body = document.createElement("div");
+      body.className = "body";
+      body.textContent = (i.p.quote ? `« ${i.p.quote} »\n\n` : "") + (i.p.body ?? "");
+      d.append(sum, body);
+      div.appendChild(d);
+    } else if (i.kind === "CARD_SET") {
+      const box = document.createElement("div");
+      box.className = "pending-cards";
+      renderCards(i.p.cards ?? [], box, (c) => confirmRemove(`la carte « ${c.n} »`, { cards: [c.id] }));
+      div.appendChild(box);
+    }
+    list.appendChild(div);
+  }
+}
+
+// Éditeur: the published catalogue and issues, as members see them; a correction or a
+// withdrawal goes to Press.lua like any publication (core/src/revise.rs).
+let published = null;
+// The card or article being edited: { key: "card:<id>" | "article:<id>", values, error }.
+let editing = null;
+const openIssues = new Set();
+let issuesSeen = false;
+
+function dayFr(t) {
+  return new Date(t * 1000).toLocaleDateString("fr-FR");
+}
+
+async function loadPublished() {
+  $("editor-status").textContent = "Lecture du journal…";
+  try {
+    published = await invoke("published");
+    $("editor-status").textContent = `Relu à ${new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}. Ce que tu publies en jeu apparaît ici après un /reload.`;
+  } catch (e) {
+    published = null;
+    $("editor-status").textContent = String(e);
+  }
+  renderEditor();
+}
+
+function renderEditor() {
+  renderCatalogue();
+  renderArchive();
+}
+
+// feminine: "corrigée"/"retirée" (a card) or "corrigé"/"retiré" (an article).
+function flagLine(x, feminine) {
+  const e = feminine ? "e" : "";
+  const flags = [
+    x.withdrawn && `retiré${e}`,
+    x.revised && `corrigé${e} le ${dayFr(x.revised)}`,
+    x.pending && "correction en attente en jeu",
+  ].filter(Boolean);
+  const div = document.createElement("div");
+  div.className = "flags";
+  div.textContent = flags.join(" · ");
+  return div;
+}
+
+function button(label, onClick, cls = "small") {
+  const b = document.createElement("button");
+  b.className = cls;
+  b.textContent = label;
+  b.addEventListener("click", onClick);
+  return b;
+}
+
+// Sends a correction; on success the editor closes and the lists are read again.
+async function propose(command, args) {
+  try {
+    render(await invoke(command, args));
+    editing = null;
+    await loadPublished();
+  } catch (e) {
+    if (editing) {
+      editing.error = String(e);
+      renderEditor();
+    } else {
+      report(e);
+      $("editor-status").textContent = String(e);
+    }
+  }
+}
+
+function field(label, input) {
+  const l = document.createElement("label");
+  l.append(label, input);
+  return l;
+}
+
+// A text input bound to editing.values[key].
+function bound(key, tag = "input", attrs = {}) {
+  const el = document.createElement(tag);
+  if (tag === "input") el.type = attrs.type ?? "text";
+  for (const [k, v] of Object.entries(attrs)) if (k !== "type") el[k] = v;
+  el.value = editing.values[key] ?? "";
+  el.addEventListener("input", () => { editing.values[key] = el.value; });
+  return el;
+}
+
+function formButtons(onSubmit) {
+  const div = document.createElement("div");
+  div.className = "actions";
+  const err = document.createElement("p");
+  err.className = "error";
+  err.textContent = editing.error ?? "";
+  div.append(
+    button("Proposer en jeu", onSubmit, ""),
+    button("Annuler", () => { editing = null; renderEditor(); }, ""),
+  );
+  const box = document.createElement("div");
+  box.append(err, div);
+  return box;
+}
+
+function cardEdit(c) {
+  return {
+    id: c.id, name: c.n ?? "", flavor: c.f ?? "", rarity: c.r, icon: c.ic ?? "",
+    force: c.fo ?? null, endurance: c.en ?? null,
+  };
+}
+
+function cardView(pc) {
+  const c = pc.card;
+  const div = document.createElement("div");
+  div.className = `album-card ${c.r}${pc.withdrawn ? " withdrawn" : ""}`;
+  const meta = document.createElement("div");
+  meta.className = "meta";
+  meta.textContent = `${cardMeta(c)} · ${pc.base ? "set de base" : `paru le ${dayFr(pc.t)}`}`;
+  const name = document.createElement("strong");
+  name.textContent = c.n;
+  const text = document.createElement("div");
+  text.textContent = c.f ?? "";
+  const actions = document.createElement("div");
+  actions.className = "actions";
+  actions.appendChild(button("Modifier", () => {
+    const values = cardEdit(c);
+    values.force = values.force ?? "";
+    values.endurance = values.endurance ?? "";
+    editing = { key: `card:${c.id}`, values, error: null };
+    renderEditor();
+  }));
+  if (pc.withdrawn) {
+    actions.appendChild(button("Rétablir", () => {
+      if (window.confirm(`Remettre « ${c.n} » au catalogue ?`)) propose("revise_card", { edit: cardEdit(c) });
+    }));
+  } else {
+    actions.appendChild(button("Retirer", () => {
+      if (window.confirm(`Retirer « ${c.n} » du catalogue ? Elle ne sortira plus des boosters ; ceux qui l'ont la gardent.`)) {
+        propose("withdraw_card", { id: c.id });
+      }
+    }));
+  }
+  div.append(meta, name, text, flagLine(pc, true), actions);
+  return div;
+}
+
+function cardForm(pc) {
+  const c = pc.card;
+  const div = document.createElement("div");
+  div.className = `album-card ${editing.values.rarity}`;
+  const meta = document.createElement("div");
+  meta.className = "meta";
+  meta.textContent = `${cardMeta(c)} · ${c.id}`;
+  const form = document.createElement("div");
+  form.className = "edit-form";
+  const rarity = document.createElement("select");
+  for (const [k, label] of Object.entries(RARITY)) rarity.add(new Option(label, k));
+  rarity.value = editing.values.rarity;
+  rarity.addEventListener("change", () => {
+    editing.values.rarity = rarity.value;
+    div.className = `album-card ${rarity.value}`;
+  });
+  const stats = document.createElement("div");
+  stats.className = "inline";
+  stats.append(
+    field(pc.base ? "Force (vide : aucune)" : "Force (vide : règle par rareté)",
+      bound("force", "input", { type: "number", min: 0, max: 12 })),
+    field("Endurance", bound("endurance", "input", { type: "number", min: 0, max: 12 })),
+  );
+  form.append(
+    field("Nom", bound("name", "input", { maxLength: 60 })),
+    field("Texte", bound("flavor", "textarea", { rows: 3, maxLength: 200 })),
+    field("Rareté", rarity),
+    field(pc.base ? "Icône (Interface\\Icons\\…, vide : celle d'origine)" : "Icône (Interface\\Icons\\…, vide : celle de la série)",
+      bound("icon")),
+    stats,
+    formButtons(() => {
+      const v = editing.values;
+      const num = (x) => (String(x).trim() === "" ? null : Number(x));
+      editing.error = null;
+      propose("revise_card", { edit: { ...v, force: num(v.force), endurance: num(v.endurance) } });
+    }),
+  );
+  div.append(meta, form);
+  return div;
+}
+
+function renderCatalogue() {
+  const box = $("catalogue");
+  box.textContent = "";
+  const cards = published?.cards ?? [];
+  const q = $("catalogue-search").value.trim().toLowerCase();
+  const r = $("catalogue-rarity").value;
+  const origin = $("catalogue-origin").value;
+  const shown = cards.filter((pc) => {
+    const c = pc.card;
+    if (r && c.r !== r) return false;
+    if (origin && pc.base !== (origin === "base")) return false;
+    if (!q) return true;
+    return [c.n, c.f, String(c.no ?? "")].some((v) => (v ?? "").toLowerCase().includes(q));
+  });
+  $("catalogue-title").textContent = cards.length
+    ? `Catalogue de l'album (${shown.length} sur ${cards.length} carte(s))`
+    : "Catalogue de l'album";
+  if (cards.length === 0) {
+    const p = document.createElement("p");
+    p.className = "hint";
+    p.textContent = published ? "Aucune carte publiée." : "";
+    box.appendChild(p);
+  }
+  shown.sort((a, b) => a.base - b.base);   // guild cards first, then the base set
+  for (const pc of shown) {
+    box.appendChild(editing?.key === `card:${pc.card.id}` ? cardForm(pc) : cardView(pc));
+  }
+}
+
+function articleEdit(a) {
+  return { id: a.id, title: a.title, body: a.body, quote: a.quote ?? "", format: a.format ?? "", style: a.style ?? "" };
+}
+
+function articleView(a) {
+  const div = document.createElement("div");
+  div.className = `article${a.withdrawn ? " withdrawn" : ""}`;
+  const meta = document.createElement("div");
+  meta.className = "meta";
+  meta.textContent = [a.order && `#${a.order}`, a.format, a.style, a.ia && "IA", `paru le ${dayFr(a.t)}`]
+    .filter(Boolean).join(" · ");
+  const h = document.createElement("h3");
+  h.textContent = a.title;
+  div.append(meta, h, flagLine(a, false));
+  if (a.quote) {
+    const q = document.createElement("blockquote");
+    q.textContent = `« ${a.quote} »`;
+    div.appendChild(q);
+  }
+  const more = document.createElement("details");
+  const sum = document.createElement("summary");
+  sum.textContent = "Lire";
+  const body = document.createElement("div");
+  body.className = "body";
+  body.textContent = a.body;
+  more.append(sum, body);
+  const actions = document.createElement("div");
+  actions.className = "actions";
+  actions.appendChild(button("Modifier", () => {
+    editing = { key: `article:${a.id}`, values: articleEdit(a), error: null };
+    renderEditor();
+  }));
+  if (a.withdrawn) {
+    actions.appendChild(button("Rétablir", () => {
+      if (window.confirm(`Remettre « ${a.title} » dans son numéro ?`)) propose("revise_article", { edit: articleEdit(a) });
+    }));
+  } else {
+    actions.appendChild(button("Retirer", () => {
+      if (window.confirm(`Retirer « ${a.title} » de son numéro, pour toute la guilde ?`)) {
+        propose("retract_article", { id: a.id });
+      }
+    }));
+  }
+  div.append(more, actions);
+  return div;
+}
+
+function articleForm(a) {
+  const div = document.createElement("div");
+  div.className = "article";
+  const form = document.createElement("div");
+  form.className = "edit-form";
+  const labels = document.createElement("div");
+  labels.className = "inline";
+  labels.append(
+    field("Rubrique (vide : aucune)", bound("format", "input", { maxLength: 40 })),
+    field("Style (vide : aucun)", bound("style", "input", { maxLength: 40 })),
+  );
+  form.append(
+    field("Titre", bound("title", "input", { maxLength: 90 })),
+    labels,
+    field("Citation en exergue (vide : aucune)", bound("quote", "input", { maxLength: 140 })),
+    field("Texte", bound("body", "textarea", { rows: 14, maxLength: 3500 })),
+    formButtons(() => {
+      editing.error = null;
+      propose("revise_article", { edit: { ...editing.values } });
+    }),
+  );
+  const meta = document.createElement("div");
+  meta.className = "meta";
+  meta.textContent = `Correction de l'article paru le ${dayFr(a.t)}${a.ia ? " (IA)" : ""}`;
+  div.append(meta, form);
+  return div;
+}
+
+function renderArchive() {
+  const box = $("archive");
+  box.textContent = "";
+  const issues = published?.issues ?? [];
+  if (issues.length === 0) {
+    const p = document.createElement("p");
+    p.className = "hint";
+    p.textContent = published ? "Aucun numéro publié." : "";
+    box.appendChild(p);
+    return;
+  }
+  if (!issuesSeen) {
+    issuesSeen = true;
+    openIssues.add(issues[0].key ?? "-");
+  }
+  for (const issue of issues) {
+    const key = issue.key ?? "-";
+    const d = document.createElement("details");
+    d.className = "issue";
+    d.open = openIssues.has(key) || issue.articles.some((a) => editing?.key === `article:${a.id}`);
+    d.addEventListener("toggle", () => { if (d.open) openIssues.add(key); else openIssues.delete(key); });
+    const sum = document.createElement("summary");
+    const live = issue.articles.filter((a) => !a.withdrawn).length;
+    sum.textContent = issue.key
+      ? `N° ${issue.number} · paru le ${dayFr(issue.t)} · ${live} article(s)`
+      : `Articles d'avant les numéros · ${live} article(s)`;
+    d.appendChild(sum);
+    for (const a of issue.articles) {
+      d.appendChild(editing?.key === `article:${a.id}` ? articleForm(a) : articleView(a));
+    }
+    box.appendChild(d);
   }
 }
 
@@ -267,10 +687,21 @@ for (const tab of document.querySelectorAll(".tab")) {
   tab.addEventListener("click", () => {
     for (const t of document.querySelectorAll(".tab")) t.classList.toggle("active", t === tab);
     for (const p of document.querySelectorAll(".page")) p.hidden = p.id !== `page-${tab.dataset.tab}`;
+    if (tab.dataset.tab === "editor") loadPublished();
   });
 }
 
 $("deaths").addEventListener("click", () => call("propose_deaths"));
+$("editor-reload").addEventListener("click", () => loadPublished());
+for (const sub of document.querySelectorAll(".subtab")) {
+  sub.addEventListener("click", () => {
+    for (const t of document.querySelectorAll(".subtab")) t.classList.toggle("active", t === sub);
+    for (const p of document.querySelectorAll(".subpage")) p.hidden = p.id !== `sub-${sub.dataset.sub}`;
+  });
+}
+$("catalogue-search").addEventListener("input", () => renderCatalogue());
+$("catalogue-rarity").addEventListener("change", () => renderCatalogue());
+$("catalogue-origin").addEventListener("change", () => renderCatalogue());
 $("reload").addEventListener("click", () => call("reload"));
 $("install-admin").addEventListener("click", () => call("install_admin_addon"));
 $("app-update").addEventListener("click", () => call("update_app"));

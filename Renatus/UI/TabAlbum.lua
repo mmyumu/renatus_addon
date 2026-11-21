@@ -10,8 +10,12 @@ local Album = ns.Album
 local CARD_W, CARD_H = 132, 184
 local COLS, ROWS = 5, 2
 local PER_PAGE = COLS * ROWS
-local ART_W, ART_H = CARD_W - 20, 88
+-- The illustration fills the card inside its frame band (ART_INSET), down to the name banner.
+local ART_INSET = 4
+local ART_W, ART_H = CARD_W - 2 * ART_INSET, 98
 local ICON = 50
+-- The card back is drawn in the card's proportions in the top of a 256 x 512 texture.
+local BACK_V = 362 / 512
 
 -- Profiles of the members (CARD_PROFILE), for their portraits; set by the tab and the booster.
 UI.cardProfiles = {}
@@ -32,15 +36,23 @@ end
 
 -- Icon of a card: its own, else the first candidate present on this client.
 function UI.CardArt(card)
+    -- an item's card: the item's own icon (Collectors/Loot.lua)
+    if card.itemId then
+        local api = (C_Item and C_Item.GetItemIconByID) or GetItemIcon
+        local ok, icon = pcall(api, card.itemId)
+        if ok and icon then return icon end
+    end
     if card.icon then return card.icon end
     if not card.icons or #card.icons == 0 then return nil end
-    local cached = artCache[card.id]
+    -- keyed by the first candidate too: a correction may change the icon (Album.BaseSet)
+    local key = card.id .. "|" .. card.icons[1]
+    local cached = artCache[key]
     if cached then return cached end
     local chosen = ICONS .. card.icons[#card.icons]
     for _, name in ipairs(card.icons) do
         if UI.HasFile(ICONS .. name) then chosen = ICONS .. name break end
     end
-    artCache[card.id] = chosen
+    artCache[key] = chosen
     return chosen
 end
 
@@ -48,7 +60,8 @@ end
 local BACKDROP = {
     est = "lieu", kalimdor = "lieu", donjons = "donjon", expeditions = "donjon",
     personnages = "guilde", heros = "guilde", members = "guilde", founders = "guilde", legends = "guilde",
-    bestiaire = "bestiaire", sworn = "ennemi", une = "presse", faits = "presse", tresors = "tresor",
+    bestiaire = "bestiaire", sworn = "ennemi", une = "presse", faits = "presse", tresors = "tresor", butin = "tresor",
+    mobs = "bestiaire", terreurs = "ennemi",
 }
 function UI.CardBackdrop(card) return UI.MEDIA .. "cardbg_" .. (BACKDROP[card.series] or "guilde") end
 
@@ -109,31 +122,128 @@ end
 
 local function showIcon(f, card)
     local profile = card.guid and UI.cardProfiles[card.guid]
-    local art = UI.CardArt(card) or UI.RacePortrait(profile)
+    local race = not UI.CardArt(card) and UI.RacePortrait(profile)
+    local art = UI.CardArt(card) or race
+    local class = card.class or (profile and profile.class)
+    if race and class then
+        -- a member: their race, with their class emblem in the corner
+        UI.SetClassIcon(f.classBadge, class)
+        f.classBadge:Show()
+        f.classBadgeRing:Show()
+    end
     if art then
+        -- Square, in a gold frame: icons have a black background baked in, a circle shows it.
         f.icon:SetTexture(art)
         f.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+        f.icon:Show()
+        f.iconFrame:Show()
     else
-        UI.SetClassIcon(f.icon, card.class or (profile and profile.class))
+        -- class emblems are round already: a ring fitted to them
+        UI.SetClassIcon(f.classIcon, card.class or (profile and profile.class))
+        f.classIcon:Show()
+        f.ring:Show()
     end
-    f.icon:Show()
-    f.ring:Show()
+end
+
+-- Zone cards: the world map of the zone fills the illustration. The map is 1002 x 668 in
+-- 4 x 3 tiles of 256; scaled to the height of the art and centred (the sides are cropped).
+local MAP_W, MAP_H = 1002, 668
+
+-- Parts of the zone the player has explored, over the parchment: drawn like the world map
+-- does (MapExplorationPinMixin), each overlay cut in tiles of 256 px, in map pixels.
+local function showExplored(f, mapID, scale, left)
+    local pool = f.map.overlays
+    local used = 0
+    local api = C_MapExplorationInfo and C_MapExplorationInfo.GetExploredMapTextures
+    local ok, list = false, nil
+    if api and mapID then ok, list = pcall(api, mapID) end
+    for _, info in ipairs(ok and type(list) == "table" and list or {}) do
+        local w, h, ids = info.textureWidth or 0, info.textureHeight or 0, info.fileDataIDs or {}
+        local wide, tall = math.ceil(w / 256), math.ceil(h / 256)
+        if not info.isShownByMouseOver and wide > 0 and tall > 0 then
+            for j = 1, tall do
+                local ph, fh = 256, 256
+                if j == tall then
+                    ph = h % 256; if ph == 0 then ph = 256 end
+                    fh = 16; while fh < ph do fh = fh * 2 end
+                end
+                for k = 1, wide do
+                    local pw, fw = 256, 256
+                    if k == wide then
+                        pw = w % 256; if pw == 0 then pw = 256 end
+                        fw = 16; while fw < pw do fw = fw * 2 end
+                    end
+                    local id = ids[(j - 1) * wide + k]
+                    if id then
+                        used = used + 1
+                        local tex = pool[used]
+                        if not tex then
+                            tex = f.map:CreateTexture(nil, "ARTWORK", nil, 1)
+                            pool[used] = tex
+                        end
+                        tex:SetTexture(id)
+                        tex:SetTexCoord(0, pw / fw, 0, ph / fh)
+                        tex:SetSize(pw * scale, ph * scale)
+                        tex:ClearAllPoints()
+                        tex:SetPoint("TOPLEFT", f.map, "TOPLEFT",
+                            left + ((info.offsetX or 0) + 256 * (k - 1)) * scale,
+                            -((info.offsetY or 0) + 256 * (j - 1)) * scale)
+                        tex:Show()
+                    end
+                end
+            end
+        end
+    end
+    for i = used + 1, #pool do pool[i]:Hide() end
+end
+local function showMap(f, card)
+    local name, mapID = ns.Cards.MapOf(card)
+    if not name or not f.map.clips then return false end
+    local base = "Interface\\WorldMap\\" .. name .. "\\" .. name
+    if not UI.HasFile(base .. "1") then return false end
+    local scale = ART_H / MAP_H
+    local tile = 256 * scale
+    local left = (ART_W - MAP_W * scale) / 2
+    for i, tex in ipairs(f.map.tiles) do
+        local col, row = (i - 1) % 4, math.floor((i - 1) / 4)
+        tex:SetTexture(base .. i)
+        tex:SetSize(tile, tile)
+        tex:ClearAllPoints()
+        tex:SetPoint("TOPLEFT", f.map, "TOPLEFT", left + col * tile, -row * tile)
+    end
+    showExplored(f, mapID, scale, left)
+    f.map:Show()
+    return true
+end
+
+-- Unit token of a member the client can show as they really are (face, hair, gear): the
+-- viewer, their group or raid, their target, what they hover. Nil for anyone else.
+local function unitOf(guid)
+    -- UI.noLiveModels: test switch, shows everyone as others see them when they are away
+    if not guid or not UnitGUID or UI.noLiveModels then return nil end
+    local tokens = { "player", "target", "mouseover", "focus" }
+    for i = 1, 4 do tokens[#tokens + 1] = "party" .. i end
+    for i = 1, 40 do tokens[#tokens + 1] = "raid" .. i end
+    for _, unit in ipairs(tokens) do
+        local ok, g = pcall(UnitGUID, unit)
+        if ok and g == guid then return unit end
+    end
+    return nil
 end
 
 -- Returns true if a model is being shown (the icon waits for its check).
 local function showModel(f, card)
     local profile = card.guid and UI.cardProfiles[card.guid]
+    local unit = unitOf(card.guid)
     local m
     if card.npc then
         m = modelFrame(f, "creature")
         if not m or not call(m, "SetCreature", card.npc) then return false end
         call(m, "SetPortraitZoom", 0.55)
-    elseif profile and profile.race then
+    elseif unit then
+        -- the member in person: as they look right now
         m = modelFrame(f, "player")
-        if not m or not call(m, "SetUnit", "player") then return false end
-        if not call(m, "SetCustomRace", profile.race, (profile.sex == 3) and 1 or 0) then return false end
-        call(m, "Undress")
-        for item in tostring(profile.items or ""):gmatch("%d+:(%d+)") do call(m, "TryOn", "item:" .. item) end
+        if not m or not call(m, "SetUnit", unit) then return false end
         call(m, "SetPortraitZoom", 0.75)
     else
         return false
@@ -141,16 +251,70 @@ local function showModel(f, card)
     m.facing = 0
     call(m, "SetFacing", 0)
     m:Show()
-    -- An unknown creature (or an API missing on this client) leaves the model empty.
+    -- A creature missing from the client cache leaves the model empty until the server
+    -- answers: the icon stands in meanwhile, and the model is asked again a few times
+    -- (an unknown creature, or an API missing on this client, keeps the icon).
     local token = f.fillToken
+    local tries = 0
     local function check()
         if f.fillToken ~= token then return end
         local ok, id = call(m, "GetModelFileID")
-        if not ok or not id or id == 0 then m:Hide(); showIcon(f, card) end
+        if ok and id and id ~= 0 then
+            f.icon:Hide(); f.iconFrame:Hide(); f.classIcon:Hide(); f.ring:Hide()
+            m:Show()
+            return
+        end
+        m:Hide()
+        if tries == 0 then showIcon(f, card) end
+        tries = tries + 1
+        if C_Timer and card.npc and tries <= 4 then
+            call(m, "SetCreature", card.npc)
+            C_Timer.After(1, check)
+        end
     end
     if C_Timer then C_Timer.After(0.6, check) else check() end
     return true
 end
+
+------------------------------------------------------------------------
+-- Force / endurance: two tabs filling the top corners of the card, flush inside its frame
+-- (textures from tools/make_stat_corner.py, drawn for the left corner)
+------------------------------------------------------------------------
+local STAT_W, STAT_H = 32, 34
+local STAT_INSET = 4   -- width of the card frame's metal band
+local FORCE_COLOR = { 0.78, 0.2, 0.1 }
+local ENDURANCE_COLOR = { 0.16, 0.56, 0.26 }
+
+-- side: "LEFT" (corner top left) or "RIGHT" (corner top right, textures mirrored).
+local function statBadge(parent, color, side)
+    local left = side == "LEFT"
+    local corner = left and "TOPLEFT" or "TOPRIGHT"
+    local b = CreateFrame("Frame", nil, parent)
+    b:SetSize(STAT_W, STAT_H)
+    b:SetPoint(corner, parent, corner, left and STAT_INSET or -STAT_INSET, -STAT_INSET)
+    local function layer(name, drawLayer)
+        local t = b:CreateTexture(nil, drawLayer)
+        t:SetTexture(UI.MEDIA .. name)
+        if left then t:SetTexCoord(0, 1, 0, 1) else t:SetTexCoord(1, 0, 0, 1) end
+        t:SetAllPoints()
+        return t
+    end
+    layer("statfill", "ARTWORK"):SetVertexColor(color[1], color[2], color[3])
+    layer("statrim", "OVERLAY")
+    b.value = b:CreateFontString(nil, "OVERLAY", nil, 2)
+    b.value:SetFont(UI.FONT_TITLE, 13, "OUTLINE")
+    b.value:SetTextColor(1, 0.95, 0.8)
+    b.value:SetShadowOffset(1, -1)
+    -- centred on the straight part of the tab, inside its gold rim (EDGE and KNEE in the
+    -- generator: the rim starts at 62 % of the width, less ~7 % for the gold band)
+    -- (+3 px lower: the frame band covers the top of the plate)
+    local dx, dy = STAT_W * 0.55 / 2, STAT_H * 0.48 / 2 + 3
+    b.value:SetPoint("CENTER", b, corner, left and dx or -dx, -dy)
+    b.value:SetJustifyH("CENTER")
+    return b
+end
+
+local function statText(v, item) return item and ("+" .. v) or tostring(v) end
 
 ------------------------------------------------------------------------
 -- Card rendering (shared by the grid, the zoom and booster opening)
@@ -180,17 +344,60 @@ function UI.CreateCard(parent)
     f.back:SetPoint("TOPLEFT", 3, -3)
     f.back:SetPoint("BOTTOMRIGHT", -3, 3)
     f.back:SetTexture(UI.MEDIA .. "cardback")
+    f.back:SetTexCoord(0, 1, 0, BACK_V)
     -- illustration: backdrop of the series, then a model or a medallion
     f.art = f:CreateTexture(nil, "ARTWORK", nil, 0)
     f.art:SetSize(ART_W, ART_H)
-    f.art:SetPoint("TOP", 0, -14)
+    f.art:SetPoint("TOP", 0, -ART_INSET)
     f.art:SetTexCoord(0.18, 0.82, 0, 1)
-    f.icon = f:CreateTexture(nil, "ARTWORK", nil, 2)
+    -- item icons: square, on a dark shadow, under a 2 px gold border (all in one frame)
+    f.iconFrame = CreateFrame("Frame", nil, f)
+    f.iconFrame:SetSize(ICON + 2, ICON + 2)
+    f.iconFrame:SetPoint("CENTER", f.art, "CENTER", 0, 0)
+    f.iconFrame:SetFrameLevel((f:GetFrameLevel() or 1) + 2)
+    local shadow = f.iconFrame:CreateTexture(nil, "BACKGROUND")
+    shadow:SetPoint("TOPLEFT", -3, 3)
+    shadow:SetPoint("BOTTOMRIGHT", 3, -3)
+    shadow:SetColorTexture(0, 0, 0, 0.6)
+    f.icon = f.iconFrame:CreateTexture(nil, "ARTWORK")
     f.icon:SetSize(ICON, ICON)
-    f.icon:SetPoint("CENTER", f.art, "CENTER", 0, 0)
-    if f.icon.SetMask then pcall(f.icon.SetMask, f.icon, "Interface\\CharacterFrame\\TempPortraitAlphaMask") end
+    f.icon:SetPoint("CENTER")
+    local gold = {}
+    for i = 1, 4 do
+        gold[i] = f.iconFrame:CreateTexture(nil, "OVERLAY")
+        gold[i]:SetColorTexture(0.85, 0.66, 0.3, 1)
+    end
+    gold[1]:SetPoint("TOPLEFT"); gold[1]:SetPoint("TOPRIGHT"); gold[1]:SetHeight(2)
+    gold[2]:SetPoint("BOTTOMLEFT"); gold[2]:SetPoint("BOTTOMRIGHT"); gold[2]:SetHeight(2)
+    gold[3]:SetPoint("TOPLEFT"); gold[3]:SetPoint("BOTTOMLEFT"); gold[3]:SetWidth(2)
+    gold[4]:SetPoint("TOPRIGHT"); gold[4]:SetPoint("BOTTOMRIGHT"); gold[4]:SetWidth(2)
+    -- class emblem in the corner of a member's race portrait
+    f.classBadge = f.iconFrame:CreateTexture(nil, "OVERLAY", nil, 2)
+    f.classBadge:SetSize(24, 24)
+    f.classBadge:SetPoint("CENTER", f.iconFrame, "BOTTOMRIGHT", -2, 2)
+    f.classBadge:Hide()
+    f.classBadgeRing = f.iconFrame:CreateTexture(nil, "OVERLAY", nil, 3)
+    f.classBadgeRing:SetSize(30, 30)
+    f.classBadgeRing:SetPoint("CENTER", f.classBadge, "CENTER")
+    f.classBadgeRing:SetTexture(UI.MEDIA .. "ring")
+    f.classBadgeRing:Hide()
+    f.iconFrame:Hide()
+    -- class emblems come from an atlas (tex coords per class) and are already round: no mask
+    f.classIcon = f:CreateTexture(nil, "ARTWORK", nil, 2)
+    f.classIcon:SetSize(ICON, ICON)
+    f.classIcon:SetPoint("CENTER", f.art, "CENTER", 0, 0)
+    -- zones: their world map as full art (12 tiles, clipped to the illustration)
+    f.map = CreateFrame("Frame", nil, f)
+    f.map:SetPoint("TOPLEFT", f.art, "TOPLEFT")
+    f.map:SetPoint("BOTTOMRIGHT", f.art, "BOTTOMRIGHT")
+    f.map:SetFrameLevel((f:GetFrameLevel() or 1) + 1)
+    f.map.clips = f.map.SetClipsChildren and pcall(f.map.SetClipsChildren, f.map, true) or false
+    f.map.tiles = {}
+    for i = 1, 12 do f.map.tiles[i] = f.map:CreateTexture(nil, "ARTWORK", nil, 0) end
+    f.map.overlays = {}   -- explored parts, over the tiles (showExplored)
+    f.map:Hide()
     f.ring = f:CreateTexture(nil, "ARTWORK", nil, 3)
-    f.ring:SetSize(ICON + 14, ICON + 14)
+    f.ring:SetSize(ICON + 10, ICON + 10)
     f.ring:SetPoint("CENTER", f.icon, "CENTER")
     f.ring:SetTexture(UI.MEDIA .. "ring")
     local artRim = CreateFrame("Frame", nil, f)
@@ -198,19 +405,20 @@ function UI.CreateCard(parent)
     artRim:SetPoint("BOTTOMRIGHT", f.art, "BOTTOMRIGHT", 1, -1)
     artRim:SetFrameLevel((f:GetFrameLevel() or 1) + 3)
     f.artRim = UI.Edges(artRim, { 0.85, 0.66, 0.3, 1 })
-    -- number over the illustration (top left), copies (top right)
+    -- number over the illustration (bottom left), copies (bottom right): the top corners
+    -- hold force and endurance
     local top = CreateFrame("Frame", nil, f)
     top:SetAllPoints()
     top:SetFrameLevel((f:GetFrameLevel() or 1) + 4)
     f.no = UI.Text(top, 9, UI.C.gold)
-    f.no:SetPoint("TOPLEFT", f.art, "TOPLEFT", 3, -3)
+    f.no:SetPoint("BOTTOMLEFT", f.art, "BOTTOMLEFT", 3, 3)
     f.no:SetShadowOffset(1, -1)
     f.count = UI.Text(top, 11, UI.C.gold)
-    f.count:SetPoint("TOPRIGHT", f.art, "TOPRIGHT", -3, -3)
+    f.count:SetPoint("BOTTOMRIGHT", f.art, "BOTTOMRIGHT", -3, 3)
     f.count:SetJustifyH("RIGHT")
     f.count:SetShadowOffset(1, -1)
     f.new = UI.Text(top, 10, { 0.4, 1, 0.4 }, UI.FONT_TITLE)
-    f.new:SetPoint("BOTTOM", f.art, "TOP", 0, 1)
+    f.new:SetPoint("TOP", f.art, "TOP", 0, -4)
     f.new:SetShadowOffset(1, -1)
     -- name banner
     f.banner = f:CreateTexture(nil, "ARTWORK")
@@ -231,13 +439,13 @@ function UI.CreateCard(parent)
     f.flavor:SetMaxLines(3)
     f.flavor:SetSpacing(1)
     -- footer: series, date, rarity gem
-    f.series = UI.Text(f, 8, { 0.7, 0.6, 0.45 })
-    f.series:SetPoint("BOTTOMLEFT", 9, 8)
-    f.series:SetWidth(62)
-    f.series:SetWordWrap(false)
     f.date = UI.Text(f, 8, { 0.7, 0.6, 0.45 })
     f.date:SetPoint("BOTTOMRIGHT", -24, 8)
     f.date:SetJustifyH("RIGHT")
+    f.series = UI.Text(f, 8, { 0.7, 0.6, 0.45 })
+    f.series:SetPoint("BOTTOMLEFT", 9, 8)
+    f.series:SetPoint("RIGHT", f.date, "LEFT", -4, 0)
+    f.series:SetWordWrap(false)
     f.gem = f:CreateTexture(nil, "OVERLAY")
     f.gem:SetSize(13, 13)
     f.gem:SetPoint("BOTTOMRIGHT", -7, 6)
@@ -247,6 +455,13 @@ function UI.CreateCard(parent)
     f.unknown:SetText("?")
     -- frame tinted by rarity
     f.frame = UI.NineSlice(f, "cardframe", 0.25, 18, "OVERLAY")
+    -- force (left) and endurance (right), over the frame
+    f.stats = CreateFrame("Frame", nil, f)
+    f.stats:SetAllPoints()
+    f.stats:SetFrameLevel((f:GetFrameLevel() or 1) + 6)
+    f.force = statBadge(f.stats, FORCE_COLOR, "LEFT")
+    f.endurance = statBadge(f.stats, ENDURANCE_COLOR, "RIGHT")
+    f.stats:Hide()
     UI.Tooltip(f, function(self)
         local card = self.card
         if not card then return nil end
@@ -254,7 +469,13 @@ function UI.CreateCard(parent)
         local rarity = { r.label, r.color[1], r.color[2], r.color[3] }
         local ident = UI.CardNumber(card) .. (card.t and ("  ·  publiée le " .. UI.CardDate(card)) or "")
         if not self.owned then return "Carte inconnue", { "Série : " .. UI.SeriesLabel(card.series), rarity, ident } end
-        local lines = { rarity, "Série : " .. UI.SeriesLabel(card.series), ident, card.flavor or "" }
+        local lines = { rarity, "Série : " .. UI.SeriesLabel(card.series), ident }
+        local fo, en, item = Album.Stats(card)
+        if fo then
+            lines[#lines + 1] = item and { ("Objet : +%d force, +%d endurance à qui le porte"):format(fo, en), 1, 0.82, 0.3 }
+                or { ("Force %d  ·  Endurance %d"):format(fo, en), 1, 0.82, 0.3 }
+        end
+        lines[#lines + 1] = card.flavor or ""
         if card.orphan then lines[#lines + 1] = { "Ancienne édition : n'est plus tirée dans les boosters.", 0.6, 0.6, 0.6 } end
         return card.name, lines
     end)
@@ -280,12 +501,24 @@ function UI.FillCard(f, card, count, faceDown)
     f.new:SetText("")
     hideModels(f)
     f.icon:Hide()
+    f.iconFrame:Hide()
+    f.classBadge:Hide()
+    f.classBadgeRing:Hide()
+    f.classIcon:Hide()
+    f.map:Hide()
     f.ring:Hide()
+    f.stats:Hide()
     if face then
+        local fo, en, item = Album.Stats(card)
+        if fo then
+            f.force.value:SetText(statText(fo, item))
+            f.endurance.value:SetText(statText(en, item))
+            f.stats:Show()
+        end
         tintFrame(f, r.color)
         f.art:SetTexture(UI.CardBackdrop(card))
         f.art:SetTexCoord(0.18, 0.82, 0, 1)
-        if not showModel(f, card) then showIcon(f, card) end
+        if not showMap(f, card) and not showModel(f, card) then showIcon(f, card) end
         f.name:SetText(card.name)
         if card.class then f.name:SetTextColor(UI.ClassColor(card.class)) else f.name:SetTextColor(1, 1, 1) end
         f.flavor:SetText(card.flavor or "")
@@ -314,6 +547,16 @@ end
 ------------------------------------------------------------------------
 -- Tweens (OnUpdate, no AnimationGroup: simplest to trust on every client)
 ------------------------------------------------------------------------
+-- A failing callback is reported but never takes the other tweens down with it: the list is
+-- swapped out while it runs, so an uncaught error would freeze every animation mid-way.
+local function safely(fn, ...)
+    local ok, err = pcall(fn, ...)
+    if not ok then
+        local handler = geterrorhandler and geterrorhandler()
+        if handler then pcall(handler, err) end
+    end
+end
+
 local function tweens(owner)
     owner.tweens = {}
     owner:SetScript("OnUpdate", function(self, elapsed)
@@ -327,9 +570,9 @@ local function tweens(owner)
                 keep[#keep + 1] = tw   -- still waiting for its delay
             else
                 local p = tw.dur > 0 and math.min(1, tw.t / tw.dur) or 1
-                if tw.step then tw.step(p) end
+                if tw.step then safely(tw.step, p) end
                 if p >= 1 then
-                    if tw.done then tw.done() end
+                    if tw.done then safely(tw.done) end
                 else
                     keep[#keep + 1] = tw
                 end
@@ -354,13 +597,13 @@ local function ease(p) return 1 - (1 - p) * (1 - p) end
 local reveal
 local GAP = 12
 local function slotX(i) return 26 + (i - 1) * (CARD_W + GAP) end
-local SLOT_Y = -64
+local SLOT_Y = -78
 local PACK_W, PACK_H = 110, 220
 
 local function buildReveal()
     local r = CreateFrame("Frame", nil, UI.GetWindow())
     r:SetFrameStrata("DIALOG")
-    r:SetSize(5 * (CARD_W + GAP) + 40, CARD_H + 130)
+    r:SetSize(5 * (CARD_W + GAP) + 40, CARD_H + 170)
     r:SetPoint("CENTER")
     r:EnableMouse(true)
     UI.Skin(r, "window")
@@ -375,7 +618,7 @@ local function buildReveal()
     -- the pack: top flap and body, torn apart
     local pack = CreateFrame("Button", nil, r)
     pack:SetSize(PACK_W, PACK_H)
-    pack:SetPoint("CENTER", 0, -6)
+    pack:SetPoint("CENTER", 0, -8)
     pack:SetFrameLevel((r:GetFrameLevel() or 1) + 6)
     local cut = 0.2
     pack.top = pack:CreateTexture(nil, "ARTWORK")
@@ -420,9 +663,15 @@ local function buildReveal()
     end
 
     r.all = UI.Button(r, "Tout retourner", 150, 24, function() r:FlipAll() end)
-    r.all:SetPoint("BOTTOM", -84, 20)
+    r.all:SetPoint("BOTTOM", 0, 20)
     r.ok = UI.Button(r, "Ranger dans l'album", 170, 24, function() r:Hide() end)
-    r.ok:SetPoint("BOTTOM", 84, 20)
+    r.ok:SetPoint("BOTTOM", 0, 20)   -- takes the place of "Tout retourner" once all are turned
+    -- preview of more than five cards: the next ones (opts.onNext)
+    r.more = UI.Button(r, "Cartes suivantes", 150, 24, function()
+        r:Hide()
+        if r.onNext then r.onNext() end
+    end)
+    r.more:SetPoint("BOTTOMRIGHT", -20, 20)
     return r
 end
 
@@ -439,6 +688,9 @@ local function showReveal(cards, collection, opts)
     r.got, r.collection, r.revealed = cards, collection or {}, 0
     r.title:SetText(opts.title or "Nouveau booster !")
     r.hint:SetText(opts.preview and "Aperçu : rien n'est encore publié." or "Clique le paquet pour l'ouvrir.")
+    r.ok:SetLabel(opts.preview and "Fermer" or "Ranger dans l'album")
+    r.onNext = opts.onNext
+    r.more:SetShown(opts.onNext ~= nil)
     local centerX = (r:GetWidth() - CARD_W) / 2
 
     function r:Done()
@@ -456,11 +708,13 @@ local function showReveal(cards, collection, opts)
         local rar = Album.Rarity(card.rarity)
         local idx = Album.RARITY_INDEX[card.rarity] or 1
         local function face()
-            UI.FillCard(f, card, 1)
-            f:Show()
-            f.new:SetText(not opts.preview and self.collection[card.id] == 1 and "NOUVEAU" or "")
+            -- The card must land face up and be counted even if its rendering fails.
             fl:Hide()
             self.revealed = self.revealed + 1
+            f:SetAlpha(1)
+            safely(UI.FillCard, f, card, 1)
+            f:Show()
+            f.new:SetText(not opts.preview and self.collection[card.id] == 1 and "NOUVEAU" or "")
             UI.Click()
             if self.revealed >= #self.got then self:Done() end
             -- burst: bigger and longer for the rarest cards
@@ -480,6 +734,7 @@ local function showReveal(cards, collection, opts)
         fl:ClearAllPoints()
         fl:SetPoint("CENTER", f, "CENTER")
         fl:SetTexture(UI.MEDIA .. "cardback")
+        fl:SetTexCoord(0, 1, 0, BACK_V)
         fl:SetVertexColor(1, 1, 1)
         fl:SetSize(CARD_W, CARD_H)
         fl:Show()
@@ -534,7 +789,7 @@ local function showReveal(cards, collection, opts)
         end
     end
 
-    -- Start: the pack, shaking, then torn open by itself (or by a click).
+    -- Start: the pack shakes now and then until it is clicked.
     for i, f in ipairs(r.cards) do
         f.turned = false
         r.flippers[i]:Hide()
@@ -564,20 +819,25 @@ local function showReveal(cards, collection, opts)
     r.stage = "pack"
     r.pack:Show()
     r.pack:Place(0, 0, 0, 1)
-    tween(r, 0.7, function(p)
-        local amp = 4 * (1 - p * 0.4)
-        r.pack:Place(math.sin(p * 46) * amp, 0, 0, 1)
-    end, function() r:Tear() end)
+    local function shake(delay)
+        tween(r, 0.5, function(p)
+            if r.stage ~= "pack" then return end
+            r.pack:Place(math.sin(p * 34) * 4 * (1 - p), 0, 0, 1)
+        end, function() if r.stage == "pack" then shake(1.2) end end, delay)
+    end
+    shake(0)
     return r
 end
 UI.ShowBoosterReveal = showReveal
 
 -- Preview of cards not published yet (Renatus_Admin): face up, nothing recorded.
-function UI.CardsPreview(cards, title)
+-- onNext: shows the "Cartes suivantes" button, called when it is clicked.
+function UI.CardsPreview(cards, title, onNext)
     UI.Open("album")
+    UI.cardProfiles = ns.Store.Dataset().profiles or {}   -- the members' portraits
     local list = {}
     for i = 1, math.min(#cards, Album.BOOSTER_SIZE) do list[i] = cards[i] end
-    return showReveal(list, {}, { preview = true, title = title or "Aperçu des cartes" })
+    return showReveal(list, {}, { preview = true, title = title or "Aperçu des cartes", onNext = onNext })
 end
 
 ------------------------------------------------------------------------

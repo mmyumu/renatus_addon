@@ -53,6 +53,38 @@ pub fn merge(existing: Vec<Value>, new: Vec<Value>, done: &Map<String, Value>) -
     kept
 }
 
+/// `items` without the items whose id is in `drop`, and without the album cards whose id is
+/// in `drop_cards`. A card set keeps its numbers contiguous (from its first one, nothing is
+/// published yet) and goes away once empty.
+pub fn remove(items: Vec<Value>, drop: &[String], drop_cards: &[String]) -> Vec<Value> {
+    items
+        .into_iter()
+        .filter(|i| str_of(i, "id").is_none_or(|id| !drop.iter().any(|d| d == id)))
+        .filter_map(|mut item| {
+            if str_of(&item, "kind") != Some("CARD_SET") || drop_cards.is_empty() {
+                return Some(item);
+            }
+            let cards = item.get_mut("p")?.get_mut("cards")?.as_array_mut()?;
+            let first = cards
+                .iter()
+                .map(|c| num_of(c, "no"))
+                .fold(f64::INFINITY, f64::min);
+            let before = cards.len();
+            cards.retain(|c| str_of(c, "id").is_none_or(|id| !drop_cards.iter().any(|d| d == id)));
+            if cards.is_empty() {
+                return None;
+            }
+            if cards.len() != before && first.is_finite() {
+                cards.sort_by(|a, b| num_of(a, "no").total_cmp(&num_of(b, "no")));
+                for (n, c) in cards.iter_mut().enumerate() {
+                    c["no"] = json!(first as i64 + n as i64);
+                }
+            }
+            Some(item)
+        })
+        .collect()
+}
+
 pub fn render(items: &[Value], now: i64) -> String {
     let press = json!({"version": 1, "generated": now, "items": items});
     format!("{HEADER}{}", crate::lua::dumps(&[("RenatusPress", &press)]))
@@ -70,6 +102,29 @@ pub fn write(path: &Path, items: &[Value], now: i64) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn remove_drops_items_and_cards_and_renumbers() {
+        let items = vec![
+            json!({"id": "art", "kind": "ARTICLE", "p": {}}),
+            json!({"id": "set", "kind": "CARD_SET", "p": {"cards": [
+                {"id": "c1", "no": 7}, {"id": "c2", "no": 8}, {"id": "c3", "no": 9}
+            ]}}),
+            json!({"id": "solo", "kind": "CARD_SET", "p": {"cards": [{"id": "c4", "no": 10}]}}),
+        ];
+        let out = remove(
+            items,
+            &["art".to_string()],
+            &["c2".to_string(), "c4".to_string()],
+        );
+        assert_eq!(out.len(), 1, "the article and the emptied set are gone");
+        let cards = out[0]["p"]["cards"].as_array().unwrap();
+        let kept: Vec<(&str, i64)> = cards
+            .iter()
+            .map(|c| (c["id"].as_str().unwrap(), c["no"].as_i64().unwrap()))
+            .collect();
+        assert_eq!(kept, [("c1", 7), ("c3", 8)]);
+    }
 
     #[test]
     fn merge_dedupes_drops_done_and_sorts() {

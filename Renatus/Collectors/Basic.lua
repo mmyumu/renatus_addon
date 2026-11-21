@@ -43,9 +43,13 @@ end
 
 local function onEncounterEnd(_, encounterID, encounterName, difficultyID, groupSize, success)
     encounterID, success = ns.Safe(encounterID), ns.Safe(success)
+    local name = ns.Safe(encounterName)
+    -- the boss's npc id, for the 3D model on its album card (Collectors/Creatures.lua)
+    local npc = ns.Creatures and ns.Creatures.BossNpc(name)
+    if ns.Creatures then ns.Creatures.EndEncounter() end
     if not encounterID or success ~= 1 then return end
     ns.Store.Add("BOSS_KILL", {
-        enc = encounterID, name = ns.Safe(encounterName), diff = ns.Safe(difficultyID), size = ns.Safe(groupSize),
+        enc = encounterID, name = name, diff = ns.Safe(difficultyID), size = ns.Safe(groupSize), npc = npc,
     }, {
         occ = "ENC:" .. tostring(encounterID) .. ":" .. today(),
         pt = ns.Context.Participants(),

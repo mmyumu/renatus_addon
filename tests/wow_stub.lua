@@ -145,6 +145,8 @@ function Stub.reset(opts)
         if unit == "player" then return S.me.guid end
         local g = groupUnit(unit)
         if g then return g.guid end
+        local u = S.units[unit]
+        if u then return u.guid end
     end
     function UnitName(unit)
         if unit == "player" then return S.me.name end

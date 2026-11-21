@@ -14,6 +14,7 @@
       <button class="tab active" data-tab="home">Accueil</button>
       <button class="tab" data-tab="rival">Guilde rivale</button>
       <button class="tab" data-tab="gazette">Gazette</button>
+      <button class="tab" data-tab="editor">Éditeur</button>
       <button class="tab" data-tab="settings">Réglages</button>
     </nav>
     <span id="busy"></span>
@@ -53,6 +54,11 @@
             <button id="reload">Actualiser</button>
           </div>
         </div>
+      </div>
+      <div class="card" id="pending-box" hidden>
+        <div class="label" id="pending-title">En attente en jeu</div>
+        <p class="hint">Ce qui attend dans Press.lua. Seule la publication en jeu le diffuse à la guilde : ici, tu peux relire et retirer ce qui ne va pas. Retirer un article de la gazette laisse un vide dans sa mise en page.</p>
+        <div id="pending-list"></div>
       </div>
       <div class="card">
         <div class="label">Journal de l'application</div>
@@ -135,6 +141,55 @@
           <button id="open-articles">Ouvrir</button>
         </div>
         <p class="hint">Les articles du dossier entrent dans le prochain numéro, à la suite de ceux de l'IA (une fois parus, ils ne reviennent plus). Un fichier .md par article : un en-tête <code>title:</code>, <code>format:</code>, <code>style:</code>, <code>refs:</code> entre deux lignes <code>---</code>, puis le texte.</p>
+      </div>
+    </section>
+
+    <!-- Éditeur : corrections of what is already published -->
+    <section class="page" id="page-editor" hidden>
+      <div class="editor-head">
+        <div class="card">
+          <p class="hint">Corriger ou retirer ce qui est déjà publié. Rien ne part d'ici : chaque correction attend dans Press.lua, et c'est en jeu qu'on la publie (<b>/reload</b>, icône clé ou <b>/radmin</b>, onglet <b>Rédaction</b>, <b>Publier</b>). Les membres voient alors la nouvelle version partout, même sur les cartes déjà ouvertes.</p>
+          <div class="buttons">
+            <button id="editor-reload" title="Relit le journal du jeu (réécrit à chaque /reload ou déconnexion). Ne publie rien.">Relire le jeu</button>
+            <span id="editor-status" class="hint">Affiche ce qui est publié, d'après le journal du jeu au dernier /reload.</span>
+          </div>
+        </div>
+        <nav class="subtabs">
+          <button class="subtab active" data-sub="cards">Cartes</button>
+          <button class="subtab" data-sub="gazette">Gazette</button>
+        </nav>
+      </div>
+      <div class="subpage" id="sub-cards">
+        <div class="card">
+          <div class="facts-head">
+            <span id="catalogue-title">Catalogue de l'album</span>
+            <span class="facts-tools">
+              <input id="catalogue-search" type="text" placeholder="Chercher (nom, texte, n°)">
+              <select id="catalogue-origin">
+                <option value="">Toutes les cartes</option>
+                <option value="guild">Cartes de guilde</option>
+                <option value="base">Set de base</option>
+              </select>
+              <select id="catalogue-rarity">
+                <option value="">Toutes raretés</option>
+                <option value="common">Commune</option>
+                <option value="uncommon">Peu commune</option>
+                <option value="rare">Rare</option>
+                <option value="epic">Épique</option>
+                <option value="legendary">Légendaire</option>
+              </select>
+            </span>
+          </div>
+          <p class="hint">Une carte corrigée garde son numéro. Une carte retirée ne sort plus des boosters, mais ceux qui l'ont la gardent.</p>
+          <div id="catalogue" class="catalogue"></div>
+        </div>
+      </div>
+      <div class="subpage" id="sub-gazette" hidden>
+        <div class="card">
+          <div class="label">Numéros publiés</div>
+          <p class="hint">Un article corrigé reste à sa place dans son numéro. Un article retiré disparaît du numéro pour toute la guilde ; « Rétablir » le remet.</p>
+          <div id="archive"></div>
+        </div>
       </div>
     </section>
 

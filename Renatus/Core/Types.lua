@@ -142,6 +142,10 @@ local TYPES = {
     -- Rival guild roster from the armory (Core/GuildConfig.lua); never displayed.
     RIVAL_ROSTER = { cat = "pvp", icon = "Interface\\Icons\\INV_Misc_Book_09", importance = 0, hidden = true,
         text = function(ev) return "relève l'effectif de " .. tostring(ev.p.guild) .. " sur l'armurerie" end },
+    -- First kill of a kind of creature by this character (Collectors/Kills.lua): p.npc, p.name,
+    -- p.cls, p.lvl. The guild's bestiary in the album; never displayed.
+    MOB_KILL = { cat = "album", icon = "Interface\\Icons\\Ability_Hunter_Pet_Wolf", importance = 0, hidden = true,
+        text = function(ev) return "tue pour la première fois : " .. tostring(ev.p.name) end },
     -- Opening of a booster: p.n (number), p.cards (card ids), p.cv (catalogue version).
     BOOSTER_OPEN = { cat = "album", icon = "Interface\\Icons\\INV_Misc_Ticket_Tarot_Stack_01", importance = 0, hidden = true,
         text = function(ev) return "ouvre un booster" end },

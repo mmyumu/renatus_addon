@@ -1,9 +1,13 @@
 //! Album cards proposed with each gazette issue (CARD_SET items in Press.lua).
 //!
 //! Which facts deserve a card is decided here, by fixed rules (the same id schemes as the
-//! addon's former local catalogue, `Album.Legacy`): members (four variants each), every
+//! addon's former local catalogue, `Album.Legacy`): members (four versions, earned one by one), every
 //! ten levels, first kill of a boss, outings of two members or more, anecdotes, deaths with
-//! a known killer, published articles, enemies who matter. The AI only writes each card's
+//! a player or a fall for a killer, published articles, enemies who matter, the first rare item
+//! brought back, the guild's bestiary (each kind of creature killed, once) and its terrors (a
+//! creature that killed a member: one per creature and member, named by the AI).
+//! Bosses and creatures carry their npc id (the card shows their 3D model), items their item
+//! id (the card shows their icon): from the game's own data, never from the AI. The AI only writes each card's
 //! name and text, for the members who agreed to the AI gazette; the others, and any card
 //! the AI leaves out or gets wrong, get a plain text. Cards are numbered after the last
 //! published or pending one; an officer publishes them in game with the issue.
@@ -39,7 +43,100 @@ pub struct Candidate {
     pub ai: bool,
     /// Member the card is about: the AI's name must keep it.
     pub keep_name: Option<String>,
+    /// Force and endurance chosen by the AI (fighters only; else `default_stats`).
+    pub stats: Option<(i64, i64)>,
+    /// What the card shows instead of an icon (Art).
+    pub art: Art,
     t: f64,
+}
+
+/// Picture of a card taken from the game's own data, never chosen by the AI: a creature's
+/// 3D model (its npc id, as the game's GUIDs give it) or an item's icon (its item id).
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct Art {
+    pub npc: Option<i64>,
+    pub item: Option<i64>,
+}
+
+impl Art {
+    fn npc(id: Option<i64>) -> Self {
+        Art {
+            npc: id.filter(|n| *n > 0),
+            item: None,
+        }
+    }
+}
+
+/// Npc id from a creature's name, by the base set's creatures (Renatus/Core/Cards.lua):
+/// a boss or a beast the guild meets that has a card there.
+fn known_creatures() -> HashMap<String, i64> {
+    crate::revise::base_set()
+        .1
+        .iter()
+        .filter_map(|c| {
+            let npc = c.get("npc").and_then(Value::as_i64)?;
+            Some((str_of(c, "n")?.to_lowercase(), npc))
+        })
+        .collect()
+}
+
+impl Candidate {
+    /// Someone who fights (member, enemy): the card has a force and an endurance.
+    pub fn fighter(&self) -> bool {
+        matches!(
+            self.series,
+            "members" | "founders" | "sworn" | "mobs" | "terreurs"
+        )
+    }
+
+    /// Force and endurance shown on the card, if it is a fighter.
+    pub fn final_stats(&self) -> Option<(i64, i64)> {
+        self.fighter().then(|| {
+            self.stats
+                .unwrap_or_else(|| default_stats(self.rarity, self.class.as_deref()))
+        })
+    }
+}
+
+/// When the versions of a member's card are earned (the common one comes on arrival):
+/// rare: (group outings, bosses), either; epic: (level, bosses), either;
+/// legendary: (level with an anecdote, bosses), either.
+const MEMBER_RARE: (usize, usize) = (5, 3);
+const MEMBER_EPIC: (i64, usize) = (60, 10);
+const MEMBER_LEGENDARY: (i64, usize) = (60, 25);
+
+/// Highest force or endurance.
+pub const STAT_MAX: i64 = 12;
+/// How far the AI may stray from the rarity's budget (force + endurance).
+const STAT_SLACK: i64 = 2;
+
+/// Force + endurance of a card of this rarity (same table as the addon, Core/Album.lua).
+pub fn stat_budget(rarity: &str) -> i64 {
+    match rarity {
+        "uncommon" => 6,
+        "rare" => 9,
+        "epic" => 13,
+        "legendary" => 17,
+        _ => 4,
+    }
+}
+
+/// The rule when the AI gives nothing: the budget split by class (same as the addon's
+/// Album.DefaultStats: a mage hits hard and breaks easily, a warrior the other way round).
+pub fn default_stats(rarity: &str, class: Option<&str>) -> (i64, i64) {
+    let budget = stat_budget(rarity);
+    let share = match class.unwrap_or("") {
+        "WARRIOR" => 0.45,
+        "PALADIN" => 0.4,
+        "HUNTER" => 0.55,
+        "ROGUE" => 0.6,
+        "PRIEST" => 0.35,
+        "MAGE" => 0.65,
+        "WARLOCK" => 0.6,
+        _ => 0.5,
+    };
+    let force = (budget as f64 * share + 0.5).floor() as i64;
+    (force, budget - force)
 }
 
 /// Ids already published (events) or waiting in Press.lua, and the highest number used.
@@ -68,6 +165,33 @@ pub fn published(ch: &Chronicle, pending: &[Value]) -> (HashSet<String>, i64) {
         }
     }
     (ids, max)
+}
+
+/// Rarity of a creature's card by its kind (UnitClassification): modest in the bestiary,
+/// higher for a terror (a creature that killed a member).
+fn mob_rarity(cls: &str, terror: bool) -> &'static str {
+    let rank = match cls {
+        "worldboss" | "rareelite" => 3,
+        "rare" => 2,
+        "elite" => 1,
+        _ => 0,
+    };
+    let rarities = ["common", "uncommon", "rare", "epic", "legendary"];
+    rarities[if terror {
+        (rank + 2).min(4)
+    } else {
+        rank.min(3)
+    }]
+}
+
+fn kind_fr(cls: &str) -> &'static str {
+    match cls {
+        "worldboss" => "boss du monde",
+        "rareelite" => "rare élite",
+        "rare" => "rare",
+        "elite" => "élite",
+        _ => "normale",
+    }
 }
 
 fn level_rarity(lvl: i64) -> &'static str {
@@ -155,7 +279,10 @@ pub fn candidates(ch: &Chronicle, already: &HashSet<String>) -> Vec<Candidate> {
         }
         let p = payload(e);
         match str_of(e, "k") {
-            Some("LEVEL_UP") => m.level = m.level.max(num_of(p, "lvl") as i64),
+            // the member's own level: level ups, deaths, card profile (sent at login)
+            Some("LEVEL_UP") | Some("DEATH") | Some("CARD_PROFILE") => {
+                m.level = m.level.max(num_of(p, "lvl") as i64)
+            }
             Some("EXPEDITION") => m.expeditions += 1,
             Some("BOSS_KILL") => m.bosses += 1,
             Some("ANECDOTE") if m.anecdote.is_none() => {
@@ -181,41 +308,57 @@ pub fn candidates(ch: &Chronicle, already: &HashSet<String>) -> Vec<Candidate> {
             facts,
             ai,
             keep_name: Some(m.name.clone()),
+            stats: None,
+            art: Art::default(),
             t: m.first,
         };
         let who = format!("{} ({})", m.name, m.class.as_deref().unwrap_or("?"));
+        // The versions of a member's card are earned: common on arrival, then rare, epic,
+        // legendary (MEMBER_RARE, MEMBER_EPIC, MEMBER_LEGENDARY), each in the issue after.
         push(base(
             format!("M:{guid}:common"),
             "common",
             "Membre de la guilde.".into(),
-            format!("Carte de membre de {who}, la plus simple."),
+            format!("Carte de membre de {who}, la plus simple : il vient d'arriver."),
         ));
-        push(base(
-            format!("M:{guid}:rare"),
-            "rare",
-            format!("{} expéditions, {} boss vaincus.", m.expeditions, m.bosses),
-            format!(
-                "{who} : {} expéditions, {} boss vaincus.",
-                m.expeditions, m.bosses
-            ),
-        ));
-        push(base(
-            format!("M:{guid}:epic"),
-            "epic",
-            "Un destin encore à écrire.".into(),
-            format!("{who}, version épique : un titre flatteur ou moqueur."),
-        ));
-        let legend = m
-            .anecdote
-            .as_ref()
-            .map(|a| format!("Souvenir : {a}"))
-            .unwrap_or_else(|| "Légende en devenir.".into());
-        push(base(
-            format!("M:{guid}:legendary"),
-            "legendary",
-            legend.clone(),
-            format!("{who}, version légendaire. {legend}"),
-        ));
+        let record = format!(
+            "{} sorties en groupe, {} boss vaincus, niveau {}",
+            m.expeditions, m.bosses, m.level
+        );
+        if m.expeditions >= MEMBER_RARE.0 || m.bosses >= MEMBER_RARE.1 {
+            push(base(
+                format!("M:{guid}:rare"),
+                "rare",
+                format!("{} expéditions, {} boss vaincus.", m.expeditions, m.bosses),
+                format!("{who}, version rare, gagnée sur le terrain : {record}."),
+            ));
+        }
+        if m.level >= MEMBER_EPIC.0 || m.bosses >= MEMBER_EPIC.1 {
+            push(base(
+                format!("M:{guid}:epic"),
+                "epic",
+                if m.level >= MEMBER_EPIC.0 {
+                    "Le sommet atteint. Le reste n'est que détail.".into()
+                } else {
+                    format!("{} boss au tableau. Ça commence à se savoir.", m.bosses)
+                },
+                format!("{who}, version épique : un titre flatteur ou moqueur. {record}."),
+            ));
+        }
+        if (m.level >= MEMBER_LEGENDARY.0 && m.anecdote.is_some()) || m.bosses >= MEMBER_LEGENDARY.1
+        {
+            let legend = m
+                .anecdote
+                .as_ref()
+                .map(|a| format!("Souvenir : {a}"))
+                .unwrap_or_else(|| format!("{} boss vaincus. On en parlera longtemps.", m.bosses));
+            push(base(
+                format!("M:{guid}:legendary"),
+                "legendary",
+                legend.clone(),
+                format!("{who}, version légendaire. {legend} ({record})."),
+            ));
+        }
         let mut lvl = 10;
         while lvl <= m.level {
             let mut c = base(
@@ -240,6 +383,26 @@ pub fn candidates(ch: &Chronicle, already: &HashSet<String>) -> Vec<Candidate> {
     let mut met: HashMap<String, (String, Option<String>, usize)> = HashMap::new();
     let mut sworn: HashMap<String, BTreeSet<String>> = HashMap::new();
     let mut boss_authors: HashMap<String, BTreeSet<String>> = HashMap::new();
+    // Npc ids by creature name: what the journal already knows (bestiary, other deaths,
+    // bosses), then the base set. An event without the id (an older addon, a death recap
+    // without it) borrows it from another one about the same creature.
+    let mut known = known_creatures();
+    for e in &events {
+        let p = payload(e);
+        let named = match str_of(e, "k") {
+            Some("MOB_KILL") | Some("BOSS_KILL") => Some(p),
+            Some("DEATH") => p.get("killer").filter(|k| k.get("pl").is_none()),
+            _ => None,
+        };
+        if let Some(v) = named {
+            if let (Some(name), Some(npc)) = (
+                str_of(v, "name").or(str_of(v, "n")),
+                v.get("npc").and_then(Value::as_i64),
+            ) {
+                known.insert(name.to_lowercase(), npc);
+            }
+        }
+    }
     for e in &events {
         if let (Some("BOSS_KILL"), Some(n)) = (str_of(e, "k"), str_of(e, "n")) {
             let key = str_of(e, "occ")
@@ -266,7 +429,8 @@ pub fn candidates(ch: &Chronicle, already: &HashSet<String>) -> Vec<Candidate> {
                         text: String,
                         icon: &'static str,
                         facts: String,
-                        class: Option<String>| {
+                        class: Option<String>,
+                        art: Art| {
             push(Candidate {
                 id,
                 series,
@@ -279,6 +443,8 @@ pub fn candidates(ch: &Chronicle, already: &HashSet<String>) -> Vec<Candidate> {
                 facts,
                 ai,
                 keep_name: None,
+                stats: None,
+                art,
                 t,
             })
         };
@@ -307,6 +473,11 @@ pub fn candidates(ch: &Chronicle, already: &HashSet<String>) -> Vec<Candidate> {
                     "INV_Misc_Head_Dragon_01",
                     format!("Premier {boss} vaincu par la guilde : {by}."),
                     None,
+                    Art::npc(
+                        p.get("npc")
+                            .and_then(Value::as_i64)
+                            .or_else(|| known.get(&boss.to_lowercase()).copied()),
+                    ),
                 );
             }
             Some("EXPEDITION") => {
@@ -327,6 +498,7 @@ pub fn candidates(ch: &Chronicle, already: &HashSet<String>) -> Vec<Candidate> {
                     "INV_Misc_Map02",
                     format!("Sortie à {inst} avec {with}."),
                     None,
+                    Art::default(),
                 );
             }
             Some("ANECDOTE") => {
@@ -341,7 +513,43 @@ pub fn candidates(ch: &Chronicle, already: &HashSet<String>) -> Vec<Candidate> {
                     "INV_Scroll_03",
                     format!("Anecdote racontée par {n} : {title}. {desc}"),
                     None,
+                    Art::default(),
                 );
+            }
+            // First kill of a kind of creature by a member (Collectors/Kills.lua): the guild's
+            // bestiary, one card per creature, with its 3D model.
+            Some("MOB_KILL") => {
+                let Some(npc) = p.get("npc").and_then(Value::as_i64).filter(|n| *n > 0) else {
+                    continue;
+                };
+                let Some(mob) = str_of(p, "name").filter(|m| !m.is_empty()) else {
+                    continue;
+                };
+                let cls = str_of(p, "cls").unwrap_or("normal");
+                let level = p
+                    .get("lvl")
+                    .and_then(Value::as_i64)
+                    .map(|l| format!(", niveau {l}"))
+                    .unwrap_or_default();
+                push(Candidate {
+                    id: format!("B:{npc}"),
+                    series: "mobs",
+                    rarity: mob_rarity(cls, false),
+                    name: mob.to_string(),
+                    text: format!("Vaincu pour la première fois par {n}."),
+                    class: None,
+                    guid: None,
+                    icon: Some("Ability_Hunter_Pet_Wolf"),
+                    facts: format!(
+                        "Créature « {mob} » ({}{level}), tuée pour la première fois dans la guilde par {n}. Garde le nom de la créature.",
+                        kind_fr(cls)
+                    ),
+                    ai,
+                    keep_name: Some(mob.to_string()),
+                    stats: None,
+                    art: Art::npc(Some(npc)),
+                    t,
+                });
             }
             Some("DEATH") => {
                 let Some(k) = p.get("killer").filter(|k| str_of(k, "n").is_some()) else {
@@ -351,6 +559,37 @@ pub fn candidates(ch: &Chronicle, already: &HashSet<String>) -> Vec<Candidate> {
                 let player = k.get("pl").and_then(Value::as_bool).unwrap_or(false);
                 let env = k.get("env").is_some();
                 let spell = str_of(k, "sp").map(str::to_string);
+                if !player && !env {
+                    // Killed by a creature: a terror, one per creature and member (the same
+                    // creature killing the same member again adds nothing). The AI names it.
+                    let npc = k
+                        .get("npc")
+                        .and_then(Value::as_i64)
+                        .or_else(|| known.get(&killer.to_lowercase()).copied());
+                    let key = npc.map_or_else(|| killer.to_lowercase(), |n| n.to_string());
+                    let cls = str_of(k, "cls").unwrap_or("normal");
+                    push(Candidate {
+                        id: format!("T:{key}:{a}"),
+                        series: "terreurs",
+                        rarity: mob_rarity(cls, true),
+                        name: killer.clone(),
+                        text: format!("A eu la peau de {n}. Il s'en vante encore."),
+                        class: None,
+                        guid: None,
+                        icon: Some("Ability_Rogue_FeignDeath"),
+                        facts: format!(
+                            "Créature « {killer} » ({}) qui a tué {n}{}. Carte « terreur » : donne-lui un prénom ou un surnom en gardant son espèce, par exemple « Sven le loup gris ».",
+                            kind_fr(cls),
+                            spell.as_ref().map(|s| format!(" (coup fatal : {s})")).unwrap_or_default()
+                        ),
+                        ai,
+                        keep_name: Some(killer.clone()),
+                        stats: None,
+                        art: Art::npc(npc),
+                        t,
+                    });
+                    continue;
+                }
                 if player {
                     let entry = killers.entry(first_name(&killer)).or_insert((
                         killer.clone(),
@@ -382,8 +621,11 @@ pub fn candidates(ch: &Chronicle, already: &HashSet<String>) -> Vec<Candidate> {
                         spell.map(|s| format!(" (sort : {s})")).unwrap_or_default()
                     ),
                     str_of(e, "c").map(str::to_string),
+                    Art::default(),
                 );
             }
+            // A correction of a published article (revise.rs) is not a new article.
+            Some("ARTICLE") if p.get("replaces").is_some() => {}
             Some("ARTICLE") => {
                 let title = str_of(p, "title").unwrap_or("Article").to_string();
                 let front = num_of(p, "order") as i64 == 1;
@@ -404,6 +646,33 @@ pub fn candidates(ch: &Chronicle, already: &HashSet<String>) -> Vec<Candidate> {
                     "INV_Misc_Note_06",
                     format!("Article de la gazette : « {title} »."),
                     None,
+                    Art::default(),
+                );
+            }
+            // Loot (Collectors/Loot.lua): the first one in the guild to bring back an item.
+            Some("RARE_ITEM") => {
+                let Some(item) = p.get("id").and_then(Value::as_i64).filter(|i| *i > 0) else {
+                    continue;
+                };
+                let name = str_of(p, "item").unwrap_or("Objet").to_string();
+                let quality = num_of(p, "q") as i64;
+                fact(
+                    format!("I:{item}"),
+                    "butin",
+                    match quality {
+                        5.. => "legendary",
+                        4 => "epic",
+                        _ => "rare",
+                    },
+                    name.clone(),
+                    format!("Rapporté par {n}. Personne ne sait où le ranger."),
+                    "INV_Misc_Bag_10",
+                    format!("{n} est le premier de la guilde à obtenir l'objet « {name} »."),
+                    None,
+                    Art {
+                        npc: None,
+                        item: Some(item),
+                    },
                 );
             }
             Some("ENEMY_SEEN") | Some("PVP_CLASH") => {
@@ -470,6 +739,8 @@ pub fn candidates(ch: &Chronicle, already: &HashSet<String>) -> Vec<Candidate> {
             facts: format!("Ennemi de la guilde : {name}. {text}"),
             ai: true,
             keep_name: Some(name),
+            stats: None,
+            art: Art::default(),
             t: f64::MAX,
         });
     }
@@ -482,9 +753,11 @@ const PROMPT: &str = "Tu es la rédaction de « La Gazette », le journal satiri
 Pour chaque carte ci-dessous, écris :
 - « nom » : le titre de la carte, {max_name} caractères au plus. Pour une carte de membre ou d'ennemi, garde son nom tel quel dans le titre (tu peux ajouter un surnom : « Dakey, l'ombre du marché »).
 - « texte » : une phrase d'ambiance, {max_text} caractères au plus, drôle et bienveillante, fidèle aux faits donnés, sans rien inventer de vérifiable.
+- pour les cartes marquées « combattant » : « force » et « endurance », deux entiers de 0 à {stat_max}, dont la somme reste proche du budget indiqué (à {slack} près). Répartis-les selon le personnage et les faits : qui frappe fort, qui encaisse, qui fuit.
 
 Réponds uniquement par un objet JSON :
-{\"cartes\": [{\"id\": \"…\", \"nom\": \"…\", \"texte\": \"…\"}]}
+{\"cartes\": [{\"id\": \"…\", \"nom\": \"…\", \"texte\": \"…\", \"force\": 0, \"endurance\": 0}]}
+(« force » et « endurance » seulement pour les combattants.)
 
 Cartes :
 {cards}";
@@ -495,9 +768,21 @@ pub fn prompt(cards: &[Candidate]) -> String {
         .iter()
         .filter(|c| c.ai)
         .take(MAX_AI)
-        .map(|c| format!("- id {} ({}) : {}", c.id, c.rarity, c.facts))
+        .map(|c| {
+            let fighter = if c.fighter() {
+                format!(
+                    " [combattant, budget force + endurance : {}]",
+                    stat_budget(c.rarity)
+                )
+            } else {
+                String::new()
+            };
+            format!("- id {} ({}){fighter} : {}", c.id, c.rarity, c.facts)
+        })
         .collect();
     PROMPT
+        .replace("{stat_max}", &STAT_MAX.to_string())
+        .replace("{slack}", &STAT_SLACK.to_string())
         .replace("{max_name}", &MAX_NAME.to_string())
         .replace("{max_text}", &MAX_TEXT.to_string())
         .replace("{cards}", &lines.join("\n"))
@@ -534,6 +819,24 @@ pub fn apply(cards: &mut [Candidate], answer: &str) -> Vec<String> {
             notes.push(format!("cartes : id inconnu ignoré ({id})"));
             continue;
         };
+        if card.fighter() {
+            match (
+                item.get("force").and_then(Value::as_i64),
+                item.get("endurance").and_then(Value::as_i64),
+            ) {
+                (Some(fo), Some(en))
+                    if (0..=STAT_MAX).contains(&fo)
+                        && (0..=STAT_MAX).contains(&en)
+                        && (fo + en - stat_budget(card.rarity)).abs() <= STAT_SLACK =>
+                {
+                    card.stats = Some((fo, en));
+                }
+                (None, None) => {}
+                _ => notes.push(format!(
+                    "cartes : force/endurance refusées pour {id} (hors bornes ou hors budget), règle par défaut"
+                )),
+            }
+        }
         let name = squash(str_of(item, "nom").unwrap_or(""));
         let text = squash(str_of(item, "texte").unwrap_or(""));
         if name.is_empty() || name.chars().count() > MAX_NAME {
@@ -576,6 +879,16 @@ pub fn items(cards: &[Candidate], edition: &str, last: i64) -> Vec<Value> {
         if let Some(ic) = c.icon {
             v["ic"] = json!(ic);
         }
+        if let Some((fo, en)) = c.final_stats() {
+            v["fo"] = json!(fo);
+            v["en"] = json!(en);
+        }
+        if let Some(npc) = c.art.npc {
+            v["npc"] = json!(npc);
+        }
+        if let Some(item) = c.art.item {
+            v["itm"] = json!(item);
+        }
         let current = sets.last_mut().unwrap();
         current.push(v);
         let size = crate::lua::dumps_value(&json!({"set": edition, "cards": current}), 0).len();
@@ -603,8 +916,13 @@ mod tests {
     use super::*;
 
     fn chronicle() -> Chronicle {
+        chronicle_with("")
+    }
+
+    /// The test journal, plus `extra` Lua event entries.
+    fn chronicle_with(extra: &str) -> Chronicle {
         let saved = crate::lua::loads(
-            r#"RenatusDB = { ["events"] = {
+            &(r#"RenatusDB = { ["events"] = {"#.to_string() + extra + r#"
                 ["P-A:1"] = { ["id"] = "P-A:1", ["a"] = "P-A", ["n"] = "Dakey", ["c"] = "ROGUE", ["k"] = "LEVEL_UP", ["t"] = 10, ["vis"] = "G", ["p"] = { ["lvl"] = 21 } },
                 ["P-A:2"] = { ["id"] = "P-A:2", ["a"] = "P-A", ["n"] = "Dakey", ["k"] = "AI_CONSENT", ["t"] = 11, ["s"] = 2, ["vis"] = "G", ["p"] = { ["ok"] = true } },
                 ["P-A:3"] = { ["id"] = "P-A:3", ["a"] = "P-A", ["n"] = "Dakey", ["k"] = "BOSS_KILL", ["t"] = 12, ["vis"] = "G", ["occ"] = "ENC:1", ["p"] = { ["enc"] = 1, ["name"] = "Hogger" } },
@@ -612,10 +930,153 @@ mod tests {
                 ["P-B:2"] = { ["id"] = "P-B:2", ["a"] = "P-B", ["n"] = "Bob", ["k"] = "DEATH", ["t"] = 14, ["vis"] = "G", ["p"] = { ["killer"] = { ["n"] = "Ladou", ["pl"] = true, ["sp"] = "Frappe" } } },
                 ["P-C:1"] = { ["id"] = "P-C:1", ["a"] = "P-C", ["n"] = "Carol", ["k"] = "CARD_PROFILE", ["t"] = 15, ["vis"] = "G", ["p"] = { ["optOut"] = true } },
                 ["P-A:4"] = { ["id"] = "P-A:4", ["a"] = "P-A", ["n"] = "Dakey", ["k"] = "LEVEL_UP", ["t"] = 16, ["vis"] = "P", ["p"] = { ["lvl"] = 60 } },
-            } }"#,
+            } }"#),
         )
         .unwrap();
         Chronicle::from_saved(&saved)
+    }
+
+    #[test]
+    fn member_versions_are_earned() {
+        let ev = |id: &str, k: &str, p: &str| {
+            format!(
+                r#"["{id}"] = {{ ["id"] = "{id}", ["a"] = "P-A", ["n"] = "Dakey", ["k"] = "{k}", ["t"] = 10, ["vis"] = "G", ["p"] = {{ {p} }} }},"#
+            )
+        };
+        let cards_of = |events: Vec<String>| {
+            let saved = crate::lua::loads(&format!(
+                "RenatusDB = {{ [\"events\"] = {{ {} }} }}",
+                events.join("\n")
+            ))
+            .unwrap();
+            let mut ids: Vec<String> = candidates(&Chronicle::from_saved(&saved), &HashSet::new())
+                .into_iter()
+                .filter(|c| c.id.starts_with("M:"))
+                .map(|c| c.id)
+                .collect();
+            ids.sort();
+            ids
+        };
+        // on arrival: the common one only
+        assert_eq!(
+            cards_of(vec![ev("P-A:1", "CARD_PROFILE", r#"["lvl"] = 24"#)]),
+            ["M:P-A:common"]
+        );
+        // five group outings: rare
+        let outings: Vec<String> = (1..=5)
+            .map(|i| ev(&format!("P-A:{i}"), "EXPEDITION", ""))
+            .collect();
+        assert_eq!(cards_of(outings), ["M:P-A:common", "M:P-A:rare"]);
+        // level 60 (from the card profile): epic; with an anecdote, legendary
+        let mut top = vec![ev("P-A:1", "CARD_PROFILE", r#"["lvl"] = 60"#)];
+        assert_eq!(cards_of(top.clone()), ["M:P-A:common", "M:P-A:epic"]);
+        top.push(ev(
+            "P-A:2",
+            "ANECDOTE",
+            r#"["title"] = "Le saut de la falaise""#,
+        ));
+        assert_eq!(
+            cards_of(top),
+            ["M:P-A:common", "M:P-A:epic", "M:P-A:legendary"]
+        );
+    }
+
+    #[test]
+    fn creatures_and_items_carry_their_art() {
+        let saved = crate::lua::loads(
+            r#"RenatusDB = { ["events"] = {
+                ["P-A:1"] = { ["id"] = "P-A:1", ["a"] = "P-A", ["n"] = "Dakey", ["k"] = "BOSS_KILL", ["t"] = 10, ["vis"] = "G", ["occ"] = "ENC:7", ["p"] = { ["enc"] = 7, ["name"] = "Boss inconnu", ["npc"] = 1234 } },
+                ["P-A:2"] = { ["id"] = "P-A:2", ["a"] = "P-A", ["n"] = "Dakey", ["k"] = "BOSS_KILL", ["t"] = 11, ["vis"] = "G", ["occ"] = "ENC:8", ["p"] = { ["enc"] = 8, ["name"] = "Edwin VanCleef" } },
+                ["P-A:3"] = { ["id"] = "P-A:3", ["a"] = "P-A", ["n"] = "Dakey", ["k"] = "DEATH", ["t"] = 12, ["vis"] = "G", ["p"] = { ["killer"] = { ["n"] = "Loup affamé", ["npc"] = 299, ["cls"] = "elite" } } },
+                ["P-A:6"] = { ["id"] = "P-A:6", ["a"] = "P-A", ["n"] = "Dakey", ["k"] = "DEATH", ["t"] = 16, ["vis"] = "G", ["p"] = { ["killer"] = { ["n"] = "Loup affamé", ["npc"] = 299 } } },
+                ["P-B:2"] = { ["id"] = "P-B:2", ["a"] = "P-B", ["n"] = "Bob", ["k"] = "DEATH", ["t"] = 17, ["vis"] = "G", ["p"] = { ["killer"] = { ["n"] = "Loup affamé", ["npc"] = 299 } } },
+                ["P-B:6"] = { ["id"] = "P-B:6", ["a"] = "P-B", ["n"] = "Bob", ["k"] = "DEATH", ["t"] = 9, ["vis"] = "G", ["p"] = { ["killer"] = { ["n"] = "Traqueuse Ronce-sauvage" } } },
+                ["P-B:3"] = { ["id"] = "P-B:3", ["a"] = "P-B", ["n"] = "Bob", ["k"] = "DEATH", ["t"] = 18, ["vis"] = "G", ["p"] = { ["killer"] = { ["n"] = "Chute", ["env"] = "Falling" } } },
+                ["P-A:7"] = { ["id"] = "P-A:7", ["a"] = "P-A", ["n"] = "Dakey", ["k"] = "MOB_KILL", ["t"] = 19, ["vis"] = "G", ["p"] = { ["npc"] = 3819, ["name"] = "Traqueuse Ronce-sauvage", ["cls"] = "normal", ["lvl"] = 22 } },
+                ["P-B:4"] = { ["id"] = "P-B:4", ["a"] = "P-B", ["n"] = "Bob", ["k"] = "MOB_KILL", ["t"] = 20, ["vis"] = "G", ["p"] = { ["npc"] = 3819, ["name"] = "Traqueuse Ronce-sauvage" } },
+                ["P-B:5"] = { ["id"] = "P-B:5", ["a"] = "P-B", ["n"] = "Bob", ["k"] = "MOB_KILL", ["t"] = 21, ["vis"] = "G", ["p"] = { ["npc"] = 1000, ["name"] = "Ours rare", ["cls"] = "rareelite" } },
+                ["P-A:4"] = { ["id"] = "P-A:4", ["a"] = "P-A", ["n"] = "Dakey", ["k"] = "DEATH", ["t"] = 13, ["vis"] = "G", ["p"] = { ["killer"] = { ["n"] = "Edwin VanCleef", ["pl"] = true } } },
+                ["P-A:5"] = { ["id"] = "P-A:5", ["a"] = "P-A", ["n"] = "Dakey", ["k"] = "RARE_ITEM", ["t"] = 14, ["vis"] = "G", ["p"] = { ["item"] = "Lame de Cruel", ["id"] = 5191, ["q"] = 4 } },
+                ["P-B:1"] = { ["id"] = "P-B:1", ["a"] = "P-B", ["n"] = "Bob", ["k"] = "RARE_ITEM", ["t"] = 15, ["vis"] = "G", ["p"] = { ["item"] = "Lame de Cruel", ["id"] = 5191, ["q"] = 4 } },
+            } }"#,
+        )
+        .unwrap();
+        let cards = candidates(&Chronicle::from_saved(&saved), &HashSet::new());
+        let art = |id: &str| cards.iter().find(|c| c.id == id).map(|c| c.art);
+        assert_eq!(
+            art("X:ENC:7").unwrap().npc,
+            Some(1234),
+            "npc id from the game"
+        );
+        let vancleef = known_creatures()["edwin vancleef"];
+        assert_eq!(
+            art("X:ENC:8").unwrap().npc,
+            Some(vancleef),
+            "base set creature, by name"
+        );
+        // killed by a creature: a terror per creature and member, never twice
+        let terrors: Vec<&Candidate> = cards
+            .iter()
+            .filter(|c| c.series == "terreurs" && c.id.starts_with("T:299:"))
+            .collect();
+        let ids: Vec<&str> = terrors.iter().map(|c| c.id.as_str()).collect();
+        assert_eq!(
+            ids,
+            ["T:299:P-A", "T:299:P-B"],
+            "Dakey killed twice: one card"
+        );
+        assert_eq!(terrors[0].art.npc, Some(299));
+        assert_eq!(terrors[0].rarity, "epic", "an elite terror");
+        assert_eq!(terrors[1].rarity, "rare");
+        assert_eq!(
+            terrors[0].keep_name.as_deref(),
+            Some("Loup affamé"),
+            "the AI keeps the species"
+        );
+        assert!(terrors[0].fighter() && terrors[0].final_stats().is_some());
+        assert!(
+            !cards.iter().any(|c| c.id == "D:P-A:3"),
+            "no death card for a creature kill"
+        );
+        assert_eq!(
+            art("D:P-A:4").unwrap().npc,
+            None,
+            "killed by a player: a death card"
+        );
+        assert!(art("D:P-B:3").is_some(), "a fall: a death card");
+        // a death without the npc id borrows it from the bestiary
+        assert_eq!(art("T:3819:P-B").unwrap().npc, Some(3819));
+        // bestiary: one card per creature, the first killer named
+        let mobs: Vec<&Candidate> = cards.iter().filter(|c| c.series == "mobs").collect();
+        assert_eq!(mobs.len(), 2);
+        let traqueuse = mobs.iter().find(|c| c.id == "B:3819").unwrap();
+        assert_eq!(
+            (traqueuse.rarity, traqueuse.art.npc),
+            ("common", Some(3819))
+        );
+        assert!(traqueuse.text.contains("Dakey"));
+        assert_eq!(
+            mobs.iter().find(|c| c.id == "B:1000").unwrap().rarity,
+            "epic"
+        );
+        let item = cards.iter().find(|c| c.id == "I:5191").unwrap();
+        assert_eq!(
+            (item.series, item.rarity, item.art.item),
+            ("butin", "epic", Some(5191))
+        );
+        assert_eq!(
+            cards.iter().filter(|c| c.id == "I:5191").count(),
+            1,
+            "the first one only"
+        );
+        assert!(item.text.contains("Dakey"));
+        let set = items(&cards, "E1", 0);
+        let all: Vec<&Value> = set
+            .iter()
+            .flat_map(|s| s["p"]["cards"].as_array().unwrap())
+            .collect();
+        assert!(all.iter().any(|c| c["id"] == "I:5191" && c["itm"] == 5191));
+        assert!(all.iter().any(|c| c["id"] == "X:ENC:7" && c["npc"] == 1234));
     }
 
     #[test]
@@ -625,10 +1086,9 @@ mod tests {
         let ids: Vec<&str> = cards.iter().map(|c| c.id.as_str()).collect();
         for id in [
             "M:P-A:common",
-            "M:P-A:legendary",
             "L:P-A:10",
             "L:P-A:20",
-            "M:P-B:rare",
+            "M:P-B:common",
             "X:ENC:1",
             "D:P-B:2",
             "E:ladou",
@@ -636,6 +1096,9 @@ mod tests {
             assert!(ids.contains(&id), "{id} missing from {ids:?}");
         }
         assert!(!ids.contains(&"L:P-A:30"), "private level ignored");
+        for id in ["M:P-A:rare", "M:P-A:epic", "M:P-A:legendary"] {
+            assert!(!ids.contains(&id), "{id}: not earned yet");
+        }
         assert!(
             !ids.iter().any(|i| i.contains("P-C")),
             "opted out of the album"
@@ -643,9 +1106,9 @@ mod tests {
         let boss = cards.iter().find(|c| c.id == "X:ENC:1").unwrap();
         assert_eq!(boss.rarity, "epic", "two members");
         assert_eq!(boss.text, "Vaincu par Bob, Dakey.");
-        assert!(cards.iter().find(|c| c.id == "M:P-A:rare").unwrap().ai);
+        assert!(cards.iter().find(|c| c.id == "M:P-A:common").unwrap().ai);
         assert!(
-            !cards.iter().find(|c| c.id == "M:P-B:rare").unwrap().ai,
+            !cards.iter().find(|c| c.id == "M:P-B:common").unwrap().ai,
             "Bob did not agree to the AI"
         );
         // already published: left out
@@ -655,14 +1118,19 @@ mod tests {
 
     #[test]
     fn ai_answer_is_checked() {
-        let ch = chronicle();
+        // Dakey has earned every version of the card (25 bosses)
+        let bosses: String = (1..=25)
+            .map(|i| format!(r#"["P-A:b{i}"] = {{ ["id"] = "P-A:b{i}", ["a"] = "P-A", ["n"] = "Dakey", ["k"] = "BOSS_KILL", ["t"] = 20, ["vis"] = "G", ["p"] = {{ ["enc"] = {i}, ["name"] = "Boss {i}" }} }},"#))
+            .collect();
+        let ch = chronicle_with(&bosses);
         let mut cards = candidates(&ch, &HashSet::new());
         let p = prompt(&cards);
-        assert!(p.contains("M:P-A:epic") && !p.contains("M:P-B:epic"));
+        assert!(p.contains("M:P-A:epic") && !p.contains("M:P-B:common"));
         let answer = r#"Voici : {"cartes": [
-            {"id": "M:P-A:epic", "nom": "Dakey, l'ombre du marché", "texte": "Vend tout, même ce qui n'est pas à lui."},
+            {"id": "M:P-A:epic", "nom": "Dakey, l'ombre du marché", "texte": "Vend tout, même ce qui n'est pas à lui.", "force": 9, "endurance": 5},
+            {"id": "M:P-A:legendary", "nom": "Dakey le colosse", "texte": "Trop fort.", "force": 12, "endurance": 12},
             {"id": "M:P-A:rare", "nom": "Un voleur", "texte": "Sans nom."},
-            {"id": "M:P-B:epic", "nom": "Bob le magnifique", "texte": "Non consentant."},
+            {"id": "M:P-B:common", "nom": "Bob le magnifique", "texte": "Non consentant."},
             {"id": "L:P-A:10", "nom": "Dakey niveau 10", "texte": ""}
         ]}"#;
         let notes = apply(&mut cards, answer);
@@ -673,12 +1141,27 @@ mod tests {
             "Dakey",
             "must keep the member's name"
         );
-        assert_eq!(get("M:P-B:epic").name, "Bob", "not allowed for Bob");
+        assert_eq!(get("M:P-B:common").name, "Bob", "not allowed for Bob");
         assert_eq!(
             get("L:P-A:10").text,
             "Niveau 10 atteint. Le plus dur reste à venir, comme toujours."
         );
-        assert!(notes.iter().any(|n| n.contains("1 carte(s) rédigée(s)")));
+        assert!(notes.iter().any(|n| n.contains("2 carte(s) rédigée(s)")));
+        assert_eq!(get("M:P-A:epic").final_stats(), Some((9, 5)), "AI stats");
+        assert_eq!(
+            get("M:P-A:legendary").final_stats(),
+            Some(default_stats("legendary", Some("ROGUE"))),
+            "over budget: the rule"
+        );
+        assert!(notes.iter().any(|n| n.contains("hors budget")));
+        assert_eq!(
+            get("L:P-A:10").final_stats(),
+            Some((2, 2)),
+            "common rogue: 2 / 2"
+        );
+        let set = items(&cards, "e", 0);
+        let first = &set[0]["p"]["cards"][0];
+        assert!(first.get("fo").is_some() || first["s"] != "members");
     }
 
     #[test]

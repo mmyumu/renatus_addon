@@ -255,6 +255,8 @@ function Store.Dataset()
         roster = Store.Roster(),
         rival = ns.GuildConfig.Rival(),
     }
+    -- Corrections of published articles need the roster (who is an officer).
+    ds.articles = ns.Views.Revise(ds, ds.articles)
     local rivalRoster = ns.GuildConfig.Roster()
     ds.rivalRoster = rivalRoster and rivalRoster.p or nil
     -- Card profiles: portraits, and members who asked not to be in the others' album.

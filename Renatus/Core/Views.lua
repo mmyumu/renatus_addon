@@ -352,7 +352,7 @@ end
 function Views.Articles(events)
     local list = {}
     for _, ev in ipairs(events) do
-        if ev.k == "ARTICLE" then
+        if ev.k == "ARTICLE" and not ev.del then
             local p = ev.p or {}
             table.insert(list, { id = ev.id, t = ev.t, kind = p.format, title = p.title, body = p.body, style = p.style,
                 refs = ev.refs, author = who(ev), ia = (p.ia == true) or nil, ev = ev,
@@ -361,10 +361,70 @@ function Views.Articles(events)
                 -- layout (UI/Newsprint.lua): key for EDITION blocks, editorial order, pull quote, portrait
                 key = type(p.key) == "string" and p.key or nil, order = tonumber(p.order),
                 quote = type(p.quote) == "string" and p.quote or nil,
-                portrait = type(p.portrait) == "string" and p.portrait or nil })
+                portrait = type(p.portrait) == "string" and p.portrait or nil,
+                -- correction of an earlier article (Views.Revise)
+                replaces = type(p.replaces) == "string" and p.replaces or nil,
+                retract = (p.retract == true) or nil })
         end
     end
     return list
+end
+
+-- Fields a correction overrides when it carries them (an empty string clears one); the
+-- others stay the original's.
+local REVISED = { "kind", "title", "body", "style", "quote", "portrait", "edition", "key", "order", "refs" }
+
+-- Corrections: an ARTICLE whose p.replaces names an earlier article (or one of its
+-- corrections) takes its place: same id, date, byline and slot in its issue, so reading
+-- marks and notices do not move. With p.retract it removes the article instead. A
+-- correction counts if written by the original's author or by an officer; the latest one
+-- wins. It never shows on its own, even while the original has not arrived yet.
+function Views.Revise(ds, articles)
+    local originals, fixes, fixById = {}, {}, {}
+    for _, a in ipairs(articles) do
+        if a.replaces then
+            fixes[#fixes + 1] = a
+            fixById[a.id] = a
+        else
+            originals[a.id] = a
+        end
+    end
+    if #fixes == 0 then return articles end
+    local function root(id)
+        for _ = 1, 50 do
+            if not fixById[id] then break end
+            id = fixById[id].replaces
+        end
+        return id
+    end
+    table.sort(fixes, function(x, y)
+        if (x.t or 0) ~= (y.t or 0) then return (x.t or 0) < (y.t or 0) end
+        return tostring(x.id) < tostring(y.id)
+    end)
+    local latest = {}
+    for _, f in ipairs(fixes) do
+        local orig = originals[root(f.replaces)]
+        if orig and f.ev and ((orig.ev and f.ev.a == orig.ev.a) or Views.TrustedOfficer(ds, f.ev)) then
+            latest[orig.id] = f
+        end
+    end
+    local out = {}
+    for _, a in ipairs(articles) do
+        local f = latest[a.id]
+        if not a.replaces and not (f and f.retract) then
+            if f then
+                local r = {}
+                for k, v in pairs(a) do r[k] = v end
+                for _, k in ipairs(REVISED) do
+                    if f[k] == "" then r[k] = nil elseif f[k] ~= nil then r[k] = f[k] end
+                end
+                r.ia, r.revised = f.ia, f.t
+                a = r
+            end
+            out[#out + 1] = a
+        end
+    end
+    return out
 end
 
 -- Page layouts of the gazette (EDITION events), most recent first.

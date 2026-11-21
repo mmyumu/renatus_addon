@@ -31,6 +31,9 @@ Album.SERIES = {
     { key = "une", label = "À la une", family = "guild" },
     { key = "faits", label = "Faits divers", family = "guild" },
     { key = "sworn", label = "Avis de recherche", family = "guild" },
+    { key = "butin", label = "Butin", family = "guild" },
+    { key = "mobs", label = "Bestiaire de la guilde", family = "guild" },
+    { key = "terreurs", label = "Terreurs", family = "guild" },
     { key = "legends", label = "Légendes", family = "guild" },
 }
 for _, s in ipairs(ns.Cards.SERIES) do
@@ -75,6 +78,39 @@ local MEMBER_VARIANTS = {
         return "Légende en devenir."
     end },
 }
+
+------------------------------------------------------------------------
+-- Force and endurance
+------------------------------------------------------------------------
+-- Creatures have a force and an endurance (0 to 12), items a bonus (+force / +endurance);
+-- places, articles and events none. The base set sets them by hand (Core/Cards.lua), the
+-- admin app's AI for the guild cards; otherwise this rule, the same as the app's
+-- (admin/core/src/cards.rs, default_stats): a budget by rarity, split by class.
+Album.STAT_MAX = 12
+Album.STAT_BUDGET = { common = 4, uncommon = 6, rare = 9, epic = 13, legendary = 17 }
+-- Share of the budget that goes to force.
+Album.FORCE_SHARE = {
+    WARRIOR = 0.45, PALADIN = 0.4, HUNTER = 0.55, ROGUE = 0.6, PRIEST = 0.35,
+    SHAMAN = 0.5, MAGE = 0.65, WARLOCK = 0.6, DRUID = 0.5,
+}
+-- Guild series whose cards are someone who fights.
+Album.FIGHTERS = { members = true, founders = true, sworn = true, mobs = true, terreurs = true }
+
+function Album.DefaultStats(rarity, class)
+    local budget = Album.STAT_BUDGET[rarity] or Album.STAT_BUDGET.common
+    local fo = math.floor(budget * (Album.FORCE_SHARE[class or ""] or 0.5) + 0.5)
+    return fo, budget - fo
+end
+
+-- force, endurance, isItem of a card; nil if it has none.
+function Album.Stats(card)
+    if card.fo and card.en then return card.fo, card.en, card.item and true or false end
+    if Album.FIGHTERS[card.series] then
+        local fo, en = Album.DefaultStats(card.rarity, card.class)
+        return fo, en, false
+    end
+    return nil
+end
 
 local function levelRarity(lvl)
     if lvl >= 60 then return "legendary" elseif lvl >= 50 then return "epic"
@@ -194,17 +230,32 @@ local function fromPayload(c, ev)
     if not id or not name or not RARITY_INDEX[c.r] then return nil end
     local icon = str(c.ic, 80)
     if icon and not icon:match("^[%w_]+$") then icon = nil end
+    local fo, en = tonumber(c.fo), tonumber(c.en)
+    if not (fo and en and fo >= 0 and en >= 0 and fo <= Album.STAT_MAX and en <= Album.STAT_MAX) then
+        fo, en = nil, nil
+    end
     return {
+        fo = fo and math.floor(fo), en = en and math.floor(en), item = (fo and c.it == true) or nil,
         id = id, no = tonumber(c.no), series = SERIES_KEYS[c.s] and c.s or "faits", rarity = c.r, name = name,
         flavor = str(c.f, 200) or "", class = str(c.cl, 20), guid = str(c.g, 40),
-        icon = icon and ("Interface\\Icons\\" .. icon) or nil, npc = tonumber(c.npc),
+        icon = icon and ("Interface\\Icons\\" .. icon) or nil, npc = tonumber(c.npc), itemId = tonumber(c.itm),
         t = ev.t, set = str(ev.p.set, 40),
     }
 end
 
 Album.FromPayload = fromPayload
 
--- Cards published by officers, oldest publication first: an id keeps its first number.
+-- Base set cards by id (Core/Cards.lua).
+local BASE = {}
+for _, c in ipairs(ns.Cards.LIST) do BASE[c.id] = c end
+
+-- Cards published by officers, oldest publication first. An id keeps its first number,
+-- date and slot. A later set may correct a card (same id: its content replaces the old one)
+-- or withdraw it ({ id = ..., del = true }): it leaves the catalogue, owners keep it
+-- (Album.Orphans); publishing it again brings it back. The base set (Core/Cards.lua) is
+-- corrected the same way, by its ids (Album.BaseSet). Returns the catalogue list, the
+-- withdrawn cards ([id] = last content) and the corrections of the base set
+-- ([id] = { card = latest correction, withdrawn = true|nil }).
 function Album.Published(ds)
     local sets = {}
     for _, ev in ipairs(ds.events or {}) do
@@ -217,34 +268,93 @@ function Album.Published(ds)
         if (a.t or 0) ~= (b.t or 0) then return (a.t or 0) < (b.t or 0) end
         return tostring(a.id) < tostring(b.id)
     end)
-    local list, seen = {}, {}
+    local list, slot, withdrawn, base = {}, {}, {}, {}
     for _, ev in ipairs(sets) do
         for _, c in ipairs(ev.p.cards) do
-            local card = fromPayload(c, ev)
-            if card and not seen[card.id] then
-                seen[card.id] = true
-                table.insert(list, card)
+            local id = type(c) == "table" and str(c.id, 80)
+            if id and BASE[id] then
+                local fix = base[id] or {}
+                base[id] = fix
+                if c.del == true then
+                    fix.withdrawn = true
+                else
+                    local card = fromPayload(c, ev)
+                    if card then
+                        card.revised = ev.t
+                        fix.card, fix.withdrawn = card, nil
+                    end
+                end
+            elseif id and c.del == true then
+                if slot[id] then withdrawn[id] = true end
+            else
+                local card = fromPayload(c, ev)
+                local at = card and slot[card.id]
+                if at then
+                    local first = list[at]
+                    card.no, card.t, card.set, card.revised = first.no, first.t, first.set, ev.t
+                    list[at] = card
+                    withdrawn[card.id] = nil
+                elseif card then
+                    list[#list + 1] = card
+                    slot[card.id] = #list
+                end
             end
         end
     end
-    return list
+    local live, gone = {}, {}
+    for _, card in ipairs(list) do
+        if withdrawn[card.id] then gone[card.id] = card else live[#live + 1] = card end
+    end
+    return live, gone, base
+end
+
+-- A base set card with a correction: its text, rarity, stats and icon change; its number,
+-- series, model and map stay.
+local function corrected(card, fix)
+    local c = {}
+    for k, v in pairs(card) do c[k] = v end
+    c.name, c.flavor, c.rarity = fix.name, fix.flavor, fix.rarity
+    c.fo, c.en, c.item = fix.fo, fix.en, fix.item
+    if fix.icon then
+        local first = fix.icon:gsub("^Interface\\Icons\\", "")
+        local icons = { first }
+        for _, name in ipairs(card.icons or {}) do
+            if name ~= first then icons[#icons + 1] = name end
+        end
+        c.icons = icons
+    end
+    c.revised = fix.revised
+    return c
+end
+
+-- The base set as published: each card with its latest correction (fixes: third result of
+-- Album.Published), and the withdrawn ones ([id] = card).
+function Album.BaseSet(fixes)
+    local live, gone = {}, {}
+    for _, card in ipairs(ns.Cards.LIST) do
+        local fix = fixes and fixes[card.id]
+        local c = (fix and fix.card) and corrected(card, fix.card) or card
+        if fix and fix.withdrawn then gone[c.id] = c else live[#live + 1] = c end
+    end
+    return live, gone
 end
 
 -- The catalogue boosters draw from: base set + published cards (or, before the first
 -- published set, the guild cards computed locally). Members who opted out are left out.
 function Album.Catalogue(ds)
     local cards = {}
-    local published = Album.Published(ds)
-    local guild = #published > 0 and published or Album.Legacy(ds)
+    local published, withdrawn, fixes = Album.Published(ds)
+    local isPublished = #published > 0 or next(withdrawn) ~= nil
+    local guild = isPublished and published or Album.Legacy(ds)
     for _, c in ipairs(guild) do
         if not (c.guid and ds.optOut and ds.optOut[c.guid]) then table.insert(cards, c) end
     end
-    for _, c in ipairs(ns.Cards.LIST) do table.insert(cards, c) end
+    for _, c in ipairs((Album.BaseSet(fixes))) do table.insert(cards, c) end
     table.sort(cards, function(a, b) return a.id < b.id end)
     local ids = {}
     for i, c in ipairs(cards) do ids[i] = c.id end
     cards.version = Album.Hash(table.concat(ids, "|"))
-    cards.published = #published > 0
+    cards.published = isPublished
     return cards
 end
 
@@ -260,7 +370,11 @@ function Album.Orphans(ds, cards, collection)
     if #missing == 0 then return {} end
     table.sort(missing)
     local byId = {}
-    for _, c in ipairs(Album.Published(ds)) do byId[c.id] = c end
+    local live, gone, fixes = Album.Published(ds)
+    for _, c in ipairs(live) do byId[c.id] = c end
+    for id, c in pairs(gone) do byId[id] = c end
+    local _, baseGone = Album.BaseSet(fixes)
+    for id, c in pairs(baseGone) do byId[id] = c end
     for _, c in ipairs(Album.Legacy(ds)) do byId[c.id] = byId[c.id] or c end
     local out = {}
     for _, id in ipairs(missing) do

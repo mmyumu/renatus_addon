@@ -448,10 +448,6 @@ local function build(c)
     local wanted = UI.Button(d, "Placarder un avis", 140, 22, function() UI.Dialogs.Wanted(c.detailName) end)
     wanted:SetPoint("LEFT", clash, "RIGHT", 8, 0)
 
-    c.ethics = UI.Text(c, 10, UI.C.dim)
-    c.ethics:SetPoint("BOTTOMLEFT", 4, 0)
-    c.ethics:SetText("Uniquement des informations visibles en jeu sur des personnages. Partagé avec la guilde seulement.")
-
     function c:ShowDetail(e)
         c.detailName = e.display
         UI.SetClassIcon(d.portrait, e.class)
@@ -537,7 +533,6 @@ local function build(c)
         posters:SetShown(self.view == "posters" and not detailEnemy)
         self.registry:SetShown(self.view == "registry" and not detailEnemy)
         d:SetShown(detailEnemy ~= nil)
-        self.ethics:SetShown(not detailEnemy)
         if detailEnemy then self:ShowDetail(detailEnemy) return end
         if self.view == "home" then refreshHome(self, ds, postersList, enemies) return end
 

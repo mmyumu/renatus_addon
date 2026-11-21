@@ -27,7 +27,13 @@ end
 local function preview(item)
     if not item then return "Clique un élément pour le relire avant de le publier." end
     local p, lines = item.p, {}
-    if item.kind == "ARTICLE" then
+    if item.kind == "ARTICLE" and p.retract == true then
+        table.insert(lines, "|cffd4a017" .. Press.Label(item) .. "|r")
+        table.insert(lines, "|cff999999Publier retire cet article de son numéro, pour toute la guilde.|r")
+    elseif item.kind == "ARTICLE" then
+        if p.replaces then
+            table.insert(lines, "|cff999999Correction : publier remplace l'article déjà paru, à la même place dans son numéro.|r")
+        end
         table.insert(lines, "|cffd4a017" .. tostring(p.title) .. "|r")
         local meta = {}
         for _, v in ipairs({ p.format, p.style, p.ia == true and "rédigé par IA" or nil }) do
@@ -61,13 +67,22 @@ local function preview(item)
         end
     elseif item.kind == "CARD_SET" then
         table.insert(lines, "|cffd4a017" .. Press.Label(item) .. "|r")
-        table.insert(lines, "|cff999999Publiées avec la mise en page du même numéro. « Aperçu » les montre comme dans l'album.|r")
+        if type(p.set) == "string" and p.set:find("^fix:") then
+            table.insert(lines, "|cff999999Correction du catalogue : la carte garde son numéro, ceux qui l'ont voient la nouvelle version ; une carte retirée ne sort plus des boosters mais reste à ceux qui l'ont.|r")
+        else
+            table.insert(lines, "|cff999999Publiées avec la mise en page du même numéro. « Aperçu » les montre comme dans l'album.|r")
+        end
         table.insert(lines, "")
         for _, c in ipairs(type(p.cards) == "table" and p.cards or {}) do
-            local r = R.Album.Rarity(c.r)
-            table.insert(lines, ("|c%sN° %s  %s|r  (%s)"):format(UI.ColorHex(r.color[1], r.color[2], r.color[3]),
-                tostring(c.no or "?"), tostring(c.n), r.label))
-            if c.f then table.insert(lines, "   |cffbbbbbb" .. tostring(c.f) .. "|r") end
+            if c.del == true then
+                table.insert(lines, "Retrait du catalogue : " .. tostring(c.id))
+            else
+                local r = R.Album.Rarity(c.r)
+                local stats = (tonumber(c.fo) and tonumber(c.en)) and ("  " .. c.fo .. "/" .. c.en) or ""
+                table.insert(lines, ("|c%sN° %s  %s|r  (%s)%s"):format(UI.ColorHex(r.color[1], r.color[2], r.color[3]),
+                    tostring(c.no or "?"), tostring(c.n), r.label, stats))
+                if c.f then table.insert(lines, "   |cffbbbbbb" .. tostring(c.f) .. "|r") end
+            end
         end
     else
         table.insert(lines, Press.Label(item))

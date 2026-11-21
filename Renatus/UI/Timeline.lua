@@ -1,4 +1,5 @@
--- UI/Timeline.lua: timeline shared by "Mon journal" and "Guilde".
+-- UI/Timeline.lua: "Mon journal", the player's own events. The other members' events are
+-- synced but not listed anywhere: they reach everyone through the gazette (no spoilers).
 local _, ns = ...
 local UI = ns.UI
 local Types, Views = ns.Types, ns.Views
@@ -16,11 +17,6 @@ local PERIODS = {
     { value = "today", label = "Aujourd'hui" },
     { value = "week", label = "7 derniers jours" },
     { value = "month", label = "30 derniers jours" },
-}
-
-local IMPORTANCE = {
-    { value = 0, label = "Tout" },
-    { value = 3, label = "Grandes étapes" },
 }
 
 local causes = {}   -- death causes (combat log) of the displayed dataset
@@ -54,9 +50,6 @@ local function rowTooltip(row)
     if ev.p and ev.p.desc then table.insert(lines, { ev.p.desc, 1, 1, 1 }) end
     local prov = Types.PROVENANCE[ev.prov] or Types.PROVENANCE.OBS
     table.insert(lines, { "Provenance : " .. prov.label .. " — " .. prov.help, prov.color[1], prov.color[2], prov.color[3] })
-    if #item.authors > 1 then
-        table.insert(lines, { "Confirmé par : " .. table.concat(item.authors, ", "), 0.55, 0.85, 0.55 })
-    end
     local pt = participantsText(ev)
     if pt then table.insert(lines, { "Présents selon " .. Types.Who(ev) .. " : " .. pt, 0.8, 0.8, 0.8 }) end
     if ev.k == "EXPEDITION" and ev.p then
@@ -121,26 +114,16 @@ local function createRow(row)
     end)
 end
 
-local function updateRow(row, item, mode)
+local function updateRow(row, item)
     local ev = item.ev
     local def = Types.Get(ev.k)
     row.icon:SetTexture(def.icon)
-    if mode == "guild" and #item.authors > 1 then
-        row.line1:SetText(Types.Describe(ev, false) .. "  |cff8fd88f(" .. #item.authors .. " membres)|r")
-    elseif mode == "guild" then
-        row.line1:SetText(UI.ClassName(Types.Who(ev), ev.c) .. " " .. Types.Raw(ev))
-    else
-        row.line1:SetText(Types.Describe(ev, false))
-    end
+    row.line1:SetText(Types.Describe(ev, false))
     local bits = {}
     local zone = Types.Zone(ev)
     if zone then table.insert(bits, zone) end
-    if mode == "guild" and #item.authors > 1 then
-        table.insert(bits, table.concat(item.authors, ", "))
-    else
-        local pt = participantsText(ev)
-        if pt then table.insert(bits, "avec " .. pt) end
-    end
+    local pt = participantsText(ev)
+    if pt then table.insert(bits, "avec " .. pt) end
     if ev.k == "ANECDOTE" and ev.p.cat then table.insert(bits, ev.p.cat) end
     if causes[ev.id] then table.insert(bits, "|cff73b3ff" .. tostring(causes[ev.id].p.cause) .. "|r")
     elseif hasMissing(ev, "killer") and not (ev.p and ev.p.cause) then table.insert(bits, "cause inconnue") end
@@ -152,9 +135,8 @@ local function updateRow(row, item, mode)
     row.date:SetText(UI.Ago(ev.t))
 end
 
--- mode: "personal" or "guild"
-function UI.BuildTimeline(c, mode)
-    local state = { category = "all", period = "all", member = "all", importance = 0, search = "" }
+function UI.BuildTimeline(c)
+    local state = { category = "all", period = "all", search = "" }
     c.state = state
 
     c.title = UI.Title(c, 20)
@@ -173,25 +155,8 @@ function UI.BuildTimeline(c, mode)
     local period = UI.Dropdown(c, 140, PERIODS, function(v) state.period = v; refresh() end)
     period:SetPoint("LEFT", cat, "RIGHT", 8, 0)
     period:SetValue("all")
-    local last = period
-    if mode == "guild" then
-        local member = UI.Dropdown(c, 130, function()
-            local opts = { { value = "all", label = "Tous les membres" } }
-            for _, m in ipairs(Views.Members(ns.Store.Dataset())) do
-                if m.hasAddon then table.insert(opts, { value = m.name, label = m.display }) end
-            end
-            return opts
-        end, function(v) state.member = v; refresh() end)
-        member:SetPoint("LEFT", period, "RIGHT", 8, 0)
-        member:SetValue("all")
-        local imp = UI.Dropdown(c, 120, IMPORTANCE, function(v) state.importance = v; refresh() end)
-        imp:SetPoint("LEFT", member, "RIGHT", 8, 0)
-        imp:SetValue(0)
-        c.memberDropdown = member
-        last = imp
-    end
-    local search = UI.EditBox(c, mode == "guild" and 110 or 200, 22)
-    search:SetPoint("LEFT", last, "RIGHT", 8, 0)
+    local search = UI.EditBox(c, 200, 22)
+    search:SetPoint("LEFT", period, "RIGHT", 8, 0)
     search.hint = UI.Text(search, 11, UI.C.dim)
     search.hint:SetPoint("LEFT", 6, 0)
     search.hint:SetJustifyV("MIDDLE")
@@ -202,7 +167,7 @@ function UI.BuildTimeline(c, mode)
         refresh()
     end)
 
-    c.list = UI.List(c, UI.CONTENT_W, UI.CONTENT_H - 84, ROW_H, createRow, function(row, item) updateRow(row, item, mode) end)
+    c.list = UI.List(c, UI.CONTENT_W, UI.CONTENT_H - 84, ROW_H, createRow, updateRow)
     c.list:SetPoint("TOPLEFT", 0, -82)
 
     function c:Refresh()
@@ -214,41 +179,16 @@ function UI.BuildTimeline(c, mode)
             since = Views.PeriodStart(state.period),
             search = state.search,
         }
-        local emptyText
-        if mode == "personal" then
-            f.author = ds.me
-            local _, name = ns.Context.Me()
-            self.title:SetText("Mon journal")
-            self.info:SetText("Les aventures de " .. tostring(name) .. ", consignées au fil de l'eau.")
-            emptyText = "Ton journal est encore vierge.\nIl se remplira tout seul : niveaux, boss, découvertes, morts…\nTu peux aussi ajouter une anecdote."
-        else
-            f.guild = ds.guildKey
-            f.authorName = state.member ~= "all" and state.member or nil
-            f.minImportance = state.importance > 0 and state.importance or nil
-            self.title:SetText("Histoire de la guilde")
-            local shared = ns.char.privacy
-            local anyShared = false
-            for _, v in pairs(shared) do if v == "G" then anyShared = true end end
-            self.info:SetText((ds.isDemo or anyShared) and "Événements partagés par les membres équipés de l'addon."
-                or "Tu ne partages encore rien : règle des catégories sur « Guilde » dans Options > AddOns > Renatus.")
-            emptyText = ds.guildKey and "Aucun événement pour ces filtres." or "Tu n'es dans aucune guilde."
-        end
-        local events = Views.Filter(ds.events, f)
-        local items
-        if mode == "guild" then
-            items = Views.Aggregate(events)
-        else
-            items = {}
-            for i, ev in ipairs(events) do items[i] = { ev = ev, events = { ev }, authors = { Types.Who(ev) } } end
-        end
-        self.list:SetItems(items, emptyText)
+        f.author = ds.me
+        local _, name = ns.Context.Me()
+        self.title:SetText("Mon journal")
+        self.info:SetText("Les aventures de " .. tostring(name) .. ", consignées au fil de l'eau.")
+        local items = {}
+        for i, ev in ipairs(Views.Filter(ds.events, f)) do items[i] = { ev = ev } end
+        self.list:SetItems(items, "Ton journal est encore vierge.\nIl se remplira tout seul : niveaux, boss, découvertes, morts…\nTu peux aussi ajouter une anecdote.")
     end
 end
 
 UI.RegisterTab({ key = "journal", label = "Mon journal", icon = "Interface\\Icons\\INV_Misc_Book_09", order = 10,
-    build = function(c) UI.BuildTimeline(c, "personal") end,
-    refresh = function(c) c:Refresh() end })
-
-UI.RegisterTab({ key = "guild", label = "Guilde", icon = "Interface\\Icons\\INV_Shirt_GuildTabard_01", order = 20,
-    build = function(c) UI.BuildTimeline(c, "guild") end,
+    build = function(c) UI.BuildTimeline(c) end,
     refresh = function(c) c:Refresh() end })

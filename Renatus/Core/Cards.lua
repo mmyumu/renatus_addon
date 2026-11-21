@@ -230,8 +230,90 @@ local NPC = {
     ["personnages:nat"] = 12919, ["personnages:dughan"] = 240,
     ["bestiaire:murloc"] = 515, ["bestiaire:kobold"] = 6, ["bestiaire:defias"] = 116,
 }
+-- Beasts without a named creature: a well-known one of the kind.
+NPC["bestiaire:gnoll"] = 117        -- Riverpaw Gnoll
+NPC["bestiaire:loup"] = 69          -- Timber Wolf
+NPC["bestiaire:mouton"] = 1933      -- Sheep
+NPC["bestiaire:diablosaure"] = 6498 -- Devilsaur
+-- Force / endurance of the creatures, and the bonus (+force / +endurance) of the items.
+-- Places carry none. The guild cards get theirs from the AI, or Album.DefaultStats.
+local STATS = {
+    -- dungeon and raid bosses
+    ["donjons:vancleef"] = { 4, 3 }, ["donjons:thredd"] = { 2, 2 }, ["donjons:mutanus"] = { 3, 4 },
+    ["donjons:arugal"] = { 4, 3 }, ["donjons:thermaplugg"] = { 5, 4 }, ["donjons:charlga"] = { 4, 4 },
+    ["donjons:amnennar"] = { 5, 4 }, ["donjons:whitemane"] = { 4, 5 }, ["donjons:archaedas"] = { 4, 7 },
+    ["donjons:theradras"] = { 5, 6 }, ["donjons:ukorz"] = { 5, 4 }, ["donjons:eranikus"] = { 6, 5 },
+    ["donjons:thaurissan"] = { 7, 6 }, ["donjons:drakkisath"] = { 7, 7 }, ["donjons:rivendare"] = { 7, 6 },
+    ["donjons:gandling"] = { 6, 5 }, ["donjons:onyxia"] = { 8, 8 }, ["donjons:hakkar"] = { 8, 7 },
+    ["donjons:nefarian"] = { 9, 8 }, ["donjons:ragnaros"] = { 11, 10 }, ["donjons:cthun"] = { 10, 12 },
+    ["donjons:kelthuzad"] = { 11, 9 },
+    -- characters
+    ["personnages:lardeur"] = { 9, 6 }, ["personnages:mankrik"] = { 0, 1 }, ["personnages:leeroy"] = { 10, 2 },
+    ["personnages:thrall"] = { 8, 7 }, ["personnages:jaina"] = { 8, 5 }, ["personnages:sylvanas"] = { 8, 5 },
+    ["personnages:magni"] = { 6, 7 }, ["personnages:cairne"] = { 6, 8 }, ["personnages:tyrande"] = { 6, 6 },
+    ["personnages:voljin"] = { 6, 5 }, ["personnages:bolvar"] = { 5, 7 }, ["personnages:nat"] = { 1, 3 },
+    ["personnages:dughan"] = { 1, 1 },
+    -- classes and races
+    ["heros:classe_warrior"] = { 3, 4 }, ["heros:classe_paladin"] = { 2, 5 }, ["heros:classe_hunter"] = { 3, 3 },
+    ["heros:classe_rogue"] = { 4, 2 }, ["heros:classe_priest"] = { 1, 3 }, ["heros:classe_shaman"] = { 3, 3 },
+    ["heros:classe_mage"] = { 5, 1 }, ["heros:classe_warlock"] = { 4, 2 }, ["heros:classe_druid"] = { 3, 3 },
+    ["heros:race_humain"] = { 3, 3 }, ["heros:race_nain"] = { 3, 4 }, ["heros:race_gnome"] = { 2, 2 },
+    ["heros:race_elfedelanuit"] = { 3, 3 }, ["heros:race_orc"] = { 4, 3 }, ["heros:race_troll"] = { 3, 3 },
+    ["heros:race_tauren"] = { 3, 5 }, ["heros:race_reprouve"] = { 3, 3 },
+    -- bestiary
+    ["bestiaire:murloc"] = { 1, 1 }, ["bestiaire:kobold"] = { 1, 2 }, ["bestiaire:defias"] = { 2, 2 },
+    ["bestiaire:gnoll"] = { 2, 2 }, ["bestiaire:loup"] = { 2, 1 }, ["bestiaire:araignee"] = { 2, 1 },
+    ["bestiaire:ours"] = { 2, 4 }, ["bestiaire:haut-trotteur"] = { 1, 2 }, ["bestiaire:crocilisque"] = { 3, 3 },
+    ["bestiaire:raptor"] = { 4, 2 }, ["bestiaire:harpie"] = { 3, 2 }, ["bestiaire:centaure"] = { 3, 4 },
+    ["bestiaire:mouton"] = { 0, 1 }, ["bestiaire:diablosaure"] = { 7, 6 }, ["bestiaire:elementaire"] = { 5, 3 },
+    ["bestiaire:goule"] = { 2, 3 },
+    -- items: bonus given to the one who carries them
+    ["tresors:foyer"] = { 0, 0 }, ["tresors:lin"] = { 0, 0 }, ["tresors:potion"] = { 0, 2 },
+    ["tresors:pain"] = { 0, 1 }, ["tresors:piece"] = { 0, 0 }, ["tresors:tabard"] = { 0, 1 },
+    ["tresors:sac"] = { 0, 0 }, ["tresors:cle"] = { 0, 0 }, ["tresors:canne"] = { 0, 0 },
+    ["tresors:cheval"] = { 0, 1 }, ["tresors:destrier"] = { 1, 1 }, ["tresors:sulfuras"] = { 5, 2 },
+    ["tresors:thunderfury"] = { 5, 1 }, ["tresors:atiesh"] = { 4, 2 }, ["tresors:murlocfin"] = { 0, 0 },
+}
+
 for _, c in ipairs(list) do
-    c.npc = NPC[c.id:gsub("^AZ:", "")]
+    local key = c.id:gsub("^AZ:", "")
+    c.npc = NPC[key]
+    local st = STATS[key]
+    if st then c.fo, c.en, c.item = st[1], st[2], c.series == "tresors" or nil end
+end
+
+-- Zones: folder of their world map (Interface\WorldMap\<name>\<name>1..12), drawn as
+-- full art on the card instead of the medallion.
+Cards.MAPS = {
+    elwynn = "Elwynn", dunmorogh = "DunMorogh", tirisfal = "Tirisfal", marche = "Westfall",
+    lochmodan = "LochModan", pinsargentes = "Silverpine", carmines = "Redridge", penombre = "Duskwood",
+    paluns = "Wetlands", hautebrande = "Hilsbrad", alterac = "Alterac", arathi = "Arathi",
+    strangleronce = "Stranglethorn", ingrates = "Badlands", chagrins = "SwampOfSorrows",
+    hinterlands = "Hinterlands", ventsbrules = "SearingGorge", steppes = "BurningSteppes",
+    foudroyees = "BlastedLands", maleterresouest = "WesternPlaguelands", maleterresest = "EasternPlaguelands",
+    deuillevent = "DeadwindPass",
+    durotar = "Durotar", mulgore = "Mulgore", teldrassil = "Teldrassil", tarides = "Barrens",
+    sombrivage = "Darkshore", orneval = "Ashenvale", serresrocheuses = "StonetalonMountains",
+    millepointes = "ThousandNeedles", desolace = "Desolace", aprefange = "Dustwallow", feralas = "Feralas",
+    tanaris = "Tanaris", azshara = "Aszhara", gangrebois = "Felwood", ungoro = "UngoroCrater",
+    berceau = "Winterspring", silithus = "Silithus", reflet = "Moonglade",
+}
+-- uiMapID of each zone (Classic), for the parts of the map the player has explored.
+Cards.MAP_IDS = {
+    durotar = 1411, mulgore = 1412, tarides = 1413, alterac = 1416, arathi = 1417, ingrates = 1418,
+    foudroyees = 1419, tirisfal = 1420, pinsargentes = 1421, maleterresouest = 1422, maleterresest = 1423,
+    hautebrande = 1424, hinterlands = 1425, dunmorogh = 1426, ventsbrules = 1427, steppes = 1428,
+    elwynn = 1429, deuillevent = 1430, penombre = 1431, lochmodan = 1432, carmines = 1433,
+    strangleronce = 1434, chagrins = 1435, marche = 1436, paluns = 1437, teldrassil = 1438,
+    sombrivage = 1439, orneval = 1440, millepointes = 1441, serresrocheuses = 1442, desolace = 1443,
+    feralas = 1444, aprefange = 1445, tanaris = 1446, azshara = 1447, gangrebois = 1448, ungoro = 1449,
+    reflet = 1450, silithus = 1451, berceau = 1452,
+}
+-- Map folder and uiMapID of a zone card, nil for the other cards.
+function Cards.MapOf(card)
+    local series, key = tostring(card.id or ""):match("^AZ:(%a+):(.+)$")
+    if series ~= "est" and series ~= "kalimdor" then return nil end
+    return Cards.MAPS[key], Cards.MAP_IDS[key]
 end
 
 -- Base set: numbered in list order (B-001...), published with v0.10.0.

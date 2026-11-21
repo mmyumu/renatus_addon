@@ -13,7 +13,7 @@ use std::time::{Duration, SystemTime};
 use renatus_admin_core::config::Config;
 use renatus_admin_core::ops::{self, Proposal, Status};
 use renatus_admin_core::paths::{WowPaths, ADMIN_ADDON};
-use renatus_admin_core::{addon, armory, chronicle::Chronicle, edition, gazette, issues};
+use renatus_admin_core::{addon, armory, chronicle::Chronicle, edition, gazette, issues, revise};
 use renatus_launcher_core::wow;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager};
@@ -388,6 +388,102 @@ async fn propose_gazette(app: AppHandle) -> Result<View, String> {
         selection: None,
         ..view
     })
+}
+
+/// Takes pending items (ids) or single album cards (card ids) out of Press.lua.
+#[tauri::command]
+async fn remove_pending(
+    app: AppHandle,
+    items: Vec<String>,
+    cards: Vec<String>,
+) -> Result<View, String> {
+    let what = items.len() + cards.len();
+    let result = busy(&app, "Retrait", move |_, paths, ch| {
+        ops::remove_pending(paths, ch, &items, &cards)
+    })
+    .await;
+    match &result {
+        Ok(left) => log(
+            &app,
+            [format!(
+                "— Retiré de Press.lua : {what} élément(s) ; {left} en attente."
+            )],
+        ),
+        Err(e) => log(&app, [format!("— Retrait : {e}")]),
+    }
+    refresh_status(&app);
+    publish_view(&app);
+    result.map(|_| view(&app))
+}
+
+/// The published catalogue and issues, as members see them (Éditeur tab).
+#[tauri::command]
+async fn published(app: AppHandle) -> Result<ops::Published, String> {
+    let cfg = config(&app);
+    tauri::async_runtime::spawn_blocking(move || {
+        let paths = game_paths(&cfg)?;
+        let (_, ch) = ops::load(&paths)?;
+        Ok::<_, String>(ops::published(&paths, &ch))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Puts one correction of something published (revise.rs) in Press.lua.
+async fn propose_fix<F>(app: AppHandle, label: String, make: F) -> Result<View, String>
+where
+    F: FnOnce(&Chronicle, i64) -> Result<serde_json::Value, String> + Send + 'static,
+{
+    let result = busy(&app, "Correction", move |_, paths, ch| {
+        let item = make(ch, ops::now())?;
+        ops::propose_fix(paths, ch, item)
+    })
+    .await;
+    match &result {
+        Ok(left) => log(
+            &app,
+            [format!(
+                "— {label} : proposé en jeu, {left} en attente dans Press.lua. En jeu : /reload, puis Rédaction."
+            )],
+        ),
+        Err(e) => log(&app, [format!("— {label} : {e}")]),
+    }
+    refresh_status(&app);
+    publish_view(&app);
+    result.map(|_| view(&app))
+}
+
+#[tauri::command]
+async fn revise_card(app: AppHandle, edit: revise::CardEdit) -> Result<View, String> {
+    let label = format!("Correction de la carte « {} »", edit.name.trim());
+    propose_fix(app, label, move |ch, now| revise::card_item(ch, &edit, now)).await
+}
+
+#[tauri::command]
+async fn withdraw_card(app: AppHandle, id: String) -> Result<View, String> {
+    let label = format!("Retrait de la carte {id}");
+    propose_fix(app, label, move |ch, now| {
+        revise::withdraw_card_item(ch, &id, now)
+    })
+    .await
+}
+
+#[tauri::command]
+async fn revise_article(app: AppHandle, edit: revise::ArticleEdit) -> Result<View, String> {
+    let label = format!("Correction de l'article « {} »", edit.title.trim());
+    propose_fix(app, label, move |ch, now| {
+        revise::article_item(ch, &edit, now)
+    })
+    .await
+}
+
+#[tauri::command]
+async fn retract_article(app: AppHandle, id: String) -> Result<View, String> {
+    let label = format!("Retrait de l'article {id}");
+    propose_fix(app, label, move |ch, now| {
+        revise::retract_article_item(ch, &id, now)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -843,6 +939,12 @@ pub fn run() {
             write_gazette,
             propose_gazette,
             discard_gazette,
+            remove_pending,
+            published,
+            revise_card,
+            withdraw_card,
+            revise_article,
+            retract_article,
             prepare_gazette,
             preview_gazette,
             save_settings,

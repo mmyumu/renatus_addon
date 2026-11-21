@@ -27,12 +27,14 @@ function Profile.Build()
         race = ns.Safe(raceID), raceFile = ns.Safe(raceFile), sex = ns.Safe(try(UnitSex, "player")),
         class = ns.Safe(class), items = #items > 0 and table.concat(items, ",") or nil,
         optOut = ns.char.albumOptOut and true or nil,
+        -- level: which versions of the member's card are earned (admin/core/src/cards.rs)
+        lvl = ns.Safe(try(UnitLevel, "player")),
     }
 end
 
 local function same(a, b)
     if not a or not b then return false end
-    for _, k in ipairs({ "race", "raceFile", "sex", "class", "items", "optOut" }) do
+    for _, k in ipairs({ "race", "raceFile", "sex", "class", "items", "optOut", "lvl" }) do
         if a[k] ~= b[k] then return false end
     end
     return true

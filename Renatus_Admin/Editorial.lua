@@ -10,7 +10,9 @@
 --   EDITION                -> provenance GEN: page layout of an edition (Renatus/UI/Newsprint.lua);
 --                             publishing it also publishes its pending articles (same p.edition)
 --                             and its cards (CARD_SET with p.set = the same key)
---   CARD_SET               -> provenance GEN: cards of the album's catalogue (Renatus/Core/Album.lua)
+--   CARD_SET               -> provenance GEN: cards of the album's catalogue (Renatus/Core/Album.lua);
+--                             p.set "fix:..." corrects or withdraws a published card
+--   ARTICLE with p.replaces -> correction (or, with p.retract, withdrawal) of a published article
 --   GUILD_CONFIG           -> guild settings (officers only, see Renatus/Core/GuildConfig.lua)
 --   RIVAL_ROSTER           -> provenance EXT: the rival guild's roster from the armory
 local _, A = ...
@@ -70,6 +72,10 @@ function Press.IsGazetteItem(item) return not Press.IsGuildItem(item) end
 function Press.Label(item)
     local k = KINDS[item.kind]
     local p = item.p
+    if item.kind == "ARTICLE" and p.replaces then
+        -- correction of a published article (Renatus/Core/Views.lua, Views.Revise)
+        return (p.retract == true and "Retrait d'article : " or "Correction d'article : ") .. tostring(p.title)
+    end
     if item.kind == "ARTICLE" then return (p.ia == true and "Article (IA)" or k.label) .. " : " .. tostring(p.title) end
     if item.kind == "EDITION" then
         local n = #Press.EditionArticles(item)
@@ -83,6 +89,12 @@ function Press.Label(item)
     end
     if item.kind == "CARD_SET" then
         local cards = type(p.cards) == "table" and p.cards or {}
+        if type(p.set) == "string" and p.set:find("^fix:") then
+            -- correction of the catalogue (Renatus/Core/Album.lua, Album.Published)
+            local c = type(cards[1]) == "table" and cards[1] or {}
+            if c.del == true then return "Retrait de la carte " .. tostring(c.id) end
+            return "Correction de la carte : " .. tostring(c.n)
+        end
         local first, last
         for _, c in ipairs(cards) do
             local n = type(c) == "table" and tonumber(c.no)
@@ -138,8 +150,8 @@ function Press.Preview(item)
     end
 end
 
--- Shows the cards of a set face up, as members will see them (the first five; "page"
--- picks the next five).
+-- Shows the cards of a set face up, as members will see them, five at a time ("page"; the
+-- preview's "Cartes suivantes" button goes on to the next five).
 function Press.PreviewCards(item, page)
     local cards = {}
     local fake = { t = (GetServerTime and GetServerTime()) or time(), p = item.p }
@@ -147,10 +159,17 @@ function Press.PreviewCards(item, page)
         local card = R.Album.FromPayload(c, fake)
         if card then cards[#cards + 1] = card end
     end
-    local from = ((page or 1) - 1) * R.Album.BOOSTER_SIZE
+    page = page or 1
+    local from = (page - 1) * R.Album.BOOSTER_SIZE
     local shown = {}
     for i = from + 1, math.min(#cards, from + R.Album.BOOSTER_SIZE) do shown[#shown + 1] = cards[i] end
-    return R.UI.CardsPreview(shown, ("Aperçu des cartes (%d à %d sur %d)"):format(from + 1, from + #shown, #cards))
+    -- more than five cards: "Cartes suivantes", back to the first ones after the last
+    local onNext
+    if #cards > R.Album.BOOSTER_SIZE then
+        local nextPage = (from + R.Album.BOOSTER_SIZE < #cards) and page + 1 or 1
+        onNext = function() Press.PreviewCards(item, nextPage) end
+    end
+    return R.UI.CardsPreview(shown, ("Aperçu des cartes (%d à %d sur %d)"):format(from + 1, from + #shown, #cards), onNext)
 end
 
 -- Returns the published event, or nil and a reason.

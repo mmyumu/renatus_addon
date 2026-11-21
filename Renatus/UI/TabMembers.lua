@@ -123,14 +123,19 @@ local function build(c)
         else
             p.shared:SetText("|cff999999Aucune donnée.|r")
         end
+        -- Only one's own facts: the others' reach everyone through the gazette (no spoilers).
         local shown = 0
-        for _, ev in ipairs(m.events) do
-            if Types.Get(ev.k).importance >= 2 and shown < #p.recent then
-                shown = shown + 1
-                p.recent[shown]:SetText("|cff999999" .. UI.Date(ev.t) .. "|r  " .. Types.Describe(ev, false))
+        if m.guid == ds.me or ds.isDemo then
+            for _, ev in ipairs(m.events) do
+                if Types.Get(ev.k).importance >= 2 and shown < #p.recent then
+                    shown = shown + 1
+                    p.recent[shown]:SetText("|cff999999" .. UI.Date(ev.t) .. "|r  " .. Types.Describe(ev, false))
+                end
             end
         end
-        for i = shown + 1, #p.recent do p.recent[i]:SetText(i == 1 and "|cff999999Rien de notable.|r" or "") end
+        local none = (m.guid == ds.me or ds.isDemo) and "|cff999999Rien de notable.|r"
+            or "|cff999999Ses exploits se lisent dans la gazette.|r"
+        for i = shown + 1, #p.recent do p.recent[i]:SetText(i == 1 and none or "") end
     end
 end
 

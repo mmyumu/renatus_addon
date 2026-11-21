@@ -441,7 +441,7 @@ test("tous les onglets s'ouvrent (donnees reelles vides)", function()
     SlashCmdList.RENATUS("")
     assert(RenatusMainFrame:IsShown(), "fenetre ouverte")
     openAllTabs(ns)
-    eq(#ns.UI.tabs, 6, "gazette, album + 4 journaux ; les reglages sont dans les Options")
+    eq(#ns.UI.tabs, 5, "gazette, album + 3 journaux (pas de journal de guilde) ; les reglages sont dans les Options")
     eq(ns.UI.tabs[1].key, "gazette"); eq(ns.UI.tabs[2].key, "album"); eq(ns.UI.tabs[3].key, "wanted")
     eq(ns.UI.tabs[3].group, "main", "tableau de chasse en grand, sous l'album")
     assert(RenatusMainFrame.journalsLabel, "section journaux")
@@ -453,23 +453,26 @@ test("tous les onglets s'ouvrent (demo) et se remplissent", function()
     openAllTabs(ns)
     local f = RenatusMainFrame
     assert(#f.containers.journal.list.items > 5, "journal rempli")
-    assert(#f.containers.guild.list.items > 20, "guilde remplie")
+    eq(f.containers.guild, nil, "pas de journal de guilde : les faits des autres passent par la gazette")
     assert(#f.containers.members.list.items >= 9, "membres")
 end)
 
-test("filtres du journal de guilde", function()
-    local ns = boot({ specIndex = 1 })
-    SlashCmdList.RENATUS("demo")
-    ns.UI.Open("guild")
-    local c = RenatusMainFrame.containers.guild
-    local all = #c.list.items
-    c.state.category = "pvp"; c:Refresh()
-    local pvp = #c.list.items
-    assert(pvp > 0 and pvp < all, "filtre categorie")
-    c.state.category = "all"; c.state.member = "Tobias"; c:Refresh()
-    for _, item in ipairs(c.list.items) do eq(item.ev.n, "Tobias") end
-    c.state.member = "all"; c.state.importance = 3; c:Refresh()
-    for _, item in ipairs(c.list.items) do assert(ns.Types.Get(item.ev.k).importance >= 3) end
+test("membres : les derniers faits des autres ne s'affichent pas (pas de spoiler de la gazette)", function()
+    local ns = boot({ specIndex = 1, roster = { { name = "Testeur", rank = 1 }, { name = "Bob", rank = 5 } } })
+    ns.char.privacy.progression = "G"
+    Stub.fire("PLAYER_LEVEL_UP", 21)
+    local guid = "Player-1-BOB"
+    ns.Store.Insert({ v = 1, id = guid .. ":1", a = guid, n = "Bob", s = 1, k = "LEVEL_UP", t = 1000, vis = "G",
+        g = ns.Context.GuildKey(), p = { lvl = 40 } })
+    ns.UI.Open("members")
+    local c = RenatusMainFrame.containers.members
+    c.selected = "Bob"; c:Refresh()
+    local p = c.profile
+    local text = p.recent[1]:GetText() or ""
+    assert(text:find("gazette"), text)
+    c.selected = "Testeur"; c:Refresh()
+    text = p.recent[1]:GetText() or ""
+    assert(text:find("21"), text)
 end)
 
 test("tableau de chasse : affiches, registre, fiche", function()
@@ -506,6 +509,28 @@ test("gazette : article et sources", function()
     assert(c.current, "article selectionne")
     c.paper.sources:Click()
     assert(c.showSources, "sources affichees")
+end)
+
+test("album : force et endurance des creatures, bonus des objets", function()
+    local ns = boot({ specIndex = 1 })
+    local A = ns.Album
+    local byId = {}
+    for _, c in ipairs(ns.Cards.LIST) do byId[c.id] = c end
+    local fo, en, item = A.Stats(byId["AZ:donjons:ragnaros"])
+    eq(fo, 11); eq(en, 10); eq(item, false)
+    fo, en, item = A.Stats(byId["AZ:tresors:potion"])
+    eq(fo, 0); eq(en, 2); eq(item, true, "objet")
+    eq(A.Stats(byId["AZ:est:elwynn"]), nil, "un lieu n'a pas de stats")
+    -- guild cards: the rule (budget by rarity, split by class), unless the set gives them
+    fo, en = A.Stats({ series = "members", rarity = "epic", class = "MAGE" })
+    eq(fo, 8); eq(en, 5)
+    eq(A.Stats({ series = "faits", rarity = "rare" }), nil, "un fait divers n'a pas de stats")
+    local ev = { t = 1, p = { set = "x" } }
+    local c = A.FromPayload({ id = "M:G:rare", n = "Dakey", r = "rare", s = "members", fo = 7, en = 2 }, ev)
+    fo, en = A.Stats(c)
+    eq(fo, 7); eq(en, 2)
+    c = A.FromPayload({ id = "M:G:rare", n = "Dakey", r = "rare", s = "members", fo = 40, en = 2 }, ev)
+    eq(c.fo, nil, "hors bornes : ignore")
 end)
 
 test("album : ouvrir un booster en demo", function()
@@ -1009,9 +1034,8 @@ test("WoW Forever : onglet Membres, prenom + nom, sans doublon", function()
     eq(list[2].display, "Bob Martin")
     local ev = eventsOf(ns, "LEVEL_UP")[1]
     assert(ns.Types.Describe(ev, true):find("^Testeur Dupont "), ns.Types.Describe(ev, true))
-    ns.UI.Open("guild")
-    local line = RenatusMainFrame.containers.guild.list.rows[1].line1:GetText()
-    assert(line:find("Testeur Dupont"), line)
+    ns.UI.Open("members")
+    eq(RenatusMainFrame.containers.members.list.items[1].display, "Testeur Dupont")
 end)
 
 test("reglage d'un non-officier ignore ; le plus recent gagne ; officier retrogade ignore", function()
@@ -1548,6 +1572,116 @@ test("mort : recapitulatif avec valeurs secretes, aucun tueur invente", function
     eq(ev.p.killer, nil); eq(ev.miss[1], "killer")
 end)
 
+print("Modeles et icones des cartes (creatures, butin)")
+
+test("creatures : numero du tueur et du boss releve en jeu (modele 3D de la carte)", function()
+    local hogger = { name = "Hogger", guid = "Creature-0-1-2-3-448-000AB", player = false }
+    local ns, S = boot({ specIndex = 1, classicLog = true, units = { target = hogger } })
+    eq(ns.NpcId("Creature-0-1-2-3-448-000AB"), 448)
+    eq(ns.NpcId("Player-1-ABC"), nil); eq(ns.NpcId(nil), nil)
+    Stub.fire("PLAYER_TARGET_CHANGED")
+    eq(ns.Creatures.Lookup("Hogger"), 448, "cible retenue")
+    -- killed by Hogger: the npc id comes from the hit itself
+    Stub.combatLog(1, "SWING_DAMAGE", false, "Creature-0-1-2-3-448-000AB", "Hogger", 0, 0, S.me.guid, "Testeur", 0, 0, 900, 12, 1)
+    Stub.fire("PLAYER_DEAD")
+    eq(eventsOf(ns, "DEATH")[1].p.killer.npc, 448)
+    -- boss of an encounter: the boss unit
+    S.units.boss1 = { name = "Edwin VanCleef", guid = "Creature-0-1-2-3-639-00001", player = false }
+    Stub.fire("ENCOUNTER_START", 1094, "Edwin VanCleef", 1, 5)
+    S.units.boss1 = nil
+    Stub.fire("ENCOUNTER_END", 1094, "Edwin VanCleef", 1, 5, 1)
+    eq(eventsOf(ns, "BOSS_KILL")[1].p.npc, 639)
+    -- next encounter, no boss unit: a creature of that name seen around, else nothing
+    Stub.fire("ENCOUNTER_START", 1, "Hogger", 1, 5)
+    Stub.fire("ENCOUNTER_END", 1, "Hogger", 1, 5, 1)
+    Stub.fire("ENCOUNTER_START", 2, "Inconnu", 1, 5)
+    Stub.fire("ENCOUNTER_END", 2, "Inconnu", 1, 5, 1)
+    local kills = eventsOf(ns, "BOSS_KILL")
+    table.sort(kills, function(a, b) return a.p.enc < b.p.enc end)
+    eq(kills[1].p.npc, 448); eq(kills[2].p.npc, nil)
+end)
+
+test("bestiaire : premier mob de chaque espece tue (experience ou corps fouille), avec son numero et son type", function()
+    COMBATLOG_XPGAIN_FIRSTPERSON = "%s meurt, vous gagnez %d points d'expérience."
+    local ns, S = boot({ specIndex = 1, classicLog = true, units = {
+        target = { name = "Traqueuse Ronce-sauvage", guid = "Creature-0-1-2-3-3819-0001", player = false, level = 22 },
+        mouseover = { name = "Ours gris", guid = "Creature-0-1-2-3-1186-0002", player = false } } })
+    eq(ns.Kills.Pattern(COMBATLOG_XPGAIN_FIRSTPERSON), "^(.+) meurt, vous gagnez ")
+    UnitClassification = function(unit) return unit == "target" and "elite" or "normal" end
+    Stub.fire("PLAYER_TARGET_CHANGED"); Stub.fire("UPDATE_MOUSEOVER_UNIT")
+    Stub.fire("CHAT_MSG_COMBAT_XP_GAIN", "Traqueuse Ronce-sauvage meurt, vous gagnez 184 points d'expérience. (+92 exp Reposé)")
+    Stub.fire("CHAT_MSG_COMBAT_XP_GAIN", "Traqueuse Ronce-sauvage meurt, vous gagnez 184 points d'expérience.")
+    Stub.fire("CHAT_MSG_COMBAT_XP_GAIN", "Inconnu meurt, vous gagnez 10 points d'expérience.")
+    -- a corpse looted (highest level: no experience)
+    GetNumLootItems = function() return 1 end
+    GetLootSourceInfo = function() return "Creature-0-1-2-3-1186-0002", 1 end
+    Stub.fire("LOOT_OPENED")
+    local kills = eventsOf(ns, "MOB_KILL")
+    table.sort(kills, function(a, b) return a.p.npc < b.p.npc end)
+    eq(#kills, 2, "une fois par espece ; un mob jamais vu ignore")
+    eq(kills[1].p.npc, 1186); eq(kills[1].p.name, "Ours gris")
+    eq(kills[2].p.npc, 3819); eq(kills[2].p.cls, "elite"); eq(kills[2].p.lvl, 22)
+    eq(ns.Types.Get("MOB_KILL").hidden, true, "jamais affiche dans le journal")
+    -- killed by a creature seen around: its kind goes with the killer
+    Stub.combatLog(1, "SWING_DAMAGE", false, "Creature-0-1-2-3-3819-0001", "Traqueuse Ronce-sauvage", 0, 0, S.me.guid, "Testeur", 0, 0, 900, 12, 1)
+    Stub.fire("PLAYER_DEAD")
+    local k = eventsOf(ns, "DEATH")[1].p.killer
+    eq(k.npc, 3819); eq(k.cls, "elite")
+    COMBATLOG_XPGAIN_FIRSTPERSON, UnitClassification, GetNumLootItems, GetLootSourceInfo = nil, nil, nil, nil
+end)
+
+test("butin : premier objet bleu ou mieux de ce personnage, avec son numero ; icone de l'objet sur la carte", function()
+    LOOT_ITEM_SELF = "Vous recevez le butin : %s."
+    LOOT_ITEM_SELF_MULTIPLE = "Vous recevez le butin : %sx%d."
+    local ns = boot({ specIndex = 1 })
+    ns.Loot.patterns = nil
+    eq(ns.Loot.Pattern("Vous recevez le butin : %sx%d."), "^Vous recevez le butin : (.+)x%d+%.$")
+    local epic = "|cffa335ee|Hitem:5191::::::::60:::::|h[Lame de Cruel]|h|r"
+    Stub.fire("CHAT_MSG_LOOT", "Vous recevez le butin : " .. epic .. ".")
+    Stub.fire("CHAT_MSG_LOOT", "Vous recevez le butin : " .. epic .. ".")
+    Stub.fire("CHAT_MSG_LOOT", "Vous recevez le butin : |cff1eff00|Hitem:2000::::|h[Bottes vertes]|h|r.")
+    Stub.fire("CHAT_MSG_LOOT", "Bob reçoit le butin : |cffa335ee|Hitem:6000::::|h[Pas a moi]|h|r.")
+    Stub.fire("CHAT_MSG_LOOT", "Vous recevez le butin : |cnIQ3:|Hitem:7000::::|h[Anneau bleu]|h|rx2.")
+    -- WoW Forever: plain text, the item found by its name (item data, else the bags)
+    C_Item = { GetItemInfo = function(name)
+        if name == "Bouclier bleu" then return name, "|cnIQ3:|Hitem:8000::::|h[Bouclier bleu]|h|r", 3 end
+    end }
+    C_Container = { GetContainerNumSlots = function(bag) return bag == 0 and 2 or 0 end,
+        GetContainerItemInfo = function(_, slot)
+            if slot == 2 then return { itemID = 9000, quality = 4, itemName = "Cape violette" } end
+        end }
+    Stub.fire("CHAT_MSG_LOOT", "Vous recevez le butin : [Bouclier bleu].")
+    Stub.fire("CHAT_MSG_LOOT", "Vous recevez le butin : [Cape violette].")
+    Stub.fire("CHAT_MSG_LOOT", "Vous recevez le butin : [Inconnu].")
+    -- not in the bags yet when the message comes: found a moment later
+    local late = false
+    local getInfo = C_Container.GetContainerItemInfo
+    C_Container.GetContainerItemInfo = function(bag, slot)
+        if late and slot == 1 then return { itemID = 9500, quality = 3, itemName = "Bottes tardives" } end
+        return getInfo(bag, slot)
+    end
+    Stub.fire("CHAT_MSG_LOOT", "Vous recevez le butin : [Bottes tardives].")
+    late = true
+    Stub.advance(2)
+    C_Item, C_Container = nil, nil
+    local items = eventsOf(ns, "RARE_ITEM")
+    table.sort(items, function(a, b) return a.p.id < b.p.id end)
+    eq(#items, 5, "une fois par objet ; ni vert, ni butin des autres ; objet introuvable ignore")
+    eq(items[3].p.id, 8000); eq(items[3].p.q, 3); eq(items[3].p.item, "Bouclier bleu")
+    eq(items[4].p.id, 9000); eq(items[4].p.q, 4)
+    eq(items[5].p.id, 9500, "retrouve une seconde plus tard")
+    eq(items[1].p.id, 5191); eq(items[1].p.item, "Lame de Cruel"); eq(items[1].p.q, 4)
+    eq(items[2].p.id, 7000); eq(items[2].p.q, 3)
+    -- the card shows the item's icon
+    GetItemIcon = function(id) return id == 5191 and 135274 or nil end
+    local card = ns.Album.FromPayload({ id = "I:5191", s = "butin", r = "epic", n = "Lame de Cruel", ic = "INV_Misc_Bag_10", itm = 5191 },
+        { t = 1, p = {} })
+    eq(card.series, "butin"); eq(card.itemId, 5191)
+    eq(ns.UI.CardArt(card), 135274)
+    GetItemIcon, LOOT_ITEM_SELF, LOOT_ITEM_SELF_MULTIPLE = nil, nil, nil
+    ns.Loot.patterns = nil
+end)
+
 print("Suppression (tombstones)")
 
 local function inDataset(ns, id)
@@ -1837,6 +1971,124 @@ test("catalogue publie : cartes possedees hors catalogue gardees, opt-out d'un m
     eq(shown, 2, "les deux cartes possedees restent visibles")
 end)
 
+test("catalogue publie : carte corrigee (contenu neuf, numero garde), carte retiree gardee par son proprietaire", function()
+    local roster = { { name = "Testeur", rank = 3 }, { name = "Off", rank = 1 }, { name = "Bob", rank = 5 } }
+    local ns = boot({ specIndex = 1, roster = roster })
+    ns.Store.Add("BOOSTER_OPEN", { n = 1, cards = { "X:boss1" } }, { keep = true, noExp = true, loc = {} })
+    foreign(ns, "Player-1-OFF", "Off", 1, "CARD_SET", cardSet("E1", 1), 2000)
+    local function byId()
+        local out = {}
+        for _, c in ipairs(ns.Album.Catalogue(ns.Store.Dataset())) do out[c.id] = c end
+        return out
+    end
+    local version = ns.Album.Catalogue(ns.Store.Dataset()).version
+    -- correction by an officer: new name and rarity, same number, date and slot
+    foreign(ns, "Player-1-OFF", "Off", 2, "CARD_SET", { set = "fix", cards = {
+        { id = "X:boss1", no = 99, s = "expeditions", r = "legendary", n = "Hogger, enfin" } } }, 3000)
+    -- a non-officer's correction is ignored
+    foreign(ns, "Player-1-BOB", "Bob", 1, "CARD_SET", { set = "x", cards = {
+        { id = "X:boss1", s = "expeditions", r = "common", n = "Triche" } } }, 4000)
+    local cards = byId()
+    eq(cards["X:boss1"].name, "Hogger, enfin"); eq(cards["X:boss1"].rarity, "legendary")
+    eq(cards["X:boss1"].no, 3, "numero de la premiere parution")
+    eq(cards["X:boss1"].t, 2000); eq(cards["X:boss1"].revised, 3000)
+    eq(ns.Album.Catalogue(ns.Store.Dataset()).version, version, "memes ids : meme version de catalogue")
+    -- withdrawal: out of the catalogue, still in its owner's album with its last content
+    foreign(ns, "Player-1-OFF", "Off", 3, "CARD_SET", { set = "del", cards = { { id = "X:boss1", del = true } } }, 5000)
+    eq(byId()["X:boss1"], nil, "retiree du catalogue")
+    local ds = ns.Store.Dataset()
+    local orphans = ns.Album.Orphans(ds, ns.Album.Catalogue(ds), ds.collection)
+    eq(#orphans, 1); eq(orphans[1].name, "Hogger, enfin"); eq(orphans[1].orphan, true)
+    -- published again: back in the catalogue
+    foreign(ns, "Player-1-OFF", "Off", 4, "CARD_SET", { set = "back", cards = {
+        { id = "X:boss1", s = "expeditions", r = "epic", n = "Hogger revient" } } }, 6000)
+    eq(byId()["X:boss1"].name, "Hogger revient"); eq(byId()["X:boss1"].no, 3)
+end)
+
+test("set de base : corrige ou retire par un officier (numero, serie et modele gardes)", function()
+    local roster = { { name = "Testeur", rank = 3 }, { name = "Off", rank = 1 }, { name = "Bob", rank = 5 } }
+    local ns = boot({ specIndex = 1, roster = roster })
+    ns.Store.Add("BOOSTER_OPEN", { n = 1, cards = { "AZ:est:elwynn" } }, { keep = true, noExp = true, loc = {} })
+    local function byId()
+        local out = {}
+        for _, c in ipairs(ns.Album.Catalogue(ns.Store.Dataset())) do out[c.id] = c end
+        return out
+    end
+    local before = byId()["AZ:bestiaire:murloc"]
+    foreign(ns, "Player-1-OFF", "Off", 1, "CARD_SET", { set = "fix:1", cards = {
+        { id = "AZ:bestiaire:murloc", no = 999, s = "faits", r = "epic", n = "Murloc royal", f = "Mrglglgl !",
+            ic = "INV_Misc_Fish_01", fo = 5, en = 6 } } }, 2000)
+    foreign(ns, "Player-1-BOB", "Bob", 1, "CARD_SET", { set = "x", cards = {
+        { id = "AZ:est:elwynn", s = "est", r = "legendary", n = "Triche" } } }, 2100)
+    local cards = ns.Album.Catalogue(ns.Store.Dataset())
+    eq(cards.published, false, "corriger le set de base ne remplace pas le calcul local des cartes de guilde")
+    local m = byId()["AZ:bestiaire:murloc"]
+    eq(m.name, "Murloc royal"); eq(m.rarity, "epic"); eq(m.flavor, "Mrglglgl !")
+    eq(m.fo, 5); eq(m.en, 6); eq(m.revised, 2000)
+    eq(m.no, before.no, "numero B-xxx garde"); eq(m.series, "bestiaire"); eq(m.npc, before.npc)
+    eq(m.icons[1], "INV_Misc_Fish_01"); eq(m.icons[2], before.icons[1])
+    eq(ns.UI.CardArt(m), "Interface\\Icons\\INV_Misc_Fish_01")
+    eq(byId()["AZ:est:elwynn"].name, before and "Forêt d'Elwynn", "non-officier ignore")
+    -- withdrawn: out of the catalogue, still owned with its content
+    foreign(ns, "Player-1-OFF", "Off", 2, "CARD_SET", { set = "fix:2", cards = { { id = "AZ:est:elwynn", del = true } } }, 3000)
+    eq(byId()["AZ:est:elwynn"], nil)
+    local ds = ns.Store.Dataset()
+    local orphans = ns.Album.Orphans(ds, ns.Album.Catalogue(ds), ds.collection)
+    eq(#orphans, 1); eq(orphans[1].name, "Forêt d'Elwynn"); eq(orphans[1].no, "B-001")
+end)
+
+test("set de base : admin/core/src/base_cards.json a jour (lua tools/export_base_cards.lua)", function()
+    local Export = dofile("tools/export_base_cards.lua")
+    local f = assert(io.open(Export.OUT, "r"))
+    local current = f:read("*a")
+    f:close()
+    assert(current == Export.Json(), "base_cards.json perime : lancer lua tools/export_base_cards.lua")
+end)
+
+test("catalogue publie : toutes les cartes retirees, pas de retour au calcul local", function()
+    local roster = { { name = "Testeur", rank = 3 }, { name = "Off", rank = 1 } }
+    local ns = boot({ specIndex = 1, roster = roster })
+    foreign(ns, "Player-1-OFF", "Off", 1, "CARD_SET", { set = "a", cards = {
+        { id = "Z:1", s = "faits", r = "rare", n = "Seule" } } }, 2000)
+    foreign(ns, "Player-1-OFF", "Off", 2, "CARD_SET", { set = "b", cards = { { id = "Z:1", del = true } } }, 3000)
+    local cards = ns.Album.Catalogue(ns.Store.Dataset())
+    eq(cards.published, true)
+    for _, c in ipairs(cards) do assert(c.id:sub(1, 3) == "AZ:", "seulement le set de base : " .. c.id) end
+end)
+
+test("gazette : article corrige ou retire par son auteur ou un officier, pas par un autre", function()
+    local roster = { { name = "Testeur", rank = 3 }, { name = "Off", rank = 1 }, { name = "Bob", rank = 5 } }
+    local ns = boot({ specIndex = 1, roster = roster })
+    local a1 = foreign(ns, "Player-1-OFF", "Off", 1, "ARTICLE",
+        { title = "Hogger tombe", body = "v1", edition = "E1", key = "k1", order = 1 }, 2000)
+    foreign(ns, "Player-1-OFF", "Off", 2, "ARTICLE",
+        { title = "Second", body = "x", edition = "E1", key = "k2", order = 2 }, 2000)
+    -- a correction arriving with no original yet is not shown on its own
+    foreign(ns, "Player-1-OFF", "Off", 9, "ARTICLE", { replaces = "Player-1-OFF:404", title = "Fantome", body = "?" }, 2500)
+    local function issue()
+        local list = ns.Views.Editions(ns.Store.Dataset())
+        eq(#list, 1)
+        return list[1]
+    end
+    eq(#issue().articles, 2)
+    -- the author corrects: same id, date, slot; new text
+    local fix = foreign(ns, "Player-1-OFF", "Off", 3, "ARTICLE", { replaces = a1.id, title = "Hogger tombe (rectificatif)", body = "v2" }, 3000)
+    -- a member who is neither the author nor an officer cannot
+    foreign(ns, "Player-1-BOB", "Bob", 1, "ARTICLE", { replaces = a1.id, title = "Triche", body = "!" }, 4000)
+    local e = issue()
+    eq(#e.articles, 2)
+    local first = e.articles[1]
+    eq(first.id, a1.id); eq(first.title, "Hogger tombe (rectificatif)"); eq(first.body, "v2")
+    eq(first.t, 2000); eq(first.revised, 3000); eq(first.key, "k1"); eq(first.order, 1); eq(first.edition, "E1")
+    -- a correction of the correction still targets the original
+    foreign(ns, "Player-1-OFF", "Off", 4, "ARTICLE", { replaces = fix.id, title = "v3", body = "v3" }, 5000)
+    eq(issue().articles[1].title, "v3")
+    -- withdrawal
+    foreign(ns, "Player-1-OFF", "Off", 5, "ARTICLE", { replaces = a1.id, retract = true }, 6000)
+    e = issue()
+    eq(#e.articles, 1); eq(e.articles[1].title, "Second")
+end)
+
 test("profil de carte : race, sexe, objets ; envoye seulement s'il change ; opt-out", function()
     local ns = boot({ specIndex = 1 })
     function UnitSex() return 3 end
@@ -1862,6 +2114,9 @@ test("booster : le paquet s'ouvre, cartes face cachee, une retournee au clic, pu
     assert(r.pack:IsShown(), "paquet")
     r.cards[1]:Click()
     eq(r.cards[1].turned, false, "pas avant l'ouverture")
+    Stub.advance(5)
+    eq(r.stage, "pack", "le paquet attend qu'on clique dessus")
+    r.pack:Click()
     Stub.advance(2)
     eq(r.stage, "deal")
     eq(r.cards[1].owned, false, "face cachee")
@@ -1914,6 +2169,69 @@ test("renatus_admin : publier le numero publie ses cartes ; apercu des cartes", 
     local ev = eventsOf(ns, "CARD_SET")[1]
     eq(ev.prov, "GEN"); eq(ev.vis, "G"); eq(ev.p.set, "E1")
     eq(ns.Album.Catalogue(ns.Store.Dataset()).published, true)
+    RenatusPress = nil
+end)
+
+test("renatus_admin : corrections de l'app (carte, article) publiees en jeu, vues par la guilde", function()
+    local ns, A = bootAdmin(OFFICER)
+    ns.Store.Add("BOOSTER_OPEN", { n = 1, cards = { "X:boss1" } }, { keep = true, noExp = true, loc = {} })
+    withPress({
+        { id = "ia:E1:a", kind = "ARTICLE", refs = {}, p = { title = "Une", body = "Un", edition = "E1", order = 1, key = "a" } },
+        { id = "ia:E1:maquette", kind = "EDITION", p = { edition = "E1", cells = { { pg = 1, r = 1, w = 12, b = { { t = "story", a = "@1" } } } } } },
+        { id = "cards:E1:1", kind = "CARD_SET", p = cardSet("E1", 1) },
+    })
+    assert(A.Press.Publish(A.Press.Pending(function(i) return i.kind == "EDITION" end)[1]))
+    local original = eventsOf(ns, "ARTICLE")[1]
+    -- what the admin app writes (admin/core/src/revise.rs)
+    withPress({
+        { id = "fix:card:X:boss1:50", kind = "CARD_SET", p = { set = "fix:50", cards = {
+            { id = "X:boss1", no = 3, s = "expeditions", r = "legendary", n = "Hogger, enfin", f = "Corrige." } } } },
+        { id = "fix:card:M:Player-1-BOB:common:51", kind = "CARD_SET", p = { set = "fix:51", cards = {
+            { id = "M:Player-1-BOB:common", del = true } } } },
+        { id = "fix:article:" .. original.id .. ":52", kind = "ARTICLE", p = { replaces = original.id, title = "Une (rectifiee)",
+            body = "Deux", quote = "", format = "Breve", style = "" } },
+    })
+    local Press = A.Press
+    local labels = {}
+    for _, item in ipairs(Press.Pending()) do labels[#labels + 1] = Press.Label(item) end
+    table.sort(labels)
+    eq(labels[1], "Correction d'article : Une (rectifiee)")
+    eq(labels[2], "Correction de la carte : Hogger, enfin")
+    eq(labels[3], "Retrait de la carte M:Player-1-BOB:common")
+    for _, item in ipairs(Press.Pending()) do assert(Press.Publish(item)) end
+    local ds = ns.Store.Dataset()
+    local byId = {}
+    for _, c in ipairs(ns.Album.Catalogue(ds)) do byId[c.id] = c end
+    eq(byId["X:boss1"].name, "Hogger, enfin"); eq(byId["X:boss1"].no, 3)
+    eq(byId["M:Player-1-BOB:common"], nil, "retiree")
+    local list = ns.Views.Editions(ds)
+    eq(#list, 1, "la correction n'est pas un numero")
+    eq(#list[1].articles, 1)
+    local a = list[1].articles[1]
+    eq(a.id, original.id); eq(a.title, "Une (rectifiee)"); eq(a.body, "Deux"); eq(a.kind, "Breve"); eq(a.key, "a")
+    eq(a.style, nil, "champ vide : efface")
+    RenatusPress = nil
+end)
+
+test("renatus_admin : apercu de plus de cinq cartes, cinq par cinq (cartes suivantes)", function()
+    local ns, A = bootAdmin(OFFICER)
+    local cards = {}
+    for i = 1, 7 do cards[i] = { id = "Z:" .. i, no = i, s = "faits", r = "common", n = "Carte " .. i } end
+    withPress({ { id = "cards:E9:1", kind = "CARD_SET", p = { set = "E9", cards = cards } } })
+    local item = A.Press.Pending(function(i) return i.kind == "CARD_SET" end)[1]
+    local r = A.Press.Preview(item)
+    eq(#r.got, 5); eq(r.got[1].name, "Carte 1")
+    eq(r.more:IsShown(), true, "bouton cartes suivantes")
+    eq(r.ok.label:GetText(), "Fermer")
+    r.more:GetScript("OnClick")(r.more)
+    eq(#r.got, 2, "les deux dernieres"); eq(r.got[1].name, "Carte 6")
+    eq(r.more:IsShown(), true, "puis retour aux premieres")
+    r.more:GetScript("OnClick")(r.more)
+    eq(r.got[1].name, "Carte 1")
+    -- five cards or less: no button
+    withPress({ { id = "cards:E9:2", kind = "CARD_SET", p = { set = "E9", cards = { cards[1] } } } })
+    r = A.Press.Preview(A.Press.Pending(function(i) return i.id == "cards:E9:2" end)[1])
+    eq(r.more:IsShown(), false)
     RenatusPress = nil
 end)
 

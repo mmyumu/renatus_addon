@@ -12,7 +12,7 @@ use serde_json::{json, Value};
 
 use crate::chronicle::{num_of, payload, str_of, Chronicle};
 use crate::paths::{WowPaths, ADMIN_ADDON};
-use crate::{armory, articles, cards, combatlog, edition, gazette, issues, llm, press};
+use crate::{armory, articles, cards, combatlog, edition, gazette, issues, llm, press, revise};
 
 pub fn now() -> i64 {
     chrono::Utc::now().timestamp()
@@ -51,6 +51,8 @@ pub struct Status {
     pub last_event: Option<i64>,
     pub combat_logs: usize,
     pub pending: usize,
+    /// The pending items themselves (Press.lua minus what was handled in game).
+    pub pending_items: Vec<Value>,
     pub renatus_version: Option<String>,
     pub admin_version: Option<String>,
     pub configured_rival: Option<String>,
@@ -81,6 +83,7 @@ pub fn status(paths: &WowPaths) -> Status {
         last_event: None,
         combat_logs: paths.combat_logs().len(),
         pending: 0,
+        pending_items: Vec::new(),
         renatus_version: crate::addon::installed_version(&addons, "Renatus"),
         admin_version: crate::addon::installed_version(&addons, ADMIN_ADDON),
         configured_rival: None,
@@ -95,12 +98,12 @@ pub fn status(paths: &WowPaths) -> Status {
             st.shared = ch.all().filter(|e| str_of(e, "vis") == Some("G")).count();
             st.authors = ch.members().len();
             st.last_event = ch.all().map(|e| num_of(e, "t") as i64).max();
-            st.pending = press::merge(
+            st.pending_items = press::merge(
                 press::read_items(&paths.press()),
                 Vec::new(),
                 &ch.press_done,
-            )
-            .len();
+            );
+            st.pending = st.pending_items.len();
             st.configured_rival = ch.configured_rival();
             st.wanted = ch.wanted().into_values().collect();
         }
@@ -368,6 +371,53 @@ pub fn rival(rival: &str, ch: &Chronicle) -> Result<(armory::Guild, Proposal), S
         ));
     }
     Ok((guild, out))
+}
+
+/// Removes pending items (`items`: their ids) and single album cards (`cards`: card ids,
+/// taken out of their CARD_SET) from Press.lua; returns the pending count.
+pub fn remove_pending(
+    paths: &WowPaths,
+    ch: &Chronicle,
+    items: &[String],
+    cards: &[String],
+) -> Result<usize, String> {
+    let file = paths.press();
+    let kept = press::merge(press::read_items(&file), Vec::new(), &ch.press_done);
+    let kept = press::remove(kept, items, cards);
+    press::write(&file, &kept, now())?;
+    Ok(kept.len())
+}
+
+/// The published catalogue and issues, as members see them, for the editor (revise.rs).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Published {
+    pub cards: Vec<revise::PublishedCard>,
+    pub issues: Vec<revise::Issue>,
+}
+
+pub fn published(paths: &WowPaths, ch: &Chronicle) -> Published {
+    let pending = pending(paths, ch);
+    Published {
+        cards: revise::catalogue(ch, &pending),
+        issues: revise::archive(ch, &pending),
+    }
+}
+
+/// Puts a correction (revise.rs) in Press.lua, in place of an older correction of the same
+/// card or article still pending; returns the pending count.
+pub fn propose_fix(paths: &WowPaths, ch: &Chronicle, item: Value) -> Result<usize, String> {
+    let id = str_of(&item, "id").ok_or("Correction sans id.")?;
+    let prefix = match id.rsplit_once(':') {
+        Some((head, _)) => format!("{head}:"),
+        None => return Err("Correction sans id.".into()),
+    };
+    let file = paths.press();
+    let mut kept = press::merge(press::read_items(&file), Vec::new(), &ch.press_done);
+    kept.retain(|i| str_of(i, "id").is_none_or(|x| !x.starts_with(&prefix)));
+    kept.push(item);
+    press::write(&file, &kept, now())?;
+    Ok(kept.len())
 }
 
 /// Merges `items` into Press.lua (minus what was already handled); returns the pending count.

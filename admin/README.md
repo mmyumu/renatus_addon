@@ -30,6 +30,11 @@ Rien n'est diffusé à la guilde sans ce clic, sauf l'effectif de la guilde riva
   main (`.md`, voir `exemple-article.md.txt`) entrent dans le numéro. Les **cartes de l'album**
   partent avec le numéro (`CARD_SET`, numérotées) : choisies par des règles, nommées et décrites
   par l'IA pour les membres qui l'ont accepté ; publiées en jeu avec la mise en page.
+- **Éditeur** : le catalogue de l'album et les numéros déjà publiés, tels que les membres les
+  voient. Chaque carte et chaque article peut être corrigé ou retiré (puis rétabli) : la
+  correction part dans Press.lua et se publie en jeu comme le reste. Une carte corrigée garde
+  son numéro et change aussi chez ceux qui l'ont déjà ouverte ; une carte retirée ne sort plus
+  des boosters mais reste à ceux qui l'ont ; un article corrigé reste à sa place dans son numéro.
 - **Automatique** : fenêtre ouverte, après chaque `/reload` ou déconnexion, elle analyse les
   journaux de combat s'il y en a et, si coché, rédige
   un numéro quand le précédent a une semaine (faits nouveaux seulement), puis le signale par

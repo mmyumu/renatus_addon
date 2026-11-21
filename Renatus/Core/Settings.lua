@@ -50,6 +50,8 @@ local CHAR_DEFAULTS = {
     rivalGuild = "",         -- legacy per-character rival guild (before GUILD_CONFIG); read-only fallback
     albumOptOut = false,     -- do not appear in other people's album
     visitedMaps = {},        -- zones already visited (for "first visit")
+    mobsKilled = {},         -- [npc id] = true: creatures already recorded (Collectors/Kills.lua)
+    itemsSeen = {},          -- [item id] = true: rare items already recorded (Collectors/Loot.lua)
     enemySeenAt = {},        -- [name] = last recorded observation (rate limit)
     expSeq = 0,              -- local expedition counter
     -- expedition = nil      -- current expedition (Collectors/Expedition.lua)

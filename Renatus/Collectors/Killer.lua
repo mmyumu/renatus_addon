@@ -43,6 +43,12 @@ local function describe(guid, name, spell, amount, overkill, env, src)
         k.cl, k.c, k.ra = cl, c, ra
         if pname and pname ~= "" then k.n = pname end
         if realm and realm ~= "" then k.r = realm end
+    else
+        -- a creature: its npc id (3D model on its album card) and kind (elite, rare...), from
+        -- Collectors/Creatures.lua
+        local info = ns.Creatures and ns.Creatures.Info(name)
+        k.npc = ns.NpcId(guid) or (info and info.npc) or nil
+        k.cls = info and info.cls or nil
     end
     return k
 end

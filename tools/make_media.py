@@ -324,30 +324,103 @@ def card_frame(size=128):
     return img
 
 
-def card_back(size=256):
-    """Back of an unknown card: red leather, gold frame, compass-rose emblem."""
-    img = leather(size)
-    img[..., :3] *= 1.6
-    y, x = np.mgrid[0:size, 0:size].astype(np.float64) + 0.5
-    d = np.minimum(np.minimum(x, size - x), np.minimum(y, size - y))
-    gold = (210, 165, 80)
-    for d0, d1 in [(14, 17), (22, 23.5)]:
-        m = (d >= d0) & (d < d1)
-        img[..., :3] = np.where(m[..., None], gold, img[..., :3])
-    c = size / 2
-    u, v = x - c, y - c
-    r = np.hypot(u, v)
-    ring = (r > 52) & (r < 56)
-    img[..., :3] = np.where(ring[..., None], gold, img[..., :3])
-    # four-pointed star (two rotated rhombi)
-    star = ((np.abs(u) / 14 + np.abs(v) / 64) < 1) | ((np.abs(u) / 64 + np.abs(v) / 14) < 1)
-    star2 = ((np.abs(u + v) / 20 + np.abs(u - v) / 60) < 1) | ((np.abs(u + v) / 60 + np.abs(u - v) / 20) < 1)
-    light = np.clip(0.6 - (u + v) / 140, 0.3, 1)
-    img[..., :3] = np.where(star2[..., None], lerp((120, 84, 30), (200, 160, 80), light), img[..., :3])
-    img[..., :3] = np.where(star[..., None], lerp((150, 104, 40), (255, 220, 130), light), img[..., :3])
-    gem = r < 9
-    img[..., :3] = np.where(gem[..., None], lerp((90, 6, 6), (230, 50, 40), np.clip(1 - np.hypot(u + 3, v + 3) / 9, 0, 1)), img[..., :3])
-    return img
+CARDBACK_V = 362 / 512  # used height of the cardback texture (card face is 126 x 178)
+
+
+def card_back(w=256, h=512):
+    """Back of an unknown card: red leather, gold frame, round medallion with a crowned R.
+
+    Drawn in the card's own proportions (126 x 178) in the top of a 256 x 512
+    texture; the addon crops it with SetTexCoord, so nothing is stretched.
+    """
+    from PIL import ImageDraw, ImageFilter
+    S = 4
+    uh = round(h * CARDBACK_V)
+    W, H = w * S, uh * S
+    y, x = np.mgrid[0:H, 0:W].astype(np.float64) + 0.5
+    # leather, a bit warmer than the window's, with a soft vignette
+    big = noise((H // S, W // S), 2.2, 130)
+    pebble = smooth(0.45, 0.75, noise((H // S, W // S), 1.0, 131))
+    grain = noise((H // S, W // S), 0.6, 132)
+    base = lerp((40, 12, 10), (88, 26, 20), big)
+    small = base * (0.82 + 0.18 * pebble[..., None] + (grain[..., None] - 0.5) * 0.2)
+    bg = np.asarray(Image.fromarray(np.clip(small, 0, 255).astype(np.uint8), "RGB").resize((W, H), Image.BICUBIC)).astype(np.float64)
+    c = (W / 2, H / 2)
+    vig = np.hypot((x - c[0]) / W, (y - c[1]) / H)
+    bg *= (1.08 - 0.75 * vig ** 2)[..., None]
+    im = Image.fromarray(np.dstack([np.clip(bg, 0, 255), np.full((H, W), 255.0)]).astype(np.uint8), "RGBA")
+    d = ImageDraw.Draw(im)
+    gold, gold_dk, gold_hi = (214, 168, 82, 255), (120, 80, 30, 255), (255, 226, 150, 255)
+    # double gold frame with small diamonds in the corners
+    m1, m2 = 13 * S, 20 * S
+    d.rectangle([m1, m1, W - m1, H - m1], outline=gold, width=3 * S)
+    d.rectangle([m2, m2, W - m2, H - m2], outline=gold_dk, width=S)
+    for cx, cy in ((m1, m1), (W - m1, m1), (m1, H - m1), (W - m1, H - m1)):
+        r = 7 * S
+        d.polygon([(cx, cy - r), (cx + r, cy), (cx, cy + r), (cx - r, cy)], fill=gold, outline=gold_dk)
+        d.ellipse([cx - 2 * S, cy - 2 * S, cx + 2 * S, cy + 2 * S], fill=(150, 24, 18, 255))
+    # filigree: thin lines from the medallion towards top and bottom
+    cx, cy = W / 2, H / 2
+    R = 78 * S
+    for sgn in (-1, 1):
+        y0, y1 = cy + sgn * (R + 10 * S), (m2 + 14 * S) if sgn < 0 else (H - m2 - 14 * S)
+        d.line([cx, y0, cx, y1], fill=gold_dk, width=2 * S)
+        r = 6 * S
+        d.polygon([(cx, y1 - r), (cx + r, y1), (cx, y1 + r), (cx - r, y1)], fill=gold)
+    # medallion: dark shadow, gold rim (bevelled), red enamel disc
+    shadow = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    ImageDraw.Draw(shadow).ellipse([cx - R - 4 * S, cy - R, cx + R + 4 * S, cy + R + 8 * S], fill=(0, 0, 0, 170))
+    im.alpha_composite(shadow.filter(ImageFilter.GaussianBlur(6 * S)))
+    rr = np.hypot(x - cx, y - cy)
+    light = np.clip(0.5 - 0.5 * ((x - cx) + (y - cy)) / R, 0, 1)
+    arr = np.asarray(im).astype(np.float64)
+    rim = (rr < R) & (rr >= R - 9 * S)
+    rimcol = lerp((110, 72, 26), (255, 222, 140), light)
+    arr[..., :3] = np.where(rim[..., None], rimcol, arr[..., :3])
+    groove = (rr < R - 3.5 * S) & (rr >= R - 5 * S)
+    arr[..., :3] = np.where(groove[..., None], (90, 56, 20), arr[..., :3])
+    disc = rr < R - 9 * S
+    enamel = lerp((70, 6, 6), (170, 28, 20), np.clip(1 - np.hypot(x - cx + R * 0.3, y - cy + R * 0.35) / (R * 1.4), 0, 1))
+    arr[..., :3] = np.where(disc[..., None], enamel, arr[..., :3])
+    inner = (rr < R - 13 * S) & (rr >= R - 14.5 * S)
+    arr[..., :3] = np.where(inner[..., None], (200, 150, 70), arr[..., :3])
+    im = Image.fromarray(np.clip(arr, 0, 255).astype(np.uint8), "RGBA")
+    # the R, with a small crown above it: drawn as a mask, then gold-shaded and bevelled
+    mask = Image.new("L", (W, H), 0)
+    md = ImageDraw.Draw(mask)
+    font = _serif(int(R * 1.12))
+    if font:
+        bb = md.textbbox((0, 0), "R", font=font)
+        tw, th = bb[2] - bb[0], bb[3] - bb[1]
+        md.text((cx - tw / 2 - bb[0], cy - th / 2 - bb[1] + R * 0.14), "R", font=font, fill=255)
+    # crown: band + three points topped with pearls
+    ct, cb_, cw = cy - R * 0.7, cy - R * 0.45, R * 0.36
+    md.polygon([(cx - cw, cb_), (cx - cw, ct + R * 0.06), (cx - cw * 0.5, cb_ - R * 0.1), (cx, ct),
+                (cx + cw * 0.5, cb_ - R * 0.1), (cx + cw, ct + R * 0.06), (cx + cw, cb_)], fill=255)
+    for px, py in ((cx - cw, ct + R * 0.06), (cx, ct), (cx + cw, ct + R * 0.06)):
+        pr = R * 0.055
+        md.ellipse([px - pr, py - pr, px + pr, py + pr], fill=255)
+    m = np.asarray(mask).astype(np.float64) / 255
+    # bevel: compare the mask with a copy shifted towards the light
+    blur = np.asarray(mask.filter(ImageFilter.GaussianBlur(2.5 * S))).astype(np.float64) / 255
+    gy, gx = np.gradient(blur)
+    bevel = np.clip(0.55 + (-(gx + gy)) * 14 * S, 0, 1)
+    vert = np.clip((y - (cy - R)) / (2 * R), 0, 1)
+    letter = lerp((255, 232, 160), (170, 112, 36), vert * 0.8)
+    letter = letter * (0.55 + 0.75 * bevel[..., None])
+    # dark outline + drop shadow under the letter
+    out = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    om = mask.filter(ImageFilter.MaxFilter(2 * S + 1)).filter(ImageFilter.GaussianBlur(S))
+    sh = Image.new("RGBA", (W, H), (30, 6, 4, 255))
+    out.paste(sh, (2 * S, 3 * S), om)
+    im.alpha_composite(out)
+    arr = np.asarray(im).astype(np.float64)
+    arr[..., :3] = arr[..., :3] * (1 - m[..., None]) + np.clip(letter, 0, 255) * m[..., None]
+    im = Image.fromarray(np.clip(arr, 0, 255).astype(np.uint8), "RGBA")
+    small = im.resize((w, uh), Image.LANCZOS)
+    full = Image.new("RGBA", (w, h), (0, 0, 0, 255))
+    full.paste(small, (0, 0))
+    return np.asarray(full).astype(np.float64)
 
 
 def gem(size=32):

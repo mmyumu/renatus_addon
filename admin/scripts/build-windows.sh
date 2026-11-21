@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Builds the Renatus Admin installer from WSL: copies admin/ (and launcher/core, a
 # path dependency) to a Windows folder, runs scripts/build-windows.cmd there, and
-# copies the installer to admin/artifacts/.
+# copies the installer and the bare executable to admin/artifacts/.
 #   ADMIN_WIN_BUILD_DIR=/mnt/c/...      build folder (default %USERPROFILE%\renatus-admin-build)
 #   LAUNCHER_WIN_TOOLS=C:\...\folder    folder holding portable node\ and toolchain\ (optional)
 set -euo pipefail
@@ -42,3 +42,6 @@ mkdir -p "$admin/artifacts"
 rm -f "$admin"/artifacts/*-setup.exe
 cp "$setup" "$admin/artifacts/"
 echo "Installer: $admin/artifacts/$(basename "$setup")"
+# The bare executable too (the UI is embedded): runs without installing, for local tests.
+cp "$build_root/admin/target/release/renatus-admin.exe" "$admin/artifacts/"
+echo "Executable: $admin/artifacts/renatus-admin.exe"
