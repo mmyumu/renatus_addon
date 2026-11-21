@@ -15,4 +15,6 @@ node -e '
 ' "$version"
 sed -i "0,/^version = \".*\"/s//version = \"$version\"/" core/Cargo.toml src-tauri/Cargo.toml
 cargo update -p renatus-launcher -p renatus-launcher-core --offline >/dev/null 2>&1 || cargo update -p renatus-launcher -p renatus-launcher-core
+# The admin app depends on launcher/core: keep its lock file in step.
+(cd ../admin && { cargo update -p renatus-launcher-core --offline >/dev/null 2>&1 || cargo update -p renatus-launcher-core; })
 echo "Launcher version: $version"
