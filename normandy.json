@@ -1,0 +1,11 @@
+{
+  "tests": ["checks.yml"],
+  "components": [
+    {"name": "Addons", "paths": ["Renatus/**", "Renatus_Admin/**"], "deploy": "auto"},
+    {"name": "Launcher", "paths": ["launcher/**"], "deploy": "auto"},
+    {"name": "Admin app", "paths": ["admin/**"], "deploy": "auto"},
+    {"name": "CI", "paths": [".github/**"], "deploy": "none"},
+    {"name": "Tests and tooling", "paths": ["tests/**", "tools/**", ".gitignore", "normandy.json"], "deploy": "none"},
+    {"name": "Docs", "paths": ["docs/**", "CLAUDE.md"], "deploy": "none"}
+  ]
+}
