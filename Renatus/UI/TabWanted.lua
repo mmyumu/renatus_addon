@@ -582,10 +582,7 @@ local function build(c)
     end)
     c.registry:SetPoint("TOPLEFT", 0, bodyTop)
     -- Registry filter: every enemy met, or the rival guild only.
-    c.rivalFilter = UI.ToggleButton(c, "Guilde rivale", 110, 24, function()
-        c.rivalOnly = not c.rivalOnly
-        c:Refresh()
-    end)
+    c.rivalFilter = UI.Checkbox(c, "Seulement la guilde rivale", function(v) c.rivalOnly = v; c:Refresh() end)
     c.rivalFilter:SetPoint("LEFT", c.tabRegistry, "RIGHT", 14, 0)
 
     -- Record view
@@ -702,7 +699,7 @@ local function build(c)
         posters:SetShown(self.view == "posters" and not detailEnemy)
         self.registry:SetShown(self.view == "registry" and not detailEnemy)
         self.rivalFilter:SetShown(self.view == "registry" and not detailEnemy)
-        self.rivalFilter:SetSelected(self.rivalOnly == true)
+        self.rivalFilter:SetChecked(self.rivalOnly == true)
         d:SetShown(detailEnemy ~= nil)
         if detailEnemy then self:ShowDetail(detailEnemy) return end
         if self.view == "home" then refreshHome(self, ds, postersList, enemies) return end
