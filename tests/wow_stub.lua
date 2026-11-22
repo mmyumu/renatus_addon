@@ -235,6 +235,24 @@ function Stub.reset(opts)
         GetPlayerMapPosition = function() return { GetXY = function() return 0.5, 0.25 end } end,
     }
     C_QuestLog = { GetTitleForQuestID = function(id) return "Quête " .. id end }
+    -- chat: message filters, links clicked (SetItemRef), text inserted in the chat box
+    S.chatFilters, S.chatBox, S.shift = {}, nil, false
+    function ChatFrame_AddMessageEventFilter(event, fn)
+        S.chatFilters[event] = S.chatFilters[event] or {}
+        table.insert(S.chatFilters[event], fn)
+    end
+    function hooksecurefunc(name, fn)
+        local old = _G[name]
+        _G[name] = function(...) local r = old(...); fn(...); return r end
+    end
+    function SetItemRef(link) S.lastRef = link end
+    function IsModifiedClick(action) return action == "CHATLINK" and S.shift end
+    function ChatEdit_InsertLink(text)
+        if not S.chatBox then return false end
+        S.chatBox = S.chatBox .. text
+        return true
+    end
+    function ChatFrame_OpenChat(text) S.chatBox = text end
     -- Midnight-based client (secret values) unless opts.classicLog: then no issecretvalue.
     issecretvalue = nil
     if not opts.classicLog then

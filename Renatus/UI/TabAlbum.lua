@@ -648,7 +648,10 @@ local function buildReveal()
     for i = 1, Album.BOOSTER_SIZE do
         local f = UI.CreateCard(r)
         f:SetFrameLevel((r:GetFrameLevel() or 1) + 2)
-        f:SetScript("OnClick", function() r:Flip(i) end)
+        f:SetScript("OnClick", function(self)
+            if self.owned and not r.preview and ns.CardLink.ShiftClick(self.card) then return end
+            r:Flip(i)
+        end)
         r.cards[i] = f
         -- burst of light when the card turns, coloured by its rarity
         local b = r:CreateTexture(nil, "BACKGROUND", nil, 2)
@@ -690,6 +693,7 @@ local function showReveal(cards, collection, opts)
     r.hint:SetText(opts.preview and "Aperçu : rien n'est encore publié." or "Clique le paquet pour l'ouvrir.")
     r.ok:SetLabel(opts.preview and "Fermer" or "Ranger dans l'album")
     r.onNext = opts.onNext
+    r.preview = opts.preview   -- unpublished cards: not shared in the chat
     r.more:SetShown(opts.onNext ~= nil)
     local centerX = (r:GetWidth() - CARD_W) / 2
 
@@ -844,7 +848,8 @@ end
 -- Zoom: one card, large.
 ------------------------------------------------------------------------
 local zoom
-local function showZoom(card, count)
+-- hint: line under the card (default: how to close it).
+local function showZoom(card, count, hint)
     if not zoom then
         zoom = CreateFrame("Button", nil, UI.GetWindow())
         zoom:SetFrameStrata("DIALOG")
@@ -855,13 +860,17 @@ local function showZoom(card, count)
         zoom.card = UI.CreateCard(zoom)
         zoom.card:SetScale(1.9)
         zoom.card:SetPoint("CENTER", 0, 8)
-        zoom.card:SetScript("OnClick", function() zoom:Hide() end)
+        zoom.card:SetScript("OnClick", function(self)
+            if ns.CardLink.ShiftClick(self.card) then return end
+            zoom:Hide()
+        end)
         zoom.hint = UI.Text(zoom, 11, UI.C.dim)
-        zoom.hint:SetPoint("BOTTOM", 0, 30)
-        zoom.hint:SetText("Clique pour refermer.")
+        -- right under the card: the album's own note line sits at the bottom of the tab
+        zoom.hint:SetPoint("TOP", zoom.card, "BOTTOM", 0, -10)
         zoom:SetScript("OnClick", function() zoom:Hide() end)
     end
     UI.FillCard(zoom.card, card, count)
+    zoom.hint:SetText(hint or "Clique pour refermer. Maj-clic : la partager dans le chat.")
     zoom:Show()
     return zoom
 end
@@ -901,7 +910,7 @@ local function build(c)
     end)
     c.booster:SetPoint("TOPRIGHT", -4, -6)
     UI.Tooltip(c.booster, function()
-        return "Booster", { "5 cartes. Le contenu est déterminé par l'identifiant du booster : impossible de relancer le tirage.",
+        return "Booster", { "5 cartes, dont au moins une rare. Le contenu est déterminé par l'identifiant du booster : impossible de relancer le tirage.",
             Album.DescribeRule(ns.Store.Dataset().isDemo and Album.DEFAULT_RULE or ns.GuildConfig.Boosters()) }
     end)
 
@@ -931,7 +940,9 @@ local function build(c)
         local col, line = (i - 1) % COLS, math.floor((i - 1) / COLS)
         f:SetPoint("TOPLEFT", gapX + col * (CARD_W + gapX), -82 - line * (CARD_H + 10))
         f:SetScript("OnClick", function(self)
-            if self.owned and self.card then UI.Click(); c.zoom = showZoom(self.card, self.copies) end
+            if not (self.owned and self.card) then return end
+            if ns.CardLink.ShiftClick(self.card) then return end
+            UI.Click(); c.zoom = showZoom(self.card, self.copies)
         end)
         c.cards[i] = f
     end
@@ -968,8 +979,8 @@ local function build(c)
         local nb = ds.boosters or 0
         self.booster:SetLabel("Ouvrir un booster (" .. nb .. ")")
         self.booster:SetDisabled(nb <= 0)
-        self.note:SetText(cards.published and "Catalogue publié par les officiers avec la gazette. Clique une carte pour l'agrandir."
-            or "Cartes de guilde calculées en attendant le premier catalogue publié. Clique une carte pour l'agrandir.")
+        self.note:SetText(cards.published and "Catalogue publié par les officiers avec la gazette. Clique une carte pour l'agrandir, Maj-clic pour la partager dans le chat."
+            or "Cartes de guilde calculées en attendant le premier catalogue publié. Clique une carte pour l'agrandir, Maj-clic pour la partager.")
 
         local visible = {}
         for _, card in ipairs(all) do

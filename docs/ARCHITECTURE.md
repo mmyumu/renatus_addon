@@ -451,7 +451,7 @@ Les enrichissements `LOG` (causes de mort, coups fataux PvP) passent par le mêm
 ### 9.3 Mécanique vérifiable
 
 - **Obtention** : un événement `BOOSTER_GRANT` de l'auteur, qui référence l'événement justificatif. Les autres clients vérifient le plafond hebdomadaire à partir du journal public.
-- **Contenu** : il est **dérivé de façon déterministe** d'un hash de l'identifiant du booster et de la version du catalogue. Impossible de relancer le tirage, et tout le monde peut recalculer le contenu.
+- **Contenu** : il est **dérivé de façon déterministe** d'un hash de l'identifiant du booster et de la version du catalogue. Impossible de relancer le tirage, et tout le monde peut recalculer le contenu. La dernière carte est tirée parmi rare, épique et légendaire uniquement : au moins une rare par booster.
 - **Échanges** : `TRADE_OFFER` (A propose X contre Y à B) puis `TRADE_ACCEPT` (B, en référençant l'offre). La propriété des cartes est obtenue en **rejouant** les journaux. Si A offre la même carte à deux personnes, la première acceptation (horodatage serveur) gagne et l'autre échoue de façon visible.
 - Ce système n'est pas infalsifiable : un client modifié pourrait forger des événements. C'est acceptable entre amis.
 

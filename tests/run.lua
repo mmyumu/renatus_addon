@@ -422,6 +422,17 @@ test("album : booster deterministe, 5 cartes", function()
     assert(differs, "identifiants differents -> contenus differents")
 end)
 
+test("album : booster, la derniere carte est rare ou mieux", function()
+    local ns, ds = demo()
+    local cards = ns.Album.Catalogue(ds)
+    local rare = ns.Album.RARITY_INDEX.rare
+    for n = 1, 200 do
+        local got = ns.Album.BoosterContents(cards, "X:booster:" .. n)
+        local last = got[#got]
+        assert(ns.Album.RARITY_INDEX[last.rarity] >= rare, "booster " .. n .. " : " .. last.rarity)
+    end
+end)
+
 test("recherche dans le journal", function()
     local ns, ds = demo()
     eq(#ns.Views.Filter(ds.events, { search = "vancleef" }), 3)
@@ -552,6 +563,86 @@ test("album : ouvrir un booster en demo", function()
     local before = ds.boosters
     RenatusMainFrame.containers.album.booster:Click()
     eq(ds.boosters, before - 1)
+end)
+
+local function chat(S, event, msg, ...)
+    local out = { msg, ... }
+    for _, fn in ipairs(S.chatFilters[event] or {}) do
+        local res = { fn(nil, event, unpack(out)) }
+        if res[1] then return nil end
+        if #res > 1 then out = { select(2, unpack(res)) } end
+    end
+    return unpack(out)
+end
+
+local function textShown(S, prefix)
+    for _, w in ipairs(S.frames) do
+        if w.kind == "FontString" and type(w.text) == "string" and w.text:sub(1, #prefix) == prefix then return true end
+    end
+    return false
+end
+
+test("cartes partagees : texte envoye, lien colore a l'arrivee, carte ouverte au clic", function()
+    local ns, S = boot({ specIndex = 1 })
+    local L = ns.CardLink
+    local elwynn = ns.Album.Find(ns.Store.Dataset(), "AZ:est:elwynn")
+    eq(elwynn.name, "Forêt d'Elwynn")
+    local text = L.Text(elwynn)
+    eq(text, "[Renatus: Forêt d'Elwynn #AZ:est:elwynn]")
+    eq(L.Text({ id = "X:avec espace", name = "x" }), nil, "id non transportable")
+    eq(L.Text({ id = "M:G:rare", name = "Da]key|r" }), "[Renatus: Dakeyr #M:G:rare]", "nom nettoye")
+    -- on arrival: a link coloured by rarity, the other arguments passed through
+    local msg, author, lang = chat(S, "CHAT_MSG_GUILD", "regarde " .. text .. " !", "Dakey", "Commun")
+    eq(msg, "regarde |cffd1d1d1|Hgarrmission:renatus:AZ:est:elwynn|h[Forêt d'Elwynn]|h|r !")
+    eq(author, "Dakey"); eq(lang, "Commun")
+    eq(chat(S, "CHAT_MSG_WHISPER", "rien a voir"), "rien a voir", "message ordinaire intact")
+    local secret = { secret = true }
+    eq(chat(S, "CHAT_MSG_SAY", secret), secret, "valeur secrete : pas touchee")
+    -- unknown card here (another guild): neutral colour, a line in the chat on click
+    msg = chat(S, "CHAT_MSG_WHISPER", "[Renatus: Inconnu #M:Player-9-XYZ:epic]")
+    eq(msg, "|cffd4a017|Hgarrmission:renatus:M:Player-9-XYZ:epic|h[Inconnu]|h|r")
+    SetItemRef("garrmission:renatus:M:Player-9-XYZ:epic", "[Inconnu]", "LeftButton")
+    assert(S.printed[#S.printed]:find("pas dans ton catalogue"), "explique")
+    assert(not RenatusMainFrame or not RenatusMainFrame:IsShown(), "rien d'ouvert")
+    -- known card: the window opens on it, large
+    SetItemRef("garrmission:renatus:AZ:est:elwynn", "[Forêt d'Elwynn]", "LeftButton")
+    assert(RenatusMainFrame:IsShown(), "fenetre ouverte")
+    assert(textShown(S, "Tu ne l'as pas encore"), "zoom avec sa ligne")
+    -- other links: ignored
+    local before = #S.printed
+    SetItemRef("item:1234", "[Epee]", "LeftButton")
+    eq(#S.printed, before)
+    -- shift-click on the link: passed on in the chat box
+    S.shift, S.chatBox = true, "vise "
+    SetItemRef("garrmission:renatus:AZ:est:elwynn", "[Forêt d'Elwynn]", "LeftButton")
+    eq(S.chatBox, "vise " .. text)
+    for _, line in ipairs(S.printed) do assert(not line:find("erreur") and not line:find("lien de carte"), line) end
+end)
+
+test("cartes partagees : maj-clic sur une carte de l'album", function()
+    local ns, S = boot({ specIndex = 1 })
+    SlashCmdList.RENATUS("demo")
+    ns.Store.Dataset().collection["AZ:est:elwynn"] = 2
+    ns.UI.Open("album")
+    local c = RenatusMainFrame.containers.album
+    c.series = "est"
+    c:Refresh()
+    local f
+    for _, card in ipairs(c.cards) do if card.card and card.card.id == "AZ:est:elwynn" then f = card end end
+    assert(f and f.owned, "carte possedee affichee")
+    -- chat box open: the text goes in it, no zoom
+    S.shift, S.chatBox = true, ""
+    f:Click()
+    eq(S.chatBox, "[Renatus: Forêt d'Elwynn #AZ:est:elwynn]")
+    assert(not textShown(S, "Clique pour refermer"), "pas de zoom")
+    -- no chat box: one opens with it
+    S.chatBox = nil
+    f:Click()
+    eq(S.chatBox, "[Renatus: Forêt d'Elwynn #AZ:est:elwynn]")
+    -- plain click: the zoom
+    S.shift = false
+    f:Click()
+    assert(textShown(S, "Clique pour refermer. Maj-clic"), "zoom")
 end)
 
 test("voix : la case des Options active le module", function()

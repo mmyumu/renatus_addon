@@ -388,6 +388,27 @@ function Album.Catalogue(ds)
     return cards
 end
 
+-- Every card this client can describe, by id: published (live or withdrawn), the base set
+-- (corrected, withdrawn included), then the guild cards computed locally.
+function Album.Known(ds)
+    local byId = {}
+    local live, gone, fixes = Album.Published(ds)
+    for _, c in ipairs(live) do byId[c.id] = c end
+    for id, c in pairs(gone) do byId[id] = c end
+    local baseLive, baseGone = Album.BaseSet(fixes)
+    for _, c in ipairs(baseLive) do byId[c.id] = c end
+    for id, c in pairs(baseGone) do byId[id] = c end
+    for _, c in ipairs(Album.Legacy(ds)) do byId[c.id] = byId[c.id] or c end
+    return byId
+end
+
+-- A card by its id (a card shared in the chat), nil if this client does not know it: a card
+-- of another guild, or a set not synced yet.
+function Album.Find(ds, id)
+    if type(id) ~= "string" then return nil end
+    return Album.Known(ds)[id]
+end
+
 -- Owned cards missing from the catalogue (an older edition, an opted-out member): still
 -- shown in the album, never drawn. Looked up in the published sets, then the local cards.
 function Album.Orphans(ds, cards, collection)
@@ -399,13 +420,7 @@ function Album.Orphans(ds, cards, collection)
     end
     if #missing == 0 then return {} end
     table.sort(missing)
-    local byId = {}
-    local live, gone, fixes = Album.Published(ds)
-    for _, c in ipairs(live) do byId[c.id] = c end
-    for id, c in pairs(gone) do byId[id] = c end
-    local _, baseGone = Album.BaseSet(fixes)
-    for id, c in pairs(baseGone) do byId[id] = c end
-    for _, c in ipairs(Album.Legacy(ds)) do byId[c.id] = byId[c.id] or c end
+    local byId = Album.Known(ds)
     local out = {}
     for _, id in ipairs(missing) do
         local c = byId[id] or { id = id, series = "faits", rarity = "common", name = "Carte retirée",
@@ -465,7 +480,12 @@ function Album.Opened(events, me)
     return opened, collection
 end
 
--- Booster contents: derived only from its id and the catalogue version.
+-- The last card of a booster is drawn among rare and better only (as in a TCG): a booster
+-- of commons only is no fun. Rare, epic and legendary keep their relative weights.
+Album.GUARANTEED_RARITY = "rare"
+
+-- Booster contents: derived only from its id and the catalogue version. Opened boosters
+-- store their card ids (BOOSTER_OPEN), so changing the draw never alters past boosters.
 function Album.BoosterContents(cards, boosterId)
     if #cards == 0 then return {} end
     local byRarity = {}
@@ -474,17 +494,22 @@ function Album.BoosterContents(cards, boosterId)
         byRarity[i] = byRarity[i] or {}
         table.insert(byRarity[i], c)
     end
-    local total = 0
-    for _, r in ipairs(Album.RARITIES) do total = total + r.weight end
     local nextValue = rng(Album.Hash(boosterId .. "#" .. tostring(cards.version)))
+    local guaranteed = RARITY_INDEX[Album.GUARANTEED_RARITY]
     local result = {}
-    for _ = 1, Album.BOOSTER_SIZE do
+    for slot = 1, Album.BOOSTER_SIZE do
+        local minIdx = slot == Album.BOOSTER_SIZE and guaranteed or 1
+        local total = 0
+        for i = minIdx, #Album.RARITIES do total = total + Album.RARITIES[i].weight end
         local roll = nextValue() % total
-        local idx = 1
-        for i, r in ipairs(Album.RARITIES) do
-            if roll < r.weight then idx = i break end
-            roll = roll - r.weight
+        local idx = minIdx
+        for i = minIdx, #Album.RARITIES do
+            local w = Album.RARITIES[i].weight
+            if roll < w then idx = i break end
+            roll = roll - w
         end
+        -- A rarity with no card in the catalogue falls back to the next lower one that has
+        -- some (below the guarantee only if the catalogue has no rare or better at all).
         while idx > 1 and not byRarity[idx] do idx = idx - 1 end
         while not byRarity[idx] do idx = idx + 1 end
         local pool = byRarity[idx]
