@@ -5,7 +5,8 @@
 //!   - consent: a character only appears if they ticked "La gazette IA peut parler de moi"
 //!     (AI_CONSENT event, latest choice wins). Otherwise their events are not sent, and
 //!     another member's fact naming them is dropped;
-//!   - rivals are never named to the AI: alias "Rival A (voleur gnome)";
+//!   - enemy players (rival guild or not) are named with a description:
+//!     "Décimeur (chasseur Tauren, <Les Cousins Maudits>)", "Gorbash (voleur Orc, guilde rivale)";
 //!   - provenance kept: declared by hand ("selon X"), deduced ("supposé"), combat log;
 //!   - the answer is checked: existing sources, no unauthorised name, bounded length.
 //!     A failing article is rejected, never fixed;
@@ -195,17 +196,18 @@ pub fn consent(ch: &Chronicle) -> BTreeMap<String, bool> {
     best.into_iter().map(|(a, (_, ok))| (a, ok)).collect()
 }
 
-/// Stable aliases for rival guild characters.
+/// Enemy characters as the facts name them: name, class, race and guild (the rival guild
+/// said as such). Honorable kills name every victim since addon 1.0.7.
 struct Rivals {
-    info: HashMap<String, (String, String, String)>, // lower -> (name, class, race)
+    info: HashMap<String, (String, String, String, String)>, // lower -> (name, class, race, guild)
     guild: Option<String>,
     alias: HashMap<String, String>,
 }
 
 impl Rivals {
     fn new(ch: &Chronicle) -> Self {
-        let mut info: HashMap<String, (String, String, String)> = HashMap::new();
-        let mut guild = None;
+        let mut info: HashMap<String, (String, String, String, String)> = HashMap::new();
+        let mut seen_guild = None;
         for kind in [
             "ENEMY_SEEN",
             "ENEMY_NOTE",
@@ -223,22 +225,30 @@ impl Rivals {
                 else {
                     continue;
                 };
-                let d = info
-                    .entry(name.to_lowercase())
-                    .or_insert_with(|| (name.to_string(), String::new(), String::new()));
+                let d = info.entry(name.to_lowercase()).or_insert_with(|| {
+                    (
+                        name.to_string(),
+                        String::new(),
+                        String::new(),
+                        String::new(),
+                    )
+                });
                 if d.1.is_empty() {
                     d.1 = str_of(p, "class").unwrap_or("").to_string();
                 }
                 if d.2.is_empty() {
                     d.2 = str_of(p, "race").unwrap_or("").to_string();
                 }
-                if kind == "ENEMY_SEEN" {
-                    if let Some(g) = str_of(p, "guild").filter(|g| !g.is_empty()) {
-                        guild = Some(g.to_string());
+                if let Some(g) = str_of(p, "guild").filter(|g| !g.is_empty()) {
+                    d.3 = g.to_string(); // latest wins (events sorted by time)
+                    if kind == "ENEMY_SEEN" {
+                        seen_guild = Some(g.to_string());
                     }
                 }
             }
         }
+        // The guild setting first; before it existed, the guild of the rivals met.
+        let guild = ch.configured_rival().or(seen_guild);
         Self {
             info,
             guild,
@@ -246,43 +256,43 @@ impl Rivals {
         }
     }
 
-    fn names(&self) -> BTreeSet<String> {
-        self.info.values().map(|d| d.0.clone()).collect()
-    }
-
-    fn is_known(&self, name: &str) -> bool {
-        self.info.contains_key(&name.to_lowercase())
-    }
-
     fn alias(&mut self, name: Option<&str>) -> String {
         let Some(name) = name.filter(|n| !n.is_empty()) else {
-            return "un rival".into();
+            return "un ennemi".into();
         };
         let key = name.to_lowercase();
         if let Some(a) = self.alias.get(&key) {
             return a.clone();
         }
-        let n = self.alias.len();
-        let mut letter = ((b'A' + (n % 26) as u8) as char).to_string();
-        if n >= 26 {
-            letter.push_str(&(n / 26 + 1).to_string());
+        let mut bits: Vec<String> = Vec::new();
+        let mut shown = name.to_string();
+        if let Some((full, class, race, guild)) = self.info.get(&key) {
+            shown = full.clone();
+            let who = [class_fr(class), race.as_str()]
+                .iter()
+                .filter(|x| !x.is_empty())
+                .copied()
+                .collect::<Vec<_>>()
+                .join(" ");
+            if !who.is_empty() {
+                bits.push(who);
+            }
+            if !guild.is_empty() {
+                let rival = self
+                    .guild
+                    .as_ref()
+                    .is_some_and(|g| g.eq_ignore_ascii_case(guild));
+                bits.push(if rival {
+                    "guilde rivale".to_string()
+                } else {
+                    format!("<{guild}>")
+                });
+            }
         }
-        let desc = self
-            .info
-            .get(&key)
-            .map(|(_, class, race)| {
-                [class_fr(class), race.as_str()]
-                    .iter()
-                    .filter(|x| !x.is_empty())
-                    .copied()
-                    .collect::<Vec<_>>()
-                    .join(" ")
-            })
-            .unwrap_or_default();
-        let alias = if desc.is_empty() {
-            format!("Rival {letter}")
+        let alias = if bits.is_empty() {
+            shown
         } else {
-            format!("Rival {letter} ({desc})")
+            format!("{shown} ({})", bits.join(", "))
         };
         self.alias.insert(key, alias.clone());
         alias
@@ -405,10 +415,7 @@ fn fight_facts(mut fights: Vec<Fight>) -> Vec<(f64, String, Vec<String>)> {
             losses
         );
         if !rivals.is_empty() {
-            text += &format!(
-                " ; membres de la guilde rivale impliqués : {}",
-                rivals.join(", ")
-            );
+            text += &format!(" ; ennemis impliqués : {}", rivals.join(", "));
         }
         let detail: Vec<String> = g.iter().take(8).map(|f| f.text.clone()).collect();
         text += &format!(". Détail : {}", detail.join(" ; "));
@@ -491,10 +498,9 @@ pub fn build_split(ch: &Chronicle, since: f64, until: f64, split: f64) -> Brief 
     }
     let mut rivals = Rivals::new(ch);
     let forbidden_members: BTreeSet<String> = members.difference(&allowed).cloned().collect();
-    let rival_names = rivals.names();
-    let forbidden: BTreeSet<String> = forbidden_members.union(&rival_names).cloned().collect();
+    // Enemy players are named; only members without consent are forbidden.
+    let forbidden: BTreeSet<String> = forbidden_members.clone();
     let member_re = Names::new(&forbidden_members);
-    let rival_re = Names::new(&rival_names);
     let mut excluded: BTreeMap<String, usize> = BTreeMap::new();
     let mut exclude =
         |reason: &str, n: usize| *excluded.entry(reason.to_string()).or_default() += n;
@@ -585,13 +591,9 @@ pub fn build_split(ch: &Chronicle, since: f64, until: f64, split: f64) -> Brief 
                     exclude("nomme un membre sans consentement", 1);
                     continue;
                 }
-                let killer = s(p, "killer");
-                let mut cause = Some(s(p, "cause"))
+                let cause = Some(s(p, "cause"))
                     .filter(|c| !c.is_empty())
                     .unwrap_or("?".into());
-                if !killer.is_empty() && rivals.is_known(&killer) {
-                    cause = cause.replace(&killer, &rivals.alias(Some(&killer)));
-                }
                 Some(format!(
                     "d'après le journal de combat de {who} : {victim} est mort(e) — {cause}"
                 ))
@@ -767,8 +769,7 @@ pub fn build_split(ch: &Chronicle, since: f64, until: f64, split: f64) -> Brief 
         } else if prov == "DED" {
             text += " (déduit, non observé)";
         }
-        // Rivals -> aliases; a non-consenting member in the text -> fact dropped.
-        let text = rival_re.replace_all(&text, |m| rivals.alias(Some(m)));
+        // A non-consenting member in the text -> fact dropped.
         if member_re.find(&text).is_some() {
             exclude("nomme un membre sans consentement", 1);
             continue;
@@ -817,7 +818,6 @@ pub fn build_split(ch: &Chronicle, since: f64, until: f64, split: f64) -> Brief 
         if !titles.is_empty() {
             text += &format!(" dont « {} »", titles.join(" », « "));
         }
-        let text = rival_re.replace_all(&text, |m| rivals.alias(Some(m)));
         if member_re.find(&text).is_some() {
             continue;
         }
@@ -868,8 +868,8 @@ Règles impératives :
 1. N'invente rien : aucun événement, nom, chiffre, lieu, boss, objet ou dialogue rapporté qui ne
    figure pas dans les faits. Tu peux commenter, exagérer le ton, faire des hypothèses présentées
    comme telles (« on murmure que… » à propos d'un fait réel), mais jamais créer un fait.
-2. Ne nomme que les personnages présents dans les faits. Les rivaux sont désignés par leur alias
-   (« Rival A … ») : n'essaie pas de deviner leur vrai nom.
+2. Ne nomme que les personnages présents dans les faits. Les joueurs ennemis (guilde rivale ou
+   autres) sont nommés par leur nom de personnage : tu peux t'en moquer comme des nôtres.
 3. Respecte la provenance : un fait « déclaré, non vérifié » s'écrit « selon X » ; un fait
    « supposé » ou « déduit » reste au conditionnel ; les rivaux aperçus avant une mort ne sont pas
    les tueurs.
@@ -1151,13 +1151,13 @@ mod tests {
         assert_eq!(texts.len(), 3, "{texts:#?}");
         assert!(texts[0].ends_with("Alice atteint le niveau 20"));
         assert!(texts[1].contains(
-            "a croisé 1 fois des membres de la guilde rivale Les Crocs : Rival A (voleur Orc)"
+            "a croisé 1 fois des membres de la guilde rivale Les Crocs : Gorbash (voleur Orc, guilde rivale)"
         ));
         assert!(
-            texts[2].contains("Alice tombe face à Rival A (voleur Orc)"),
+            texts[2].contains("Alice tombe face à Gorbash (voleur Orc, guilde rivale)"),
             "{texts:#?}"
         );
-        assert!(brief.forbidden.contains("Bob") && brief.forbidden.contains("Gorbash"));
+        assert!(brief.forbidden.contains("Bob") && !brief.forbidden.contains("Gorbash"));
         assert_eq!(brief.rival_guild.as_deref(), Some("Les Crocs"));
         let reasons: BTreeMap<_, _> = brief.excluded.iter().cloned().collect();
         assert_eq!(reasons["auteur sans consentement"], 1);
@@ -1166,7 +1166,7 @@ mod tests {
             "anecdote naming Bob"
         );
         let p = prompt(&brief);
-        assert!(p.contains("F2. ") && p.contains("« Les Crocs »") && !p.contains("Gorbash"));
+        assert!(p.contains("F2. ") && p.contains("« Les Crocs »") && p.contains("Gorbash"));
     }
 
     #[test]
@@ -1176,10 +1176,12 @@ mod tests {
             {"title": "Alice grimpe", "body": "Niveau 20 !", "refs": ["F1"], "format": "Brève"},
             {"title": "Inventé", "body": "x", "refs": ["F9"]},
             {"title": "Gorbash frappe", "body": "y", "refs": ["F2"]},
+            {"title": "Bob frappe", "body": "z", "refs": ["F2"]},
             {"title": "Bobby", "body": "Bobby n'est pas Bob-le-Rouge", "refs": ["F2"]}
         ]}"#;
         let (items, notes) = check(&brief, answer, "2026-11-20-2147");
-        assert_eq!(items.len(), 2, "{notes:?}");
+        // enemies may be named, a member without consent may not
+        assert_eq!(items.len(), 3, "{notes:?}");
         assert_eq!(items[0]["refs"], json!(["A:2"]));
         assert_eq!(items[0]["p"]["ia"], true);
         assert!(items[0]["id"]
@@ -1187,7 +1189,7 @@ mod tests {
             .unwrap()
             .starts_with("ia:2026-11-20-2147:"));
         assert!(notes[0].contains("F9"));
-        assert!(notes[1].contains("« Gorbash »"));
+        assert!(notes[1].contains("« Bob »"), "{notes:?}");
         assert!(check(&brief, "pas de json", "x").1[0].contains("illisible"));
     }
 
@@ -1212,6 +1214,43 @@ mod tests {
         assert_eq!(notes.len(), 2, "{notes:?}");
         assert_eq!(requested_template(answer).as_deref(), Some("grande_une"));
         assert!(prompt(&brief).contains("« portrait »"));
+    }
+
+    #[test]
+    fn enemies_are_named_with_their_guild() {
+        let mut ch = chronicle();
+        let (k, v) = ev(
+            "A:20",
+            "A",
+            "Alice",
+            "PVP_KILL",
+            1500,
+            json!({"name": "Décimeur", "guild": "Les Cousins Maudits", "class": "HUNTER", "race": "Tauren"}),
+        );
+        ch.events.insert(k, v);
+        let (k, v) = ev(
+            "A:21",
+            "A",
+            "Alice",
+            "PVP_KILL",
+            1600,
+            json!({"name": "Gorbash", "guild": "Les Crocs"}),
+        );
+        ch.events.insert(k, v);
+        let brief = build(&ch, 0.0, 2000.0);
+        let all: String = brief
+            .facts
+            .iter()
+            .map(|f| f.text.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            all.contains("Décimeur (chasseur Tauren, <Les Cousins Maudits>)"),
+            "{all}"
+        );
+        assert!(all.contains("Gorbash (voleur Orc, guilde rivale)"), "{all}");
+        assert!(all.contains("ennemis impliqués"), "{all}");
+        assert!(!brief.forbidden.contains("Décimeur"));
     }
 
     #[test]
@@ -1258,7 +1297,7 @@ mod tests {
             big.text
         );
         assert!(
-            big.text.contains("Rival A") && !big.text.contains("Gorbash"),
+            big.text.contains("Gorbash (voleur Orc, guilde rivale)"),
             "{}",
             big.text
         );

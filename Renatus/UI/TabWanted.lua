@@ -419,7 +419,8 @@ local function buildHome(c, parent, top, height)
     w.empty:SetJustifyH("CENTER")
 end
 
-local function refreshHome(c, ds, posters, enemies)
+-- enemies: filtered by the "rival guild only" box; allEnemies: for the two scores.
+local function refreshHome(c, ds, posters, enemies, allEnemies)
     local h = c.home
     local rival = ds.isDemo and "Les Crocs de Sang" or ns.GuildConfig.Rival()
     local met, sworn, rivals = 0, 0, 0
@@ -445,7 +446,7 @@ local function refreshHome(c, ds, posters, enemies)
     h.facts:SetText(text)
 
     -- Scores: the whole Horde, and the rival guild alone (the verdict speaks of the rival).
-    local horde, rivalScore = Views.PvpScore(ds, enemies)
+    local horde, rivalScore = Views.PvpScore(ds, allEnemies)
     fillScore(h.hordeScore, horde)
     fillScore(h.rivalScore, rivalScore)
     h.rivalScore:SetAlpha(rival and 1 or 0.45)
@@ -473,7 +474,9 @@ local function refreshHome(c, ds, posters, enemies)
         end
     end
     for _, ev in ipairs(ds.events) do
-        if ev.k == "PVP_KILL" and not (ev.p and ev.p.name) and Views.InHunt(ds, ev) then items[#items + 1] = { ev = ev } end
+        if ev.k == "PVP_KILL" and not (ev.p and ev.p.name) and Views.InHunt(ds, ev) and not c.rivalOnly then
+            items[#items + 1] = { ev = ev }
+        end
     end
     table.sort(items, function(a, b) return (a.ev.t or 0) > (b.ev.t or 0) end)
     h.news.list:SetItems(items, "Rien à signaler sur le front.")
@@ -582,8 +585,9 @@ local function build(c)
     end)
     c.registry:SetPoint("TOPLEFT", 0, bodyTop)
     -- Registry filter: every enemy met, or the rival guild only.
+    -- Top right, on the title line: no room left between the tabs and the buttons.
     c.rivalFilter = UI.Checkbox(c, "Seulement la guilde rivale", function(v) c.rivalOnly = v; c:Refresh() end)
-    c.rivalFilter:SetPoint("LEFT", c.tabRegistry, "RIGHT", 14, 0)
+    c.rivalFilter:SetPoint("TOPRIGHT", c, "TOPRIGHT", -(c.rivalFilter.label:GetStringWidth() + 10), -2)
 
     -- Record view
     local d = CreateFrame("Frame", nil, c)
@@ -686,29 +690,38 @@ local function build(c)
                 roster.p.count or #roster.p.members, UI.Ago(roster.p.at or roster.t))
         end
         self.rival:SetText(line)
-        local postersList, enemies = Views.Wanted(ds)
+        local postersList, allEnemies = Views.Wanted(ds)
+        -- "Seulement la guilde rivale": every view of the board (scores excepted).
+        local enemies = allEnemies
+        if self.rivalOnly then
+            enemies = {}
+            for _, e in ipairs(allEnemies) do if e.rival then enemies[#enemies + 1] = e end end
+            local kept = {}
+            for _, poster in ipairs(postersList) do
+                if poster.enemy and poster.enemy.rival then kept[#kept + 1] = poster end
+            end
+            postersList = kept
+        end
         self.tabHome:SetSelected(self.view == "home")
         self.tabPosters:SetSelected(self.view == "posters")
         self.tabRegistry:SetSelected(self.view == "registry")
 
         local detailEnemy
         if self.detail then
-            for _, e in ipairs(enemies) do if e.key == Views.EnemyKey(self.detail) then detailEnemy = e end end
+            for _, e in ipairs(allEnemies) do if e.key == Views.EnemyKey(self.detail) then detailEnemy = e end end
         end
         self.home:SetShown(self.view == "home" and not detailEnemy)
         posters:SetShown(self.view == "posters" and not detailEnemy)
         self.registry:SetShown(self.view == "registry" and not detailEnemy)
-        self.rivalFilter:SetShown(self.view == "registry" and not detailEnemy)
+        self.rivalFilter:SetShown(not detailEnemy)
         self.rivalFilter:SetChecked(self.rivalOnly == true)
         d:SetShown(detailEnemy ~= nil)
         if detailEnemy then self:ShowDetail(detailEnemy) return end
-        if self.view == "home" then refreshHome(self, ds, postersList, enemies) return end
+        if self.view == "home" then refreshHome(self, ds, postersList, enemies, allEnemies) return end
 
         if self.view == "registry" then
             if self.rivalOnly then
-                local rivals = {}
-                for _, e in ipairs(enemies) do if e.rival then rivals[#rivals + 1] = e end end
-                self.registry:SetItems(rivals, "Aucun membre de la guilde rivale connu.\nL'armurerie ou une rencontre les fera apparaître.")
+                self.registry:SetItems(enemies, "Aucun membre de la guilde rivale connu.\nL'armurerie ou une rencontre les fera apparaître.")
                 return
             end
             self.registry:SetItems(enemies, "Aucun ennemi enregistré.\nLes membres de la guilde rivale (armurerie) et ceux croisés en jeu apparaîtront ici,\nou ajoute-les avec « + Ennemi ».")
@@ -722,7 +735,7 @@ local function build(c)
             if poster then fillPoster(f, poster); f:Show() else f:Hide() end
             for _, edge in ipairs(f.focus) do edge:SetShown(poster ~= nil and poster.ev.id == self.focus) end
         end
-        posters.empty:SetText(#postersList == 0 and "Aucun avis de recherche placardé.\nUn ennemi te pourrit la vie ? « + Avis »." or "")
+        posters.empty:SetText(#postersList == 0 and self.rivalOnly and "Aucun avis contre la guilde rivale." or #postersList == 0 and "Aucun avis de recherche placardé.\nUn ennemi te pourrit la vie ? « + Avis »." or "")
         posters.pageText:SetText(self.page .. "/" .. pages)
         posters.prev:SetShown(pages > 1)
         posters.next:SetShown(pages > 1)

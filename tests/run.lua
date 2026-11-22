@@ -540,8 +540,19 @@ test("tableau de chasse : affiches, registre, fiche", function()
     for _, e in ipairs(only) do assert(e.rival, e.key) end
     c.rivalFilter:Click()
     eq(#c.registry.items, all)
+    -- the box filters every view of the board, scores excepted
+    c.rivalFilter:Click()
     c:SetView("home")
-    assert(not c.rivalFilter:IsShown(), "filtre cache hors registre")
+    assert(c.rivalFilter:IsShown() and c.rivalFilter:GetChecked(), "case sur la vue d'ensemble")
+    for _, item in ipairs(c.home.news.list.items) do assert(item.e and item.e.rival, "nouvelles : guilde rivale seulement") end
+    for _, e in ipairs(c.home.killers.list.items) do assert(e.rival, e.key) end
+    assert(c.home.hordeScore.score:GetText():find("–"), "score contre la Horde garde")
+    c:SetView("posters")
+    for _, f in ipairs(c.posters.items) do
+        if f.poster then assert(f.poster.enemy and f.poster.enemy.rival, "avis : guilde rivale seulement") end
+    end
+    c.rivalFilter:Click()
+    c:SetView("home")
     assert(c.home.postersLink.label:GetText():find("Tout voir"), c.home.postersLink.label:GetText())
     c.home.postersLink:Click()
     eq(c.view, "posters")
