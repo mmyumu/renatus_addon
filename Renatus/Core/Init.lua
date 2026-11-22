@@ -2,7 +2,7 @@
 local ADDON, ns = ...
 
 ns.name = ADDON
-ns.version = "1.0.4"
+ns.version = "1.0.5"
 ns.modules = {}
 ns.moduleOrder = {}
 

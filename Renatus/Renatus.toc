@@ -2,7 +2,7 @@
 ## Title: Renatus
 ## Notes: Memoire vivante de la guilde : journal, tableau de chasse, gazette, album et (en option) les repliques de Renacoach.
 ## Author: Dakey
-## Version: 1.0.4
+## Version: 1.0.5
 ## IconTexture: Interface\Icons\INV_Misc_Book_09
 ## SavedVariables: RenatusDB
 ## SavedVariablesPerCharacter: RenatusCharDB

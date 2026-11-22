@@ -55,6 +55,9 @@ local function createPoster(parent)
     f.foot:SetPoint("BOTTOM", 0, 6)
     f.foot:SetWidth(POSTER_W - 16)
     f.foot:SetJustifyH("CENTER")
+    -- Frame of the poster opened from its miniature on the overview.
+    f.focus = UI.Edges(f, { 0.85, 0.15, 0.08, 1 }, "OVERLAY")
+    f.focus[1]:SetHeight(2); f.focus[2]:SetHeight(2); f.focus[3]:SetWidth(2); f.focus[4]:SetWidth(2)
     return f
 end
 
@@ -71,24 +74,51 @@ local function fillPoster(f, poster)
 end
 
 ------------------------------------------------------------------------
--- Overview: the rival guild, the score, the most feared enemies, the latest news
+-- Overview: the rival guild, two scores (whole Horde, rival guild), the rival members
+-- most to fear, the enemies who beat us, the latest news
 ------------------------------------------------------------------------
-local FEARED, NEWS = 4, 7
+local ROWS, NEWS = 3, 7
 local INK, INK_DIM, WIN, LOSS = UI.C.ink, UI.C.inkDim, { 0.16, 0.45, 0.12 }, { 0.62, 0.1, 0.06 }
 
 local function inked(fs, c) fs:SetTextColor(c[1], c[2], c[3]); fs:SetShadowOffset(0, 0); return fs end
 
 -- Most feared first: sworn enemies, then who beat us most, then who was there when we
 -- died; never met rivals last, highest level first.
-local function feared(enemies)
+local function feared(enemies, keep)
     local list = {}
-    for _, e in ipairs(enemies) do list[#list + 1] = e end
+    for _, e in ipairs(enemies) do if keep(e) then list[#list + 1] = e end end
     local function score(e) return Views.Total(e.losses) * 3 + Views.Total(e.wins) + e.presentAtDeaths end
     table.sort(list, function(a, b)
         if a.sworn ~= b.sworn then return a.sworn end
         if score(a) ~= score(b) then return score(a) > score(b) end
         if (a.lastSeen ~= nil) ~= (b.lastSeen ~= nil) then return a.lastSeen ~= nil end
         if (a.level or 0) ~= (b.level or 0) then return (a.level or 0) > (b.level or 0) end
+        return a.key < b.key
+    end)
+    return list
+end
+
+local function killedUs(e, ev)
+    if ev.k == "PVP_CLASH" then return ev.p and ev.p.result == "loss" end
+    local k = ev.k == "DEATH" and type(ev.p) == "table" and type(ev.p.killer) == "table" and ev.p.killer
+    return k and k.pl and type(k.n) == "string" and Views.EnemyKey(k.n) == e.key or false
+end
+
+-- When this enemy last beat one of us (encounters are newest first).
+local function lastWin(e)
+    for _, ev in ipairs(e.encounters) do if killedUs(e, ev) then return ev.t end end
+end
+
+-- Those who beat us: most victories over us first, then the most recent.
+local function killers(enemies)
+    local list = {}
+    for _, e in ipairs(enemies) do
+        if Views.Total(e.losses) > 0 then e.lastWin = lastWin(e); list[#list + 1] = e end
+    end
+    table.sort(list, function(a, b)
+        local la, lb = Views.Total(a.losses), Views.Total(b.losses)
+        if la ~= lb then return la > lb end
+        if (a.lastWin or 0) ~= (b.lastWin or 0) then return (a.lastWin or 0) > (b.lastWin or 0) end
         return a.key < b.key
     end)
     return list
@@ -103,9 +133,7 @@ local function newsLine(e, ev)
         text = p.result == "win" and ("vaincu par " .. member) or p.result == "loss" and ("a vaincu " .. member)
             or ("accrochage avec " .. member)
     elseif ev.k == "DEATH" then
-        local k = type(p.killer) == "table" and p.killer or nil
-        text = (k and k.n and Views.EnemyKey(k.n) == e.key) and ("a tué " .. Types.Who(ev))
-            or ("présent à la mort de " .. Types.Who(ev))
+        text = killedUs(e, ev) and ("a tué " .. Types.Who(ev)) or ("présent à la mort de " .. Types.Who(ev))
     else
         text = "croisé par " .. member
     end
@@ -120,13 +148,158 @@ local function verdict(w, l)
     return "Égalité parfaite. Ça ne durera pas."
 end
 
+-- A score block of the banner: label, "wins – losses", a bar.
+local SCORE_W = 150
+local function scoreBlock(banner, label)
+    local s = CreateFrame("Frame", nil, banner)
+    s:SetSize(SCORE_W, 64)
+    s.label = inked(UI.Text(s, 10), INK_DIM)
+    s.label:SetPoint("TOP", 0, 0)
+    s.label:SetWidth(SCORE_W)
+    s.label:SetJustifyH("CENTER")
+    s.label:SetWordWrap(false)
+    s.label:SetText(label)
+    s.score = inked(UI.Title(s, 26), INK)
+    s.score:SetPoint("TOP", s.label, "BOTTOM", 0, -3)
+    s.score:SetJustifyH("CENTER")
+    local bar = CreateFrame("Frame", nil, s)
+    bar:SetSize(SCORE_W - 10, 6)
+    bar:SetPoint("TOP", s.score, "BOTTOM", 0, -5)
+    local bg = bar:CreateTexture(nil, "ARTWORK")
+    bg:SetAllPoints()
+    bg:SetColorTexture(INK_DIM[1], INK_DIM[2], INK_DIM[3], 0.25)
+    s.barWin = bar:CreateTexture(nil, "OVERLAY")
+    s.barWin:SetPoint("TOPLEFT")
+    s.barWin:SetHeight(6)
+    s.barWin:SetColorTexture(WIN[1], WIN[2], WIN[3], 0.9)
+    s.barLoss = bar:CreateTexture(nil, "OVERLAY")
+    s.barLoss:SetPoint("TOPRIGHT")
+    s.barLoss:SetHeight(6)
+    s.barLoss:SetColorTexture(LOSS[1], LOSS[2], LOSS[3], 0.9)
+    s.barW = SCORE_W - 10
+    return s
+end
+
+local function fillScore(s, score)
+    s.score:SetText(("|cff2a7320%d|r  –  |cff9e1a10%d|r"):format(score.w, score.l))
+    local total = score.w + score.l
+    if total > 0 then
+        local w = math.floor(s.barW * score.w / total + 0.5)
+        s.barWin:SetWidth(math.max(1, w)); s.barWin:SetShown(score.w > 0)
+        s.barLoss:SetWidth(math.max(1, s.barW - w)); s.barLoss:SetShown(score.l > 0)
+    else
+        s.barWin:Hide(); s.barLoss:Hide()
+    end
+end
+
+-- A titled panel holding a scrolling list.
+local function listPanel(parent, w, h, title, rowHeight, createRow, updateRow)
+    local panel = CreateFrame("Frame", nil, parent)
+    panel:SetSize(w, h)
+    UI.Skin(panel, "panel")
+    panel.title = UI.Section(panel, title, w - 24)
+    panel.title:SetPoint("TOPLEFT", 14, -10)
+    panel.list = UI.List(panel, w - 20, h - 40, rowHeight, createRow, updateRow)
+    panel.list:SetPoint("TOPLEFT", 10, -34)
+    panel.list.empty:SetFont(UI.FONT_BODY, 11, "")
+    panel.list.empty:SetPoint("TOP", 0, -16)
+    return panel
+end
+
+-- Enemy rows: class icon, name, one line of detail, record; a click opens their record.
+local function enemyPanel(c, parent, w, h, sub)
+    return listPanel(parent, w, h, "", 32, function(row)
+        row.icon = row:CreateTexture(nil, "ARTWORK")
+        row.icon:SetSize(26, 26)
+        row.icon:SetPoint("LEFT", 4, 0)
+        row.name = UI.Text(row, 12)
+        row.name:SetPoint("TOPLEFT", row.icon, "TOPRIGHT", 8, 0)
+        row.name:SetPoint("RIGHT", -64, 0)
+        row.name:SetWordWrap(false)
+        row.sub = UI.Text(row, 10, UI.C.dim)
+        row.sub:SetPoint("TOPLEFT", row.name, "BOTTOMLEFT", 0, -3)
+        row.sub:SetPoint("RIGHT", -4, 0)
+        row.sub:SetWordWrap(false)
+        row.record = UI.Text(row, 11)
+        row.record:SetPoint("TOPRIGHT", -4, -2)
+        row.record:SetJustifyH("RIGHT")
+        row:SetScript("OnClick", function(self)
+            if self.item then UI.Click(); c.detail = self.item.name; c:Refresh() end
+        end)
+    end, function(row, e)
+        UI.SetClassIcon(row.icon, e.class)
+        row.name:SetText(UI.ClassName(e.display, e.class) .. (e.nickname and ("  |cff999999« " .. e.nickname .. " »|r") or ""))
+        row.sub:SetText(sub(e))
+        row.record:SetText("|cff66dd66V " .. Views.Total(e.wins) .. "|r  |cffdd5544D " .. Views.Total(e.losses) .. "|r")
+    end)
+end
+
+local function rivalSub(e)
+    local bits = {}
+    if e.sworn then bits[#bits + 1] = "|cffcc2a1aENNEMI JURÉ|r" end
+    local l = Views.Total(e.losses)
+    if l > 0 then bits[#bits + 1] = "nous a vaincus " .. l .. " fois" end
+    if e.presentAtDeaths > 0 then bits[#bits + 1] = "présent à " .. e.presentAtDeaths .. " mort(s)" end
+    if #bits == 0 then
+        if e.level then bits[#bits + 1] = "niveau " .. e.level end
+        bits[#bits + 1] = e.lastSeen and ("croisé " .. UI.Ago(e.lastSeen)) or "jamais croisé"
+    end
+    return table.concat(bits, "  ·  ")
+end
+
+local function killerSub(e)
+    local bits = {}
+    if e.rival then bits[#bits + 1] = "|cffe08a1eGUILDE RIVALE|r"
+    elseif e.sworn then bits[#bits + 1] = "|cffcc2a1aENNEMI JURÉ|r" end
+    bits[#bits + 1] = Views.Total(e.losses) .. " fois"
+    if e.lastWin then bits[#bits + 1] = "dernière " .. UI.Ago(e.lastWin) end
+    return table.concat(bits, "  ·  ")
+end
+
+-- Mini wanted poster: a click opens the poster itself on the board.
+local MINI_W, MINI_H, MINIS = 104, 96, 3
+local function createMini(parent)
+    local f = CreateFrame("Button", nil, parent)
+    f:SetSize(MINI_W, MINI_H)
+    UI.Skin(f, "parchment")
+    local hl = f:CreateTexture(nil, "HIGHLIGHT")
+    hl:SetAllPoints()
+    hl:SetColorTexture(1, 1, 0.8, 0.15)
+    f.head = inked(UI.Title(f, 12), { 0.55, 0.08, 0.05 })
+    f.head:SetPoint("TOP", 0, -6)
+    f.head:SetText("RECHERCHÉ")
+    f.portrait = f:CreateTexture(nil, "ARTWORK")
+    f.portrait:SetSize(22, 22)
+    f.portrait:SetPoint("TOP", 0, -22)
+    f.name = inked(UI.Text(f, 11), INK)
+    f.name:SetPoint("TOP", f.portrait, "BOTTOM", 0, -4)
+    f.name:SetWidth(MINI_W - 8)
+    f.name:SetJustifyH("CENTER")
+    f.name:SetWordWrap(false)
+    f.reward = inked(UI.Text(f, 9), { 0.5, 0.1, 0.05 })
+    f.reward:SetPoint("TOP", f.name, "BOTTOM", 0, -3)
+    f.reward:SetWidth(MINI_W - 10)
+    f.reward:SetJustifyH("CENTER")
+    f.reward:SetMaxLines(2)
+    return f
+end
+
+local function fillMini(f, poster)
+    local ev, e = poster.ev, poster.enemy
+    UI.SetClassIcon(f.portrait, e and e.class)
+    f.name:SetText((e and e.display) or ev.p.name or "?")
+    f.reward:SetText(ev.p.reward and ("Prime : " .. ev.p.reward) or (ev.p.nickname and ("« " .. ev.p.nickname .. " »")) or "")
+end
+
+local function plural(n, word) return n .. " " .. word .. (n > 1 and "s" or "") end
+
 local function buildHome(c, parent, top, height)
     local h = CreateFrame("Frame", nil, parent)
     h:SetPoint("TOPLEFT", 0, top)
     h:SetSize(UI.CONTENT_W, height)
     c.home = h
 
-    -- Banner: the rival guild and the score.
+    -- Banner: the rival guild and both scores.
     local banner = CreateFrame("Frame", nil, h)
     banner:SetPoint("TOPLEFT", 0, 0)
     banner:SetSize(UI.CONTENT_W, 116)
@@ -142,117 +315,101 @@ local function buildHome(c, parent, top, height)
     h.kicker:SetPoint("TOPLEFT", crest, "TOPRIGHT", 16, 2)
     h.guild = inked(UI.Title(banner, 24), INK)
     h.guild:SetPoint("TOPLEFT", h.kicker, "BOTTOMLEFT", 0, -4)
-    h.guild:SetWidth(330)
+    h.guild:SetWidth(250)
     h.guild:SetWordWrap(false)
     h.facts = inked(UI.Text(banner, 11), INK_DIM)
     h.facts:SetPoint("TOPLEFT", h.guild, "BOTTOMLEFT", 0, -6)
-    h.facts:SetWidth(340)
+    h.facts:SetWidth(250)
 
-    local SCORE_W = 230
-    h.scoreLabel = inked(UI.Text(banner, 10), INK_DIM)
-    h.scoreLabel:SetPoint("TOPRIGHT", -20, -14)
-    h.scoreLabel:SetWidth(SCORE_W)
-    h.scoreLabel:SetJustifyH("CENTER")
-    h.scoreLabel:SetText("BILAN DES AFFRONTEMENTS")
-    h.score = inked(UI.Title(banner, 30), INK)
-    h.score:SetPoint("TOP", h.scoreLabel, "BOTTOM", 0, -4)
-    h.score:SetJustifyH("CENTER")
-    local bar = CreateFrame("Frame", nil, banner)
-    bar:SetSize(SCORE_W, 8)
-    bar:SetPoint("TOP", h.score, "BOTTOM", 0, -6)
-    h.barBg = bar:CreateTexture(nil, "ARTWORK")
-    h.barBg:SetAllPoints()
-    h.barBg:SetColorTexture(INK_DIM[1], INK_DIM[2], INK_DIM[3], 0.25)
-    h.barWin = bar:CreateTexture(nil, "OVERLAY")
-    h.barWin:SetPoint("TOPLEFT")
-    h.barWin:SetHeight(8)
-    h.barWin:SetColorTexture(WIN[1], WIN[2], WIN[3], 0.9)
-    h.barLoss = bar:CreateTexture(nil, "OVERLAY")
-    h.barLoss:SetPoint("TOPRIGHT")
-    h.barLoss:SetHeight(8)
-    h.barLoss:SetColorTexture(LOSS[1], LOSS[2], LOSS[3], 0.9)
-    h.bar, h.barW = bar, SCORE_W
+    h.rivalScore = scoreBlock(banner, "CONTRE LA GUILDE RIVALE")
+    h.rivalScore:SetPoint("TOPRIGHT", -16, -14)
+    h.hordeScore = scoreBlock(banner, "CONTRE TOUTE LA HORDE")
+    h.hordeScore:SetPoint("TOPRIGHT", h.rivalScore, "TOPLEFT", -14, 0)
+    local divider = banner:CreateTexture(nil, "ARTWORK")
+    divider:SetSize(1, 52)
+    divider:SetPoint("TOPRIGHT", h.rivalScore, "TOPLEFT", -7, -4)
+    divider:SetColorTexture(INK_DIM[1], INK_DIM[2], INK_DIM[3], 0.35)
     h.verdict = inked(UI.Text(banner, 10), INK)
-    h.verdict:SetPoint("TOP", bar, "BOTTOM", 0, -6)
-    h.verdict:SetWidth(SCORE_W + 20)
+    h.verdict:SetPoint("TOP", h.rivalScore, "BOTTOMLEFT", -7, -10)
+    h.verdict:SetWidth(2 * SCORE_W + 24)
     h.verdict:SetJustifyH("CENTER")
 
-    local colTop, colH, colW = 126, height - 126, (UI.CONTENT_W - 8) / 2
+    local colTop, colW = 126, (UI.CONTENT_W - 8) / 2
+    local colH = height - colTop
+    local panelH = (colH - 8) / 2
 
-    -- Most feared enemies (clickable: their record).
-    local left = CreateFrame("Frame", nil, h)
-    left:SetPoint("TOPLEFT", 0, -colTop)
-    left:SetSize(colW, colH)
-    UI.Skin(left, "panel")
-    h.fearedTitle = UI.Section(left, "Les plus redoutés", colW - 24)
-    h.fearedTitle:SetPoint("TOPLEFT", 14, -12)
-    h.feared = {}
-    for i = 1, FEARED do
-        local row = CreateFrame("Button", nil, left)
-        row:SetSize(colW - 20, 50)
-        row:SetPoint("TOPLEFT", 10, -40 - (i - 1) * 52)
-        local hl = row:CreateTexture(nil, "HIGHLIGHT")
-        hl:SetAllPoints()
-        hl:SetColorTexture(1, 0.85, 0.4, 0.1)
-        row.icon = row:CreateTexture(nil, "ARTWORK")
-        row.icon:SetSize(34, 34)
-        row.icon:SetPoint("LEFT", 4, 0)
-        row.name = UI.Text(row, 13)
-        row.name:SetPoint("TOPLEFT", row.icon, "TOPRIGHT", 10, -1)
-        row.name:SetPoint("RIGHT", -70, 0)
-        row.name:SetWordWrap(false)
-        row.sub = UI.Text(row, 10, UI.C.dim)
-        row.sub:SetPoint("TOPLEFT", row.name, "BOTTOMLEFT", 0, -4)
-        row.sub:SetPoint("RIGHT", -4, 0)
-        row.sub:SetWordWrap(false)
-        row.record = UI.Text(row, 12)
-        row.record:SetPoint("TOPRIGHT", -4, -3)
-        row.record:SetJustifyH("RIGHT")
-        row:SetScript("OnClick", function(self)
-            if self.enemy then UI.Click(); c.detail = self.enemy.name; c:Refresh() end
-        end)
-        h.feared[i] = row
-    end
-    h.fearedEmpty = UI.Text(left, 12, UI.C.dim)
-    h.fearedEmpty:SetPoint("TOP", 0, -70)
-    h.fearedEmpty:SetWidth(colW - 40)
-    h.fearedEmpty:SetJustifyH("CENTER")
+    -- Left: the rival guild members to fear, then those who beat us.
+    h.rivals = enemyPanel(c, h, colW, panelH, rivalSub)
+    h.rivals:SetPoint("TOPLEFT", 0, -colTop)
+    h.killers = enemyPanel(c, h, colW, panelH, killerSub)
+    h.killers:SetPoint("TOPLEFT", h.rivals, "BOTTOMLEFT", 0, -8)
+    h.killers.title:SetText("Ils nous ont vaincus")
 
-    -- Latest news from the front, then a shortcut to the posters.
-    local right = CreateFrame("Frame", nil, h)
-    right:SetPoint("TOPRIGHT", 0, -colTop)
-    right:SetSize(colW, colH)
-    UI.Skin(right, "panel")
-    local newsTitle = UI.Section(right, "Nouvelles du front", colW - 24)
-    newsTitle:SetPoint("TOPLEFT", 14, -12)
-    h.news = {}
-    for i = 1, NEWS do
-        local ago = UI.Text(right, 10, UI.C.dim)
-        ago:SetPoint("TOPLEFT", 14, -42 - (i - 1) * 24)
-        ago:SetWidth(78)
-        ago:SetWordWrap(false)
-        local line = UI.Text(right, 11)
-        line:SetPoint("TOPLEFT", ago, "TOPRIGHT", 4, 1)
-        line:SetWidth(colW - 110)
-        line:SetWordWrap(false)
-        h.news[i] = { ago = ago, line = line }
-    end
-    h.newsEmpty = UI.Text(right, 12, UI.C.dim)
-    h.newsEmpty:SetPoint("TOP", 0, -70)
-    h.newsEmpty:SetWidth(colW - 40)
-    h.newsEmpty:SetJustifyH("CENTER")
-    h.postersLink = UI.Button(right, "", colW - 28, 24, function()
-        if h.posterCount > 0 then c:SetView("posters") else UI.Dialogs.Wanted() end
+    -- Right: latest news from the front, then the wanted posters in miniature.
+    h.news = listPanel(h, colW, panelH, "Nouvelles du front", 20, function(row)
+        row.ago = UI.Text(row, 10, UI.C.dim)
+        row.ago:SetPoint("LEFT", 4, 0)
+        row.ago:SetWidth(70)
+        row.ago:SetWordWrap(false)
+        row.line = UI.Text(row, 11)
+        row.line:SetPoint("LEFT", row.ago, "RIGHT", 4, 0)
+        row.line:SetPoint("RIGHT", -4, 0)
+        row.line:SetWordWrap(false)
+        row:EnableMouse(false)
+    end, function(row, item)
+        row.ago:SetText(UI.Ago(item.ev.t))
+        row.line:SetText(newsLine(item.e, item.ev))
     end)
-    h.postersLink:SetPoint("BOTTOM", 0, 12)
+    h.news:SetPoint("TOPRIGHT", 0, -colTop)
+
+    local w = CreateFrame("Frame", nil, h)
+    w:SetSize(colW, panelH)
+    w:SetPoint("TOPLEFT", h.news, "BOTTOMLEFT", 0, -8)
+    UI.Skin(w, "panel")
+    h.wanted = w
+    w.title = UI.Section(w, "Avis de recherche", colW - 24)
+    w.title:SetPoint("TOPLEFT", 14, -10)
+    w.offset = 0
+    local function scroll(delta)
+        w.offset = math.max(0, math.min(math.max(0, #(w.items or {}) - MINIS), w.offset - delta))
+        c:Refresh()
+    end
+    h.postersLink = UI.Button(w, "", 104, 18, function()
+        if (h.posterCount or 0) > 0 then c:SetView("posters") else UI.Dialogs.Wanted() end
+    end)
+    h.postersLink:SetPoint("TOPRIGHT", -12, -9)
+    w.next = UI.Button(w, ">", 20, 18, function() scroll(-1) end)
+    w.next:SetPoint("RIGHT", h.postersLink, "LEFT", -6, 0)
+    w.prev = UI.Button(w, "<", 20, 18, function() scroll(1) end)
+    w.prev:SetPoint("RIGHT", w.next, "LEFT", -2, 0)
+    w:EnableMouseWheel(true)
+    w:SetScript("OnMouseWheel", function(_, delta) scroll(delta) end)
+    w.minis = {}
+    local gap = (colW - 20 - MINIS * MINI_W) / (MINIS - 1)
+    for i = 1, MINIS do
+        local f = createMini(w)
+        f:SetPoint("TOPLEFT", 10 + (i - 1) * (MINI_W + gap), -34)
+        f:SetScript("OnClick", function(self)
+            if not self.index then return end
+            UI.Click()
+            c.view, c.detail = "posters", nil
+            c.page = math.ceil(self.index / PER_PAGE)
+            c.focus = self.poster.ev.id
+            c:Refresh()
+        end)
+        w.minis[i] = f
+    end
+    w.empty = UI.Text(w, 11, UI.C.dim)
+    w.empty:SetPoint("TOP", 0, -60)
+    w.empty:SetWidth(colW - 40)
+    w.empty:SetJustifyH("CENTER")
 end
 
 local function refreshHome(c, ds, posters, enemies)
     local h = c.home
     local rival = ds.isDemo and "Les Crocs de Sang" or ns.GuildConfig.Rival()
-    local wins, losses, met, sworn, rivals = 0, 0, 0, 0, 0
+    local met, sworn, rivals = 0, 0, 0
     for _, e in ipairs(enemies) do
-        wins, losses = wins + Views.Total(e.wins), losses + Views.Total(e.losses)
         if e.lastSeen then met = met + 1 end
         if e.sworn then sworn = sworn + 1 end
         if e.rival then rivals = rivals + 1 end
@@ -264,51 +421,32 @@ local function refreshHome(c, ds, posters, enemies)
     if roster then
         facts[#facts + 1] = (roster.p.count or #roster.p.members) .. " membres selon l'armurerie"
     elseif rival then
-        facts[#facts + 1] = rivals .. " membre" .. (rivals > 1 and "s" or "") .. " repéré" .. (rivals > 1 and "s" or "")
+        facts[#facts + 1] = plural(rivals, "membre") .. " repéré" .. (rivals > 1 and "s" or "")
     end
-    facts[#facts + 1] = met .. " ennemi" .. (met > 1 and "s" or "") .. " croisé" .. (met > 1 and "s" or "")
-    if sworn > 0 then facts[#facts + 1] = sworn .. " ennemi" .. (sworn > 1 and "s" or "") .. " juré" .. (sworn > 1 and "s" or "") end
+    facts[#facts + 1] = plural(met, "ennemi") .. " croisé" .. (met > 1 and "s" or "")
+    if sworn > 0 then facts[#facts + 1] = plural(sworn, "ennemi") .. " juré" .. (sworn > 1 and "s" or "") end
     local text = table.concat(facts, "  ·  ")
     if not rival then text = text .. "\nLes officiers la choisissent dans Renatus Admin." end
     h.facts:SetText(text)
 
-    h.score:SetText(("|cff2a7320%d|r  –  |cff9e1a10%d|r"):format(wins, losses))
-    local total = wins + losses
-    if total > 0 then
-        local w = math.floor(h.barW * wins / total + 0.5)
-        h.barWin:SetWidth(math.max(1, w)); h.barWin:SetShown(wins > 0)
-        h.barLoss:SetWidth(math.max(1, h.barW - w)); h.barLoss:SetShown(losses > 0)
-    else
-        h.barWin:Hide(); h.barLoss:Hide()
-    end
-    h.verdict:SetText("victoires – défaites\n" .. verdict(wins, losses))
+    -- Scores: the whole Horde, and the rival guild alone (the verdict speaks of the rival).
+    local horde, rivalScore = Views.PvpScore(ds, enemies)
+    fillScore(h.hordeScore, horde)
+    fillScore(h.rivalScore, rivalScore)
+    h.rivalScore:SetAlpha(rival and 1 or 0.45)
+    local v = rival and rivalScore or horde
+    h.verdict:SetText(verdict(v.w, v.l))
 
-    local list = feared(enemies)
-    local anyFight = list[1] and (list[1].sworn or Views.Total(list[1].losses) + Views.Total(list[1].wins) + list[1].presentAtDeaths > 0)
-    h.fearedTitle:SetText(anyFight and "Les plus redoutés" or "Les plus menaçants")
-    for i, row in ipairs(h.feared) do
-        local e = list[i]
-        row.enemy = e
-        if e then
-            UI.SetClassIcon(row.icon, e.class)
-            row.name:SetText(UI.ClassName(e.display, e.class) .. (e.nickname and ("  |cff999999« " .. e.nickname .. " »|r") or ""))
-            local bits = {}
-            if e.sworn then bits[#bits + 1] = "|cffcc2a1aENNEMI JURÉ|r" end
-            local l = Views.Total(e.losses)
-            if l > 0 then bits[#bits + 1] = "nous a vaincus " .. l .. " fois" end
-            if e.presentAtDeaths > 0 then bits[#bits + 1] = "présent à " .. e.presentAtDeaths .. " mort(s)" end
-            if #bits == 0 then
-                if e.level then bits[#bits + 1] = "niveau " .. e.level end
-                bits[#bits + 1] = e.lastSeen and ("croisé " .. UI.Ago(e.lastSeen)) or "jamais croisé"
-            end
-            row.sub:SetText(table.concat(bits, "  ·  "))
-            row.record:SetText("|cff66dd66V " .. Views.Total(e.wins) .. "|r  |cffdd5544D " .. l .. "|r")
-            row:Show()
-        else
-            row:Hide()
-        end
-    end
-    h.fearedEmpty:SetText(#list == 0 and "Aucun ennemi connu.\nCeux que la guilde croise en jeu apparaîtront ici." or "")
+    -- Rival guild: its members most to fear, never met ones by level.
+    local list = rival and feared(enemies, function(e) return e.rival end) or {}
+    local first = list[1]
+    local fought = first and (first.sworn or Views.Total(first.losses) + Views.Total(first.wins) + first.presentAtDeaths > 0)
+    h.rivals.title:SetText(fought and "Guilde rivale : les plus redoutés" or "Guilde rivale : les plus menaçants")
+    h.rivals.list:SetItems(list, rival and "Aucun membre connu.\nL'armurerie ou une rencontre les fera apparaître."
+        or "Pas encore de guilde rivale.")
+
+    -- Those who beat us, rival or not.
+    h.killers.list:SetItems(killers(enemies), "Personne ne nous a vaincus.\nPour l'instant.")
 
     -- News: every encounter of every enemy, most recent first.
     local seen, items = {}, {}
@@ -319,16 +457,22 @@ local function refreshHome(c, ds, posters, enemies)
         end
     end
     table.sort(items, function(a, b) return (a.ev.t or 0) > (b.ev.t or 0) end)
-    for i, n in ipairs(h.news) do
-        local item = items[i]
-        n.ago:SetText(item and UI.Ago(item.ev.t) or "")
-        n.line:SetText(item and newsLine(item.e, item.ev) or "")
-    end
-    h.newsEmpty:SetText(#items == 0 and "Rien à signaler sur le front.\nLes rencontres avec la guilde rivale s'afficheront ici." or "")
+    h.news.list:SetItems(items, "Rien à signaler sur le front.")
 
+    -- Wanted posters in miniature.
+    local w = h.wanted
+    w.items = posters
+    w.offset = math.max(0, math.min(w.offset, #posters - MINIS))
+    for i, f in ipairs(w.minis) do
+        local index = w.offset + i
+        f.poster, f.index = posters[index], posters[index] and index
+        if f.poster then fillMini(f, f.poster); f:Show() else f:Hide() end
+    end
+    w.prev:SetShown(#posters > MINIS); w.next:SetShown(#posters > MINIS)
+    w.prev:SetDisabled(w.offset <= 0); w.next:SetDisabled(w.offset >= #posters - MINIS)
+    w.empty:SetText(#posters == 0 and "Aucun avis placardé.\nUn ennemi te pourrit la vie ?" or "")
     h.posterCount = #posters
-    h.postersLink:SetLabel(#posters > 0 and ("Voir les " .. #posters .. " avis de recherche ›")
-        or "Placarder le premier avis de recherche")
+    h.postersLink:SetLabel(#posters > 0 and ("Tout voir (" .. #posters .. ") ›") or "Placarder ›")
 end
 
 ------------------------------------------------------------------------
@@ -344,7 +488,7 @@ local function build(c)
     c.rival = UI.Text(c, 11, UI.C.dim)
     c.rival:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -3)
 
-    function c:SetView(v) self.view = v; self.detail = nil; self:Refresh() end
+    function c:SetView(v) self.view = v; self.detail, self.focus = nil, nil; self:Refresh() end
     c.tabHome = UI.ToggleButton(c, "Vue d'ensemble", 116, 24, function() c:SetView("home") end)
     c.tabHome:SetPoint("TOPLEFT", 4, -46)
     c.tabPosters = UI.ToggleButton(c, "Avis", 64, 24, function() c:SetView("posters") end)
@@ -546,6 +690,7 @@ local function build(c)
             local poster = postersList[(self.page - 1) * PER_PAGE + i]
             f.poster = poster
             if poster then fillPoster(f, poster); f:Show() else f:Hide() end
+            for _, edge in ipairs(f.focus) do edge:SetShown(poster ~= nil and poster.ev.id == self.focus) end
         end
         posters.empty:SetText(#postersList == 0 and "Aucun avis de recherche placardé.\nUn ennemi te pourrit la vie ? « + Avis »." or "")
         posters.pageText:SetText(self.page .. "/" .. pages)

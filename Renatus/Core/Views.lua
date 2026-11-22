@@ -319,6 +319,23 @@ end
 
 function Views.Total(record) return record.OBS + record.LOG + record.MAN end
 
+-- Victories and defeats against the whole Horde and against the rival guild alone.
+-- Honorable kills outside the rival guild carry no name, so they are only in ds.events.
+function Views.PvpScore(ds, enemies)
+    local horde, rival = { w = 0, l = 0 }, { w = 0, l = 0 }
+    for _, e in ipairs(enemies) do
+        local w, l = Views.Total(e.wins), Views.Total(e.losses)
+        horde.l = horde.l + l
+        if e.rival then rival.w, rival.l = rival.w + w, rival.l + l end
+    end
+    for _, ev in ipairs(ds.events) do
+        if ev.k == "PVP_KILL" or (ev.k == "PVP_CLASH" and ev.p and ev.p.result == "win") then
+            horde.w = horde.w + 1
+        end
+    end
+    return horde, rival
+end
+
 function Views.Wanted(ds)
     local enemies, byKey = Views.Enemies(ds)
     local closed = {}

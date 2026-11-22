@@ -484,14 +484,25 @@ test("tableau de chasse : affiches, registre, fiche", function()
     eq(c.view, "home")
     assert(c.home:IsShown() and not c.posters:IsShown(), "accueil par defaut")
     eq(c.home.guild:GetText(), "<Les Crocs de Sang>")
-    assert(c.home.score:GetText():find("–"), "score")
-    local top = c.home.feared[1]
-    assert(top:IsShown() and top.enemy, "le plus redoute")
-    assert(c.home.news[1].line:GetText() ~= "", "nouvelles du front")
+    assert(c.home.hordeScore.score:GetText():find("–"), "score contre la Horde")
+    assert(c.home.rivalScore.score:GetText():find("–"), "score contre la guilde rivale")
+    local top = c.home.rivals.list.rows[1]
+    assert(top:IsShown() and top.item and top.item.rival, "le plus redoute de la guilde rivale")
+    local killer = c.home.killers.list.rows[1]
+    assert(killer:IsShown() and ns.Views.Total(killer.item.losses) > 0, "ceux qui nous ont vaincus")
+    assert(c.home.news.list.rows[1].line:GetText() ~= "", "nouvelles du front")
     top:Click()
     assert(c.detailFrame:IsShown() and not c.home:IsShown(), "fiche depuis l'accueil")
     c.detail = nil; c:Refresh()
-    assert(c.home.postersLink.label:GetText():find("avis de recherche"), c.home.postersLink.label:GetText())
+    -- a mini poster opens that very poster on the board, framed
+    local mini = c.home.wanted.minis[1]
+    assert(mini:IsShown() and mini.poster, "mini avis")
+    mini:Click()
+    eq(c.view, "posters")
+    eq(c.posters.items[1].poster.ev.id, mini.poster.ev.id)
+    assert(c.posters.items[1].focus[1]:IsShown() and not c.posters.items[2].focus[1]:IsShown(), "avis encadre")
+    c:SetView("home")
+    assert(c.home.postersLink.label:GetText():find("Tout voir"), c.home.postersLink.label:GetText())
     c.home.postersLink:Click()
     eq(c.view, "posters")
     eq(c.posters.items[1].poster ~= nil, true)
@@ -1204,6 +1215,22 @@ test("victoire honorable : rien en champ de bataille ; compteur sans message = d
     Stub.advance(3)
     eq(#eventsOf(ns, "PVP_KILL"), 2)
     withoutPvpApi()
+end)
+
+test("bilan : toute la Horde et la guilde rivale a part", function()
+    local ds = { events = {
+        { k = "PVP_KILL", p = { race = "Tauren" }, prov = "OBS" },
+        { k = "PVP_KILL", p = {}, prov = "DED" },
+        { k = "PVP_KILL", p = { name = "Gorbash", guild = "Les Crocs" }, prov = "OBS" },
+        { k = "PVP_CLASH", p = { name = "Gorbash", result = "loss" }, prov = "MAN" },
+        { k = "PVP_CLASH", p = { name = "Passant", result = "win" }, prov = "MAN" },
+        { k = "DEATH", p = { killer = { n = "Passant", pl = true } }, prov = "LOG" },
+    } }
+    local ns = boot({ specIndex = 1 })
+    local enemies = ns.Views.Enemies({ events = ds.events, rival = "Les Crocs" })
+    local horde, rival = ns.Views.PvpScore(ds, enemies)
+    eq(horde.w, 4); eq(horde.l, 2)
+    eq(rival.w, 1); eq(rival.l, 1)
 end)
 
 print("Reglages de guilde (officiers)")
