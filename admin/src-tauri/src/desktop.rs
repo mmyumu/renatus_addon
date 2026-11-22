@@ -638,13 +638,17 @@ async fn check_admin_addon(app: AppHandle) -> Result<View, String> {
 async fn admin_addon(app: AppHandle, force: bool) -> Result<View, String> {
     let cfg = config(&app);
     let handle = app.clone();
-    let result = tauri::async_runtime::spawn_blocking(
-        move || -> Result<Option<(String, bool)>, String> {
+    let result =
+        tauri::async_runtime::spawn_blocking(move || -> Result<Option<(String, bool)>, String> {
             let paths = game_paths(&cfg)?;
             let release = addon::latest(cfg.test_channel)?
                 .ok_or("Aucune release ne contient encore Renatus_Admin.")?;
-            handle.state::<Shared>().state.lock().unwrap().admin_available =
-                Some(release.version.clone());
+            handle
+                .state::<Shared>()
+                .state
+                .lock()
+                .unwrap()
+                .admin_available = Some(release.version.clone());
             let installed = addon::installed_version(&paths.addons(), ADMIN_ADDON);
             if !force && installed.as_deref() == Some(release.version.as_str()) {
                 return Ok(None);
@@ -654,10 +658,9 @@ async fn admin_addon(app: AppHandle, force: bool) -> Result<View, String> {
                 addon::install_zip(&paths.addons(), &bytes)?,
                 installed.is_none(),
             )))
-        },
-    )
-    .await
-    .map_err(|e| e.to_string())?;
+        })
+        .await
+        .map_err(|e| e.to_string())?;
     match &result {
         Ok(None) => log(&app, ["Renatus_Admin est à jour.".to_string()]),
         Ok(Some((v, first))) => log(
