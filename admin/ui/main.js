@@ -22,7 +22,7 @@ function render(s) {
   const st = s.status;
   const busy = !!s.busy;
   $("busy").textContent = busy ? `${s.busy}…` : "";
-  for (const id of ["deaths", "refresh-rival", "prepare-gazette", "write-gazette", "install-admin", "app-update", "propose-gazette", "discard-gazette"]) $(id).disabled = busy;
+  for (const id of ["deaths", "refresh-rival", "prepare-gazette", "write-gazette", "install-admin", "check-admin", "app-update", "propose-gazette", "discard-gazette"]) $(id).disabled = busy;
 
   // Home
   $("app-version").textContent = s.appVersion;
@@ -841,6 +841,7 @@ $("catalogue-rarity").addEventListener("change", () => renderCatalogue());
 $("catalogue-origin").addEventListener("change", () => renderCatalogue());
 $("reload").addEventListener("click", () => call("reload"));
 $("install-admin").addEventListener("click", () => call("install_admin_addon"));
+$("check-admin").addEventListener("click", () => call("check_admin_addon"));
 $("app-update").addEventListener("click", () => call("update_app"));
 $("refresh-rival").addEventListener("click", () => call("refresh_rival", { rival: $("rival").value }));
 $("prepare-gazette").addEventListener("click", () => { selectionKey = null; call("prepare_gazette"); });

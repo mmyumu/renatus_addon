@@ -623,19 +623,44 @@ async fn pick_articles_dir(app: AppHandle) -> Result<View, String> {
 
 #[tauri::command]
 async fn install_admin_addon(app: AppHandle) -> Result<View, String> {
+    admin_addon(app, true).await
+}
+
+/// "Vérifier Renatus_Admin" button: looks for the latest release now and installs it
+/// only when it differs from the installed copy.
+#[tauri::command]
+async fn check_admin_addon(app: AppHandle) -> Result<View, String> {
+    admin_addon(app, false).await
+}
+
+/// Fetches the latest Renatus_Admin release, records it for the window and installs
+/// it (always when `force`, otherwise only when the installed version differs).
+async fn admin_addon(app: AppHandle, force: bool) -> Result<View, String> {
     let cfg = config(&app);
-    let result = tauri::async_runtime::spawn_blocking(move || -> Result<(String, bool), String> {
-        let paths = game_paths(&cfg)?;
-        let release = addon::latest(cfg.test_channel)?
-            .ok_or("Aucune release ne contient encore Renatus_Admin.")?;
-        let first = addon::installed_version(&paths.addons(), "Renatus_Admin").is_none();
-        let bytes = addon::download(&release)?;
-        Ok((addon::install_zip(&paths.addons(), &bytes)?, first))
-    })
+    let handle = app.clone();
+    let result = tauri::async_runtime::spawn_blocking(
+        move || -> Result<Option<(String, bool)>, String> {
+            let paths = game_paths(&cfg)?;
+            let release = addon::latest(cfg.test_channel)?
+                .ok_or("Aucune release ne contient encore Renatus_Admin.")?;
+            handle.state::<Shared>().state.lock().unwrap().admin_available =
+                Some(release.version.clone());
+            let installed = addon::installed_version(&paths.addons(), ADMIN_ADDON);
+            if !force && installed.as_deref() == Some(release.version.as_str()) {
+                return Ok(None);
+            }
+            let bytes = addon::download(&release)?;
+            Ok(Some((
+                addon::install_zip(&paths.addons(), &bytes)?,
+                installed.is_none(),
+            )))
+        },
+    )
     .await
     .map_err(|e| e.to_string())?;
     match &result {
-        Ok((v, first)) => log(
+        Ok(None) => log(&app, ["Renatus_Admin est à jour.".to_string()]),
+        Ok(Some((v, first))) => log(
             &app,
             [format!(
                 "Renatus_Admin {v} installé. {}",
@@ -646,7 +671,7 @@ async fn install_admin_addon(app: AppHandle) -> Result<View, String> {
                 }
             )],
         ),
-        Err(e) => log(&app, [format!("Installation de Renatus_Admin : {e}")]),
+        Err(e) => log(&app, [format!("Renatus_Admin : {e}")]),
     }
     refresh_status(&app);
     result.map(|_| view(&app))
@@ -951,6 +976,7 @@ pub fn run() {
             pick_wow_folder,
             pick_articles_dir,
             install_admin_addon,
+            check_admin_addon,
             update_app,
             open_folder
         ])
