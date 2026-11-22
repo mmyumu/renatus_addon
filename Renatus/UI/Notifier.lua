@@ -40,6 +40,30 @@ function N.MarkGazetteRead(ds)
     ns.char.ui.gazetteSeen = latest
 end
 
+-- Readers' letters of an issue not read yet: neither shown on its mail page on this
+-- character nor written by the player. Tracked by letter id, not by time: a letter
+-- can reach us by sync long after it was written.
+function N.UnreadLetters(edition, ds)
+    ds = ds or ns.Store.Dataset()
+    if ds.isDemo or ds.preview or not edition then return 0 end
+    local read = ns.char.ui.lettersRead or {}
+    local n = 0
+    for _, l in ipairs(edition.letters or {}) do
+        if l.id ~= nil and not read[l.id] and not (l.ev and l.ev.a == ds.me) then n = n + 1 end
+    end
+    return n
+end
+
+function N.MarkLettersRead(edition, ds)
+    ds = ds or ns.Store.Dataset()
+    if ds.isDemo or not edition then return end
+    local read = ns.char.ui.lettersRead or {}
+    ns.char.ui.lettersRead = read
+    for _, l in ipairs(edition.letters or {}) do
+        if l.id ~= nil then read[l.id] = true end
+    end
+end
+
 local function pipText(n) return n > 0 and (n > 9 and "9+" or tostring(n)) or nil end
 
 local function windowOn(key)

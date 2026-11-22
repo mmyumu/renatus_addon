@@ -67,6 +67,7 @@ local CHAR_DEFAULTS = {
         showWidget = true,       -- gazette icon with notices (UI/Notifier.lua)
         -- widgetPoint = nil     -- its position
         -- gazetteSeen = nil     -- time of the latest article read
+        -- lettersRead = nil     -- [letter event id] = true: readers' letters already read
         demo = false,
     },
 }

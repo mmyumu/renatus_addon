@@ -317,6 +317,23 @@ local function build(c)
             c:OpenMail()
         end
     end)
+    -- New letters since the last visit of the mail page: a breathing halo and a pip.
+    local halo = page.letter:CreateTexture(nil, "BACKGROUND", nil, -8)
+    halo:SetPoint("TOPLEFT", -12, 10)
+    halo:SetPoint("BOTTOMRIGHT", 12, -10)
+    halo:SetTexture(UI.MEDIA .. "glow")
+    halo:SetBlendMode("ADD")
+    halo:SetVertexColor(1, 0.8, 0.35)
+    halo:Hide()
+    page.letter.halo = halo
+    page.letter.unread = UI.Badge(page.letter, 16)
+    page.letter.unread:SetPoint("CENTER", page.letter, "TOPRIGHT", -2, -2)
+    local clock = 0
+    page.letter:HookScript("OnUpdate", function(_, elapsed)
+        if not halo:IsShown() then return end
+        clock = clock + elapsed
+        halo:SetAlpha(0.5 + 0.35 * math.sin(clock * 3))
+    end)
     page.sources = UI.Button(c, "Sources", 90, 22, function()
         if not c.current then return end
         c.showSources = not c.showSources
@@ -428,6 +445,7 @@ local function build(c)
             refreshArchive(self)
         elseif mail then
             refreshMail(self, edition)
+            UI.Notifier.MarkLettersRead(edition, ds)
         elseif reading then
             refreshReader(self, ds, edition, reading)
         else
@@ -437,6 +455,9 @@ local function build(c)
         page.letter:SetLabel(mail and "Écrire à la rédaction"
             or (letters > 0 and ("Courrier des lecteurs (" .. letters .. ")") or "Courrier des lecteurs"))
         page.letter:SetShown(not self.preview and not archive)
+        local unread = (mail or self.preview) and 0 or UI.Notifier.UnreadLetters(edition, ds)
+        page.letter.halo:SetShown(unread > 0)
+        page.letter.unread:Set(unread > 0 and (unread > 9 and "9+" or tostring(unread)) or nil)
         page.sources:SetShown(not mail and not archive)
         local pages = self.pages and #self.pages or 1
         local paging = not reading and not mail and not archive and pages > 1

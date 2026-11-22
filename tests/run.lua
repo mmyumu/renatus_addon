@@ -3005,6 +3005,31 @@ test("edition : publier la mise en page publie ses articles ; ordre editorial ; 
     RenatusPress = nil
 end)
 
+test("courrier des lecteurs : bouton mis en avant tant qu'une lettre d'un autre n'est pas lue", function()
+    local ns = boot({ specIndex = 1, rank = 0, roster = { { name = "Testeur", rank = 0 }, { name = "Bob", rank = 4 } } })
+    ns.Store.Add("ARTICLE", { title = "Une", body = "x", edition = "E1", order = 1 }, { vis = "G", prov = "GEN", noExp = true })
+    -- my own letter is never "new"
+    ns.Store.Add("LETTER", { title = "De moi", desc = "x", edition = "E1" }, { vis = "G", prov = "MAN" })
+    ns.UI.Open("gazette")
+    local c = RenatusMainFrame.containers.gazette
+    local btn = c.paper.letter
+    eq(btn.halo:IsShown(), false); eq(btn.unread:IsShown(), false)
+    local function bobLetter(i)
+        ns.Store.Insert({ v = 1, id = "Player-1-BOB:" .. i, a = "Player-1-BOB", n = "Bob", s = i, t = time(), k = "LETTER",
+            g = ns.Context.GuildKey(), vis = "G", prov = "MAN", p = { title = "Bob " .. i, desc = "y", edition = "E1" } })
+        c:Refresh()
+    end
+    bobLetter(1)
+    eq(btn.halo:IsShown(), true); eq(btn.unread.label:GetText(), "1")
+    btn:Click() -- the mail page: read
+    eq(c.mail, true); eq(btn.halo:IsShown(), false)
+    c.back:Click()
+    eq(btn.halo:IsShown(), false); eq(btn.unread:IsShown(), false)
+    -- a letter arriving later by sync, even dated earlier, is new again
+    bobLetter(2)
+    eq(btn.unread.label:GetText(), "1")
+end)
+
 test("edition : la mise en page d'un non-officier est ignoree", function()
     local ns = boot({ specIndex = 1, rank = 0, roster = { { name = "Testeur", rank = 0 }, { name = "Bob", rank = 4 } } })
     ns.Store.Add("ARTICLE", { title = "Vraie une", body = "x", edition = "E9" }, { vis = "G", prov = "GEN", noExp = true })
