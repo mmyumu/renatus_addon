@@ -7,7 +7,7 @@
 -- Sources: target, mouseover, nameplates. Secret values (instances) are ignored.
 -- When the player dies, rivals seen in the last 30 seconds are recorded as
 -- "present": a deduction (field flagged in ded), never "killed by".
--- Honorable kills (PVP_KILL, below): any enemy player, named only if in the rival guild.
+-- Honorable kills (PVP_KILL, below): any enemy player, named like killers are.
 local _, ns = ...
 
 local Enemies = ns:RegisterModule("CollectorEnemies", {})
@@ -28,7 +28,7 @@ local function rival()
 end
 
 -- Enemy players seen in the last minutes (any guild), in memory only: what an honorable kill
--- needs to describe its victim. Never saved; non-rivals are recorded without their name.
+-- needs to describe its victim (and the guild of whoever kills us). Never saved as such.
 local hostile = {}  -- [name] = { t, level, race, class, className, guild }
 Enemies.HOSTILE_TTL = 300
 
@@ -73,6 +73,13 @@ function Enemies.Observe(unit)
     })
 end
 
+-- What was seen of an enemy player in the last minutes (any guild), or nil.
+function Enemies.Known(name)
+    if type(name) ~= "string" then return nil end
+    local info = hostile[name] or hostile[name:match("^([^%-]+)") or name]
+    if info and now() - info.t <= Enemies.HOSTILE_TTL then return info end
+end
+
 -- Names of rivals seen recently (for the player's death).
 function Enemies.RecentNames(window)
     window = window or Enemies.PRESENT_WINDOW
@@ -87,12 +94,20 @@ end
 ------------------------------------------------------------------------
 -- Honorable kills (PVP_KILL). The game says "<name> meurt (victoire honorable : <rang>)"
 -- for every enemy player killed with the player's participation (outside battlegrounds
--- too): "a contribué", not "a tué". The victim is named only if they belong to the rival
--- guild; anyone else is kept as race, class and level.
+-- too): "a contribué", not "a tué". The victim is named like a killer is: a defeat names
+-- whoever beat us, a victory names whoever we beat.
+--
+-- Several layers, so that no kill is lost (the message did not arrive on Forever on 22/11):
+--   1. the chat message, read with every known format (with or without rank, honor...);
+--      failing that, a recently seen enemy whose name starts the message;
+--   2. the session kill counter (PLAYER_PVP_KILLS_CHANGED): each increase the messages do
+--      not explain is a kill; its victim is a hostile player seen dead in the last seconds
+--      (target, nameplates, group targets), else an unnamed kill (prov DED);
+--   3. unrecognised messages are kept (ns.char.honorMisses) to fix the formats.
 ------------------------------------------------------------------------
 local function escape(s) return (s:gsub("[%(%)%.%%%+%-%*%?%[%]%^%$]", "%%%0")) end
 
--- Pattern capturing the victim's name from COMBATLOG_HONORGAIN (any language).
+-- Pattern capturing the victim's name from a COMBATLOG_HONORGAIN-like format (any language).
 function Enemies.HonorPattern(fmt)
     if type(fmt) ~= "string" then return nil end
     local head, rest = fmt:match("^(.-)%%s(.*)$")
@@ -102,8 +117,43 @@ function Enemies.HonorPattern(fmt)
     return "^" .. escape(head) .. "(.-)" .. escape(literal)
 end
 
-local lastKill = {}      -- [name] = time: the same kill is announced once
-local lastHonorMessage = -math.huge
+-- Every honor format the client knows: with rank, without rank, with diminishing returns.
+local HONOR_FORMATS = { "COMBATLOG_HONORGAIN", "COMBATLOG_HONORGAIN_NO_RANK", "COMBATLOG_HONORGAIN_EXHAUSTION1",
+    "COMBATLOG_HONORGAIN_EXHAUSTION2", "COMBATLOG_HONORGAIN_EXHAUSTION3", "COMBATLOG_HONORGAIN_EXHAUSTION4" }
+
+function Enemies.HonorPatterns()
+    local list, seen = {}, {}
+    for _, key in ipairs(HONOR_FORMATS) do
+        local pattern = Enemies.HonorPattern(_G[key])
+        if pattern and not seen[pattern] then seen[pattern] = true; list[#list + 1] = pattern end
+    end
+    return list
+end
+
+-- The victim's name in an honor message, or nil.
+function Enemies.VictimOf(msg)
+    Enemies.honorPatterns = Enemies.honorPatterns or Enemies.HonorPatterns()
+    for _, pattern in ipairs(Enemies.honorPatterns) do
+        local name = msg:match(pattern)
+        if name and name ~= "" then return name end
+    end
+    -- Unknown format: an enemy seen recently whose name starts the message (longest first).
+    local best
+    for name, info in pairs(hostile) do
+        if now() - info.t <= Enemies.HOSTILE_TTL and msg:sub(1, #name) == name
+            and not msg:sub(#name + 1, #name + 1):match("[%w\128-\255]") and (not best or #name > #best) then
+            best = name
+        end
+    end
+    return best
+end
+
+Enemies.DEAD_WINDOW = 15
+local deadSeen = {}       -- [name] = time a hostile player was seen dead (memory only)
+local lastKill = {}       -- [name] = time: the same kill is announced once
+local credits = {}        -- times of recognised messages not yet matched with the counter
+local owed = 0            -- counter increases not yet explained
+local checkPending = false
 local sessionKills
 
 local function sessionCount()
@@ -116,13 +166,39 @@ local function inBattleground()
     return inside and (kind == "pvp" or kind == "arena")
 end
 
+-- Units where a dead enemy can be seen.
+local function watchedUnits()
+    local list = { "target", "focus", "mouseover", "softenemy" }
+    for i = 1, 40 do list[#list + 1] = "nameplate" .. i end
+    for i = 1, 4 do list[#list + 1] = "party" .. i .. "target" end
+    for i = 1, 40 do list[#list + 1] = "raid" .. i .. "target" end
+    return list
+end
+local WATCHED = watchedUnits()
+
+-- A hostile player shown dead on this unit: remembered as a possible victim.
+function Enemies.CheckDead(unit)
+    if not unit or not try(UnitExists, unit) or not try(UnitIsPlayer, unit) then return nil end
+    if not try(UnitIsDeadOrGhost, unit) or not isHostile(unit) then return nil end
+    local name = try(UnitName, unit)
+    if not name or name == "" then return nil end
+    remember(unit, name, try(GetGuildInfo, unit))
+    deadSeen[name] = deadSeen[name] or now()
+    return name
+end
+
+local function scanDead()
+    for _, unit in ipairs(WATCHED) do Enemies.CheckDead(unit) end
+end
+
 -- Records a kill; name may be nil (kill counted by the game but not announced).
-function Enemies.RecordKill(name)
+function Enemies.RecordKill(name, prov)
     if inBattleground() then return nil end -- battlegrounds: summed up by the expedition
     local t = now()
     if name then
         if lastKill[name] and t - lastKill[name] < 60 then return nil end
         lastKill[name] = t
+        deadSeen[name] = nil
     end
     local info = name and hostile[name]
     if info and t - info.t > Enemies.HOSTILE_TTL then info = nil end
@@ -131,42 +207,69 @@ function Enemies.RecordKill(name)
         Enemies.Observe("target")
         info = hostile[name]
     end
-    local target = rival()
-    local p = {}
-    if info then p.level, p.race, p.class, p.className = info.level, info.race, info.class, info.className end
-    local isRival = info and info.guild and target and string.lower(info.guild) == target
-    local opts
-    if isRival then
-        p.name, p.guild = name, info.guild
-    elseif not name then
-        opts = { prov = "DED" } -- the game counted a kill without saying whom
+    local p = { name = name }
+    if info then
+        p.level, p.race, p.class, p.className, p.guild = info.level, info.race, info.class, info.className, info.guild
     end
-    return ns.Store.Add("PVP_KILL", p, opts)
+    -- DED: the game counted a kill without naming the victim, or the victim was deduced.
+    return ns.Store.Add("PVP_KILL", p, (prov or not name) and { prov = prov or "DED" } or nil)
+end
+
+-- Unrecognised honor messages, kept to adjust the formats (last 10, this character).
+local function keepMiss(msg)
+    local misses = ns.char.honorMisses or {}
+    ns.char.honorMisses = misses
+    table.insert(misses, 1, { t = now(), msg = msg:sub(1, 200) })
+    while #misses > 10 do table.remove(misses) end
 end
 
 function Enemies.OnHonorMessage(msg)
     msg = ns.Safe(msg)
     if type(msg) ~= "string" then return nil end
-    Enemies.honorPattern = Enemies.honorPattern or Enemies.HonorPattern(_G.COMBATLOG_HONORGAIN)
-    local name = Enemies.honorPattern and msg:match(Enemies.honorPattern)
-    if not name or name == "" then return nil end
-    lastHonorMessage = now()
-    sessionKills = sessionCount() or sessionKills
+    local name = Enemies.VictimOf(msg)
+    if not name then keepMiss(msg) return nil end
+    credits[#credits + 1] = now()
     return Enemies.RecordKill(name)
 end
 
--- Fallback when the message never comes: the session counter went up.
+-- Counter increases the messages did not explain: victims seen dead, else unnamed.
+local function settle()
+    checkPending = false
+    local t = now()
+    local fresh = {}
+    for _, at in ipairs(credits) do if t - at <= 10 then fresh[#fresh + 1] = at end end
+    local explained = math.min(owed, #fresh)
+    owed = math.min(owed - explained, 5)
+    credits = {}
+    if owed <= 0 then owed = 0 return end
+    scanDead()
+    local victims = {}
+    for name, at in pairs(deadSeen) do
+        if t - at <= Enemies.DEAD_WINDOW then victims[#victims + 1] = { name = name, t = at }
+        else deadSeen[name] = nil end
+    end
+    table.sort(victims, function(a, b) return a.t > b.t end)
+    for i = 1, owed do
+        local v = victims[i]
+        Enemies.RecordKill(v and v.name, v and "DED" or nil)
+    end
+    owed = 0
+end
+
+-- The session counter went up (or appeared).
 function Enemies.OnKillsChanged()
     local count = sessionCount()
     if not count then return end
     local before = sessionKills
     sessionKills = count
-    if not before or count <= before then return end
-    local function check()
-        if now() - lastHonorMessage <= 3 then return end
-        for _ = 1, math.min(count - before, 5) do Enemies.RecordKill(nil) end
-    end
-    if C_Timer then C_Timer.After(2, check) else check() end
+    -- Counter unknown until now (not ready at login): at least one kill.
+    local delta = before and count - before or (count > 0 and 1 or 0)
+    if delta <= 0 then return end
+    owed = owed + delta
+    scanDead()
+    if checkPending then return end
+    checkPending = true
+    if C_Timer then C_Timer.After(2, settle) else settle() end
 end
 
 -- Purge old timestamps (the table only serves as a rate limit).
@@ -183,6 +286,14 @@ function Enemies:OnLogin()
     ns:RegisterGameEvent("UPDATE_MOUSEOVER_UNIT", function() Enemies.Observe("mouseover") end)
     ns:RegisterGameEvent("NAME_PLATE_UNIT_ADDED", function(_, unit) Enemies.Observe(ns.Safe(unit)) end)
     sessionKills = sessionCount()
+    ns:RegisterGameEvent("PLAYER_ENTERING_WORLD", function() sessionKills = sessionKills or sessionCount() end)
     ns:RegisterGameEvent("CHAT_MSG_COMBAT_HONOR_GAIN", function(_, msg) Enemies.OnHonorMessage(msg) end)
     ns:RegisterGameEvent("PLAYER_PVP_KILLS_CHANGED", Enemies.OnKillsChanged)
+    -- An enemy player dying on screen: remembered a few seconds as a possible victim.
+    ns:RegisterGameEvent("UNIT_HEALTH", function(_, unit)
+        unit = ns.Safe(unit)
+        if type(unit) == "string" and unit ~= "player" and not unit:match("^party%d$") and not unit:match("^raid%d+$") then
+            Enemies.CheckDead(unit)
+        end
+    end)
 end

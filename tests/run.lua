@@ -256,6 +256,13 @@ local function eventsOf(ns, kind)
     return out
 end
 
+-- Same, newest first (sequence number).
+local function newestOf(ns, kind)
+    local out = eventsOf(ns, kind)
+    table.sort(out, function(a, b) return a.s > b.s end)
+    return out
+end
+
 test("passage de niveau : un evenement prive, observe, avec lieu", function()
     local ns = boot({ specIndex = 1 })
     ns.char.privacy.progression = "P"
@@ -502,6 +509,17 @@ test("tableau de chasse : affiches, registre, fiche", function()
     local killer = c.home.killers.list.rows[1]
     assert(killer:IsShown() and ns.Views.Total(killer.item.losses) > 0, "ceux qui nous ont vaincus")
     assert(c.home.news.list.rows[1].line:GetText() ~= "", "nouvelles du front")
+    -- our honorable kills show too, named (rival guild) or anonymous
+    local named, anonymous = {}, 0
+    for _, item in ipairs(c.home.news.list.items) do
+        if item.ev.k == "PVP_KILL" then
+            if item.e then named[item.e.key] = true else anonymous = anonymous + 1 end
+        end
+    end
+    assert(named.lysandra and named.brisecorne, "victoires nommees, guilde rivale ou non")
+    eq(anonymous, 1, "victoire comptee sans nom")
+    local first = c.home.news.list.rows[1].line:GetText()
+    assert(first:find("Tobias a tué |c%x+un ennemi|r"), first)
     top:Click()
     assert(c.detailFrame:IsShown() and not c.home:IsShown(), "fiche depuis l'accueil")
     c.detail = nil; c:Refresh()
@@ -512,7 +530,18 @@ test("tableau de chasse : affiches, registre, fiche", function()
     eq(c.view, "posters")
     eq(c.posters.items[1].poster.ev.id, mini.poster.ev.id)
     assert(c.posters.items[1].focus[1]:IsShown() and not c.posters.items[2].focus[1]:IsShown(), "avis encadre")
+    -- registry: every enemy, or the rival guild only
+    c:SetView("registry")
+    assert(c.rivalFilter:IsShown(), "filtre visible dans le registre")
+    local all = #c.registry.items
+    c.rivalFilter:Click()
+    local only = c.registry.items
+    assert(#only > 0 and #only < all, "filtre guilde rivale")
+    for _, e in ipairs(only) do assert(e.rival, e.key) end
+    c.rivalFilter:Click()
+    eq(#c.registry.items, all)
     c:SetView("home")
+    assert(not c.rivalFilter:IsShown(), "filtre cache hors registre")
     assert(c.home.postersLink.label:GetText():find("Tout voir"), c.home.postersLink.label:GetText())
     c.home.postersLink:Click()
     eq(c.view, "posters")
@@ -520,7 +549,7 @@ test("tableau de chasse : affiches, registre, fiche", function()
     c.posters.items[1]:Click()
     assert(c.detailFrame:IsShown(), "fiche affichee")
     c.view = "registry"; c.detail = nil; c:Refresh()
-    assert(c.registry:IsShown() and #c.registry.items == 4, "registre")
+    assert(c.registry:IsShown() and #c.registry.items == 5, "registre (Brisecorne, hors guilde rivale)")
 end)
 
 test("gazette : article et sources", function()
@@ -1271,7 +1300,7 @@ test("victoire honorable sur un rival : nomme, compte dans sa fiche", function()
     withoutPvpApi()
 end)
 
-test("victoire honorable hors guilde rivale : race, classe, niveau, jamais le nom", function()
+test("victoire honorable hors guilde rivale : nommee, guilde, race, niveau ; victoire dans sa fiche", function()
     withPvpApi()
     local passant = { name = "Passant", guild = "Les Gentils", level = 22, race = "Tauren", class = "Druide" }
     local ns = boot({ specIndex = 1, units = { mouseover = passant } })
@@ -1280,10 +1309,70 @@ test("victoire honorable hors guilde rivale : race, classe, niveau, jamais le no
     Stub.fire("CHAT_MSG_COMBAT_HONOR_GAIN", "Passant meurt (victoire honorable : Soldat). Vous gagnez 9 points d'honneur.")
     local k = eventsOf(ns, "PVP_KILL")[1]
     assert(k, "victoire enregistree")
-    eq(k.p.name, nil); eq(k.p.race, "Tauren"); eq(k.p.level, 22)
-    eq(#eventsOf(ns, "ENEMY_SEEN"), 0, "pas de fiche pour un non-rival")
-    for _, v in pairs(k.p) do assert(v ~= "Passant", "nom enregistre !") end
-    assert(ns.Types.Raw(k):find("un Tauren druide de niveau 22"), ns.Types.Raw(k))
+    eq(k.p.name, "Passant"); eq(k.p.guild, "Les Gentils"); eq(k.p.race, "Tauren"); eq(k.p.level, 22); eq(k.prov, "OBS")
+    eq(#eventsOf(ns, "ENEMY_SEEN"), 0, "les simples rencontres restent limitees a la guilde rivale")
+    local _, byKey = ns.Views.Enemies(ns.Store.Dataset())
+    eq(ns.Views.Total(byKey["passant"].wins), 1, "victoire dans la fiche")
+    assert(ns.Types.Raw(k):find("victoire honorable sur Passant <Les Gentils>"), ns.Types.Raw(k))
+    withoutPvpApi()
+end)
+
+test("victoire honorable : message sans rang, format inconnu, messages non reconnus gardes", function()
+    withPvpApi()
+    COMBATLOG_HONORGAIN_NO_RANK = "%s meurt, victoire honorable (%d points d'honneur estimés)"
+    local grom = { name = "Grom", guild = "Horde", level = 30, race = "Orc", class = "WARRIOR" }
+    local ns = boot({ specIndex = 1, units = { mouseover = grom } })
+    ns.char.rivalGuild = "Les Crocs de Sang"
+    Stub.fire("CHAT_MSG_COMBAT_HONOR_GAIN", "Zug meurt, victoire honorable (12 points d'honneur estimés)")
+    eq(newestOf(ns, "PVP_KILL")[1].p.name, "Zug", "format sans rang")
+    -- unknown wording: an enemy seen just before whose name starts the message
+    Stub.fire("UPDATE_MOUSEOVER_UNIT")
+    Stub.fire("CHAT_MSG_COMBAT_HONOR_GAIN", "Grom est vaincu ! Honneur +8")
+    eq(newestOf(ns, "PVP_KILL")[1].p.name, "Grom", "nom d'un ennemi vu")
+    eq(newestOf(ns, "PVP_KILL")[1].p.level, 30)
+    -- not a name: kept to fix the formats
+    Stub.fire("CHAT_MSG_COMBAT_HONOR_GAIN", "Vous avez gagné 5 points d'honneur.")
+    eq(#newestOf(ns, "PVP_KILL"), 2)
+    eq(ns.char.honorMisses[1].msg, "Vous avez gagné 5 points d'honneur.")
+    COMBATLOG_HONORGAIN_NO_RANK = nil
+    withoutPvpApi()
+end)
+
+test("victoire honorable sans message : la victime est l'ennemi vu mort (cible, barres de nom)", function()
+    local api = withPvpApi(2)
+    local mort = { name = "Krosh", guild = "Les Crocs de Sang", level = 35, race = "Troll", class = "MAGE", dead = true }
+    local vivant = { name = "Vivace", level = 35, race = "Orc", class = "ROGUE" }
+    local ns, S = boot({ specIndex = 1, units = { nameplate3 = vivant } })
+    ns.char.rivalGuild = "Les Crocs de Sang"
+    -- the enemy dies on screen, then the counter goes up without a message
+    S.units.target = mort
+    Stub.fire("UNIT_HEALTH", "target")
+    S.units.target = nil
+    api.kills = 3
+    Stub.fire("PLAYER_PVP_KILLS_CHANGED")
+    Stub.advance(3)
+    local k = newestOf(ns, "PVP_KILL")
+    eq(#k, 1)
+    eq(k[1].p.name, "Krosh"); eq(k[1].p.guild, "Les Crocs de Sang"); eq(k[1].prov, "DED", "victime deduite")
+    local _, byKey = ns.Views.Enemies(ns.Store.Dataset())
+    eq(ns.Views.Total(byKey["krosh"].wins), 1, "compte dans sa fiche")
+    -- two kills at once, nobody seen dead: unnamed
+    api.kills = 5
+    Stub.fire("PLAYER_PVP_KILLS_CHANGED")
+    Stub.advance(3)
+    k = newestOf(ns, "PVP_KILL")
+    eq(#k, 3); eq(k[1].p.name, nil); eq(k[1].prov, "DED")
+    withoutPvpApi()
+end)
+
+test("victoire honorable : compteur inconnu a la connexion, la premiere victoire compte", function()
+    local api = withPvpApi()
+    api.kills = nil
+    local ns = boot({ specIndex = 1 })
+    api.kills = 1
+    Stub.fire("PLAYER_PVP_KILLS_CHANGED")
+    Stub.advance(3)
+    eq(#eventsOf(ns, "PVP_KILL"), 1)
     withoutPvpApi()
 end)
 
@@ -1356,6 +1445,45 @@ test("officier : guilde rivale diffusee depuis Renatus_Admin, appliquee au table
     -- other settings kept when only the rival changes; empty = no rival
     ns.GuildConfig.Publish({ rival = "" })
     eq(ns.GuildConfig.Rival(), nil)
+end)
+
+test("tableau de chasse : repartir de 0-0 a une date, sans rien effacer, pour toute la guilde", function()
+    local ns, A = bootAdmin({ specIndex = 1, rank = 1, roster = OFFICERS })
+    local ds = { rival = "Les Crocs", events = {
+        { k = "PVP_KILL", t = 300, p = { name = "Apres", guild = "Autre" }, prov = "OBS" },
+        { k = "ENEMY_NOTE", t = 150, p = { name = "Gorbash", nickname = "Le Broyeur", sworn = true }, prov = "MAN", a = "A" },
+        { k = "PVP_KILL", t = 100, p = {}, prov = "DED" },
+        { k = "PVP_CLASH", t = 100, p = { name = "Gorbash", result = "loss" }, prov = "MAN" },
+        { k = "DEATH", t = 100, p = { killer = { n = "Avant", pl = true } }, prov = "OBS" },
+    } }
+    local enemies, byKey = ns.Views.Enemies(ds)
+    local horde = ns.Views.PvpScore(ds, enemies)
+    eq(horde.w, 2); eq(horde.l, 2)
+    ds.huntSince = 200
+    enemies, byKey = ns.Views.Enemies(ds)
+    horde = ns.Views.PvpScore(ds, enemies)
+    eq(horde.w, 1, "seule la victoire d'apres compte"); eq(horde.l, 0)
+    eq(byKey["avant"], nil, "tueur d'avant oublie")
+    eq(byKey["gorbash"].nicknames[1].text, "Le Broyeur", "surnom garde")
+    eq(next(byKey["gorbash"].swornVotes), nil, "vote d'avant oublie")
+    -- officer: Renatus_Admin, Remise a zero page
+    SlashCmdList.RENATUSADMIN("")
+    A.window.tabs.reset:Click()
+    local page = A.window.pages.reset
+    eq(page.huntUndo.gcDisabled, true, "rien a annuler")
+    page.huntReset:Click()
+    eq(ns.GuildConfig.HuntSince(), nil, "confirmation demandee")
+    page.huntReset:Click()
+    local since = ns.GuildConfig.HuntSince()
+    assert(since, "date diffusee")
+    eq(ns.Store.Dataset().huntSince, since)
+    assert(page.huntInfo:GetText():find("Compté depuis le"), page.huntInfo:GetText())
+    -- the rival guild is kept; undo goes back to the beginning
+    ns.GuildConfig.Publish({ rival = "Les Crocs" })
+    eq(ns.GuildConfig.HuntSince(), since, "date gardee quand la guilde rivale change")
+    page.huntUndo:Click()
+    eq(ns.GuildConfig.HuntSince(), nil)
+    eq(ns.GuildConfig.Rival(), "Les Crocs")
 end)
 
 test("simple membre : ne peut pas diffuser, mais applique le reglage d'un officier", function()
@@ -1928,6 +2056,24 @@ test("mort : journal de combat ferme, le recapitulatif de mort prend le relais",
     eq(#eventsOf(ns, "DEATH"), 1, "enregistree immediatement")
     local k = eventsOf(ns, "DEATH")[1].p.killer
     eq(k.sp, "Marteau de la justice"); eq(k.src, "recap")
+end)
+
+test("mort : le tueur vu juste avant donne sa guilde, il compte pour la guilde rivale", function()
+    withPvpApi()
+    local lumineux = { name = "Lumineux", guild = "Les Crocs de Sang", level = 31, race = "Elfe de sang", class = "PALADIN" }
+    local ns, S = boot({ specIndex = 1, players = PLAYERS, recap = true, units = { mouseover = lumineux },
+        unknownEvents = { COMBAT_LOG_EVENT_UNFILTERED = true } })
+    ns.char.rivalGuild = "Les Crocs de Sang"
+    Stub.fire("UPDATE_MOUSEOVER_UNIT")
+    S.recap = { { timestamp = 103, event = "SPELL_DAMAGE", sourceGUID = PALA, sourceName = "Lumineux",
+        spellName = "Marteau de la justice", amount = 500, overkill = 20 } }
+    Stub.fire("PLAYER_DEAD")
+    local k = eventsOf(ns, "DEATH")[1].p.killer
+    eq(k.gd, "Les Crocs de Sang"); eq(k.lv, 31)
+    local _, byKey = ns.Views.Enemies({ events = ns.Store.Dataset().events, rival = "Les Crocs de Sang" })
+    assert(byKey["lumineux"].rival, "membre de la guilde rivale")
+    eq(byKey["lumineux"].level, 31)
+    withoutPvpApi()
 end)
 
 test("mort : recapitulatif vide au moment de la mort, relu une seconde apres", function()

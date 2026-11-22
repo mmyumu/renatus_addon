@@ -192,6 +192,12 @@ Views.EnemyKey = enemyKey
 
 local function emptyRecord() return { OBS = 0, LOG = 0, MAN = 0, DED = 0 } end
 
+-- Fights count on the Wanted Board only from its start date (guild setting huntSince).
+local HUNT_KINDS = { ENEMY_SEEN = true, PVP_CLASH = true, PVP_KILL = true, DEATH = true }
+function Views.InHunt(ds, ev)
+    return not (ds.huntSince and HUNT_KINDS[ev.k] and (ev.t or 0) < ds.huntSince)
+end
+
 function Views.Enemies(ds)
     local byKey, list = {}, {}
     local function get(name)
@@ -216,9 +222,12 @@ function Views.Enemies(ds)
     for i = #ds.events, 1, -1 do
         local ev = ds.events[i]
         local p = ev.p or {}
-        -- An honorable kill names its victim only for the rival guild.
+        local inHunt = Views.InHunt(ds, ev)
+        -- An honorable kill names its victim (older ones: only for the rival guild).
         local kill = ev.k == "PVP_KILL" and p.name ~= nil
-        if ev.k == "ENEMY_SEEN" or ev.k == "ENEMY_NOTE" or ev.k == "PVP_CLASH" or ev.k == "WANTED" or kill then
+        if not inHunt then
+            -- before the Wanted Board's start date: ignored
+        elseif ev.k == "ENEMY_SEEN" or ev.k == "ENEMY_NOTE" or ev.k == "PVP_CLASH" or ev.k == "WANTED" or kill then
             local e = get(p.name or "?")
             see(e, "guild", p.guild, ev.t)
             see(e, "class", p.class, ev.t)
@@ -241,7 +250,10 @@ function Views.Enemies(ds)
             if ev.k == "ENEMY_NOTE" then
                 if p.nickname then table.insert(e.nicknames, 1, { text = p.nickname, by = who(ev), t = ev.t }) end
                 if p.note then table.insert(e.notes, 1, { text = p.note, by = who(ev), t = ev.t, prov = ev.prov }) end
-                if p.sworn then e.swornVotes[ev.a or ev.n or "?"] = true end
+                -- a vote from before the start date does not survive it
+                if p.sworn and not (ds.huntSince and (ev.t or 0) < ds.huntSince) then
+                    e.swornVotes[ev.a or ev.n or "?"] = true
+                end
             end
         elseif ev.k == "DEATH" then
             local k = type(p.killer) == "table" and p.killer or nil
@@ -249,6 +261,8 @@ function Views.Enemies(ds)
             if killerKey then
                 -- Killed by a player: a verified defeat (combat log or death recap).
                 local e = get(k.n)
+                see(e, "guild", k.gd, ev.t)
+                if k.lv then see(e, "level", k.lv, ev.t) end
                 see(e, "class", k.c, ev.t)
                 see(e, "race", k.ra, ev.t)
                 see(e, "realm", k.r, ev.t)
@@ -317,7 +331,7 @@ function Views.Enemies(ds)
     return list, byKey
 end
 
-function Views.Total(record) return record.OBS + record.LOG + record.MAN end
+function Views.Total(record) return record.OBS + record.LOG + record.MAN + (record.DED or 0) end
 
 -- Victories and defeats against the whole Horde and against the rival guild alone.
 -- Honorable kills outside the rival guild carry no name, so they are only in ds.events.
@@ -329,7 +343,7 @@ function Views.PvpScore(ds, enemies)
         if e.rival then rival.w, rival.l = rival.w + w, rival.l + l end
     end
     for _, ev in ipairs(ds.events) do
-        if ev.k == "PVP_KILL" or (ev.k == "PVP_CLASH" and ev.p and ev.p.result == "win") then
+        if Views.InHunt(ds, ev) and (ev.k == "PVP_KILL" or (ev.k == "PVP_CLASH" and ev.p and ev.p.result == "win")) then
             horde.w = horde.w + 1
         end
     end

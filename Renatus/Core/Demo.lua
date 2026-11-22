@@ -121,6 +121,13 @@ local function build()
         reason = "Soupçonné de camper le même cimetière depuis mardi.", reward = "Le respect éternel de Tobias" }, { prov = "MAN" })
     E("kae", "PVP_CLASH", 4, 22, { name = "Mortefeuille", enemy = "Mortefeuille", result = "win" }, { zone = "Bois de la Pénombre", prov = "LOG" })
     seen("kae", 4, 22, "Mortefeuille", "Bois de la Pénombre")
+    -- Honorable kills: the victim is named, rival guild or not; counted without a name (DED)
+    -- when the game did not say whom.
+    E("bri", "PVP_KILL", 2, 21, { name = "Lysandra", guild = RIVALS, race = "Elfe de sang", class = "MAGE", className = "Mage", level = 23 },
+        { zone = "Contreforts de Hautebrande", prov = "OBS" })
+    E("pis", "PVP_KILL", 1, 20, { name = "Brisecorne", guild = "Les Vents du Sud", race = "Tauren", class = "HUNTER", className = "Chasseur", level = 24 },
+        { zone = "Les Tarides", prov = "OBS" })
+    E("tob", "PVP_KILL", 0, 22, {}, { zone = "Les Tarides", prov = "DED" })
     E("pis", "QUEST_DONE", 6, 20, { q = 1, title = "Le familier perdu" }, { zone = "Loch Modan" })
     E("pis", "LEVEL_UP", 6, 21, { lvl = 21 }, { zone = "Loch Modan" })
 

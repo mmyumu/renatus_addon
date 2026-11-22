@@ -1,7 +1,8 @@
 -- Core/GuildConfig.lua: guild-wide settings, published by an officer (docs §7.3).
 --
 -- A GUILD_CONFIG event is an ordinary shared event (always "G") whose payload is the
--- whole configuration: { rival = "Guild name", boosters = { day, bonus, cap } }. It travels with the sync like any
+-- whole configuration: { rival = "Guild name", boosters = { day, bonus, cap },
+-- huntSince = time the Wanted Board starts from (fights before it are left out) }. It travels with the sync like any
 -- other event. Every client decides on its own which one applies:
 --   - its author must be, in the guild roster seen by this client, at rank
 --     OFFICER_MAX_RANK or above (0 = guild master, 1 = the rank below, ...);
@@ -142,6 +143,13 @@ function GuildConfig.Rival()
     return trim(ns.char.rivalGuild)
 end
 
+-- Start of the Wanted Board (fights before it are left out), or nil.
+function GuildConfig.HuntSince()
+    local cfg = GuildConfig.Current()
+    local t = cfg and cfg.p.huntSince
+    return type(t) == "number" and t or nil
+end
+
 -- Publishes a new configuration (officers only). Fields left out are kept from the
 -- configuration in force, so publishing { rival = "X" } does not reset the rest.
 -- { boosters = { day, bonus, cap } } applies from the day it is published on.
@@ -153,6 +161,7 @@ function GuildConfig.Publish(fields)
     for k, v in pairs(fields or {}) do payload[k] = v end
     payload.rival = trim(payload.rival)
     if payload.boosters ~= nil then payload.boosters = ns.Album.Rule(payload.boosters) end
+    if type(payload.huntSince) ~= "number" then payload.huntSince = nil end -- false: from the start
     local ev = ns.Store.Add("GUILD_CONFIG", payload, { vis = "G", prov = "MAN", noExp = true, loc = {} })
     GuildConfig.Invalidate()
     return ev

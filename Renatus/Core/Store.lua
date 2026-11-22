@@ -254,6 +254,7 @@ function Store.Dataset()
         legends = {},
         roster = Store.Roster(),
         rival = ns.GuildConfig.Rival(),
+        huntSince = ns.GuildConfig.HuntSince(),
     }
     -- Corrections of published articles need the roster (who is an officer).
     ds.articles = ns.Views.Revise(ds, ds.articles)

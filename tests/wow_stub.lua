@@ -131,7 +131,10 @@ function Stub.reset(opts)
     end
     function StopSound(handle) table.insert(S.stopped, handle) end
     function InCombatLockdown() return S.inCombat end
-    function UnitIsDeadOrGhost() return S.dead end
+    function UnitIsDeadOrGhost(unit)
+        if unit and unit ~= "player" then local u = S.units[unit]; return u and u.dead or false end
+        return S.dead
+    end
     local function groupUnit(unit)
         local i = unit and tonumber(unit:match("^party(%d+)$") or unit:match("^raid(%d+)$") or "")
         return i and S.group[i]

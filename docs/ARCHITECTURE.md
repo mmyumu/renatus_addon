@@ -281,16 +281,17 @@ Une **expédition** est une période d'activité cohérente. Elle est détectée
 |---|---|---|---|
 | **Rencontre** d'un joueur de la guilde rivale (nom, guilde, niveau, race, classe, lieu) | cible, survol, barres de nom (`NAME_PLATE_UNIT_ADDED`) + `GetGuildInfo(unit)` | `OBS` | Probable en monde ouvert **[V10]** |
 | Notre mort en zone PvP | `PLAYER_DEAD` + liste des ennemis vus dans les 30 dernières secondes | `OBS` (mort) + `DED` (« ennemis présents ») | Oui, **sans tueur** |
-| Participation à un kill (victoire honorable) | `CHAT_MSG_COMBAT_HONOR_GAIN` (« %s meurt (victoire honorable : %s)… », `COMBATLOG_HONORGAIN`), repli sur `PLAYER_PVP_KILLS_CHANGED` + `GetPVPSessionStats()` | `PVP_KILL`, `OBS` (« a contribué », pas « a tué ») ; `DED` si le jeu a compté sans nommer la victime | Oui (modèle et compteur confirmés sur Forever le 21/11/2026), hors champ de bataille. Victime nommée seulement si elle est de la guilde rivale ; sinon race, classe, niveau |
+| Participation à un kill (victoire honorable) | `CHAT_MSG_COMBAT_HONOR_GAIN` (« %s meurt (victoire honorable : %s)… », `COMBATLOG_HONORGAIN`), repli sur `PLAYER_PVP_KILLS_CHANGED` + `GetPVPSessionStats()` | `PVP_KILL`, `OBS` (« a contribué », pas « a tué ») ; `DED` si le jeu a compté sans nommer la victime, ou si la victime est déduite | Compteur confirmé sur Forever ; **le 22/11/2026, aucun message reconnu** (5 victoires de Renaa arrivées vides). Depuis la v1.0.7 : tous les formats connus (`COMBATLOG_HONORGAIN`, `_NO_RANK`, `_EXHAUSTION1-4`), sinon un ennemi vu récemment dont le nom ouvre le message ; les messages non reconnus sont gardés (`RenatusCharDB.honorMisses`). Compteur sans message : la victime est le joueur ennemi vu mort dans les 15 s (cible, focus, survol, barres de nom, cibles du groupe, `UNIT_HEALTH`), `DED`. Hors champ de bataille. **Victime nommée quelle que soit sa guilde** (comme les tueurs), avec guilde, race, classe, niveau |
 | Coup fatal, tueur, sort utilisé | Fichier de journal de combat | `LOG` | Via le compagnon (§8) |
 | Victoire ou défaite déclarée | Formulaire « Déclarer un affrontement » | `MAN`, confirmable par d'autres membres présents | Oui |
 
 - Les observations sont **limitées en fréquence** : une observation par ennemi toutes les 10 min, et la fiche ne garde que la dernière observation par lieu. On garde des rencontres, pas une traque.
-- La **guilde rivale** est configurée par son nom (réglage de guilde, voir §7.3). Les autres joueurs ennemis ne sont **pas** enregistrés, sauf ajout manuel.
+- La **guilde rivale** est configurée par son nom (réglage de guilde, voir §7.3). Les simples rencontres (`ENEMY_SEEN`) ne concernent qu'elle. Les autres joueurs ennemis entrent au registre seulement par un **combat** : ils nous ont tués (tueur de `DEATH`, avec sa guilde s'il a été vu juste avant) ou nous les avons tués (`PVP_KILL`), ou par ajout manuel. Le registre a un filtre « Guilde rivale ».
+- **Date de départ** (`huntSince` du réglage de guilde, v1.0.7) : un officier remet le tableau de chasse à 0-0 depuis Renatus_Admin (page Remise à zéro). Les combats d'avant (`ENEMY_SEEN`, `PVP_CLASH`, `PVP_KILL`, `DEATH`) et les votes « ennemi juré » d'avant sont ignorés par le tableau ; rien n'est effacé (journaux, gazette, avis, surnoms et notes restent). « Tout reprendre depuis le début » retire la date.
 
 ### 6.2 Fiche ennemi
 
-Elle est calculée à partir des événements `ENEMY_SEEN`, `PVP_CLASH`, `PVP_KILL_LOG` et `ENEMY_NOTE` :
+Elle est calculée à partir des événements `ENEMY_SEEN`, `PVP_CLASH`, `PVP_KILL`, `DEATH` (tueur joueur) et `ENEMY_NOTE` :
 - Identité : nom, royaume, guilde, race, classe, chacun avec sa **date de dernière observation**.
 - Niveau connu à une date donnée, jamais « niveau actuel ».
 - Rencontres ; victoires et défaites **par provenance** ; dernier lieu ; membres de notre guilde impliqués.

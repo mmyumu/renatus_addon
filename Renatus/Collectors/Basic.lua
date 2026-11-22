@@ -19,6 +19,9 @@ local function onDead()
     local level = try(UnitLevel, "player")
     local participants = ns.Context.Participants()
     local function record(killer)
+        -- A player killer seen just before: their guild and level (rival guild filter).
+        local seen = killer and killer.pl and ns.EnemyWatch and ns.EnemyWatch.Known(killer.n)
+        if seen then killer.gd, killer.lv = seen.guild, killer.lv or seen.level end
         ns.Store.Add("DEATH", { lvl = level, enemies = #enemies > 0 and enemies or nil, killer = killer }, {
             miss = not killer and { "killer" } or nil,  -- neither the combat log nor the death recap told us
             pt = participants,

@@ -9,7 +9,7 @@ local PER_PAGE = 6
 
 local function provSummary(record)
     local parts = {}
-    for _, key in ipairs({ "LOG", "OBS", "MAN" }) do
+    for _, key in ipairs({ "LOG", "OBS", "MAN", "DED" }) do
         local n = record[key] or 0
         if n > 0 then
             local prov = Types.PROVENANCE[key]
@@ -124,21 +124,35 @@ local function killers(enemies)
     return list
 end
 
--- One line of news about an enemy encounter.
+-- An enemy without a record (honorable kill outside the rival guild): "un tauren guerrier (60)".
+local function anonymous(p)
+    local parts = {}
+    if p.race then parts[#parts + 1] = string.lower(p.race) end
+    if p.className then parts[#parts + 1] = string.lower(p.className) end
+    local s = "un " .. (#parts > 0 and table.concat(parts, " ") or "ennemi")
+    if p.level then s = s .. " (" .. p.level .. ")" end
+    return UI.ClassName(s, p.class)
+end
+
+-- One line of news about an enemy encounter; e is nil for an unnamed honorable kill.
+-- Our victories start with the member ("Brisépée a tué Lysandra"), the rest with the enemy.
 local function newsLine(e, ev)
     local p = ev.p or {}
     local member = p.member or Types.Who(ev)
+    local name = e and UI.ClassName(e.display, e.class) or anonymous(p)
     local text
-    if ev.k == "PVP_CLASH" then
-        text = p.result == "win" and ("vaincu par " .. member) or p.result == "loss" and ("a vaincu " .. member)
-            or ("accrochage avec " .. member)
+    -- The game counts any participation in an honorable kill, not only the killing blow.
+    if ev.k == "PVP_KILL" or (ev.k == "PVP_CLASH" and p.result == "win") then
+        text = member .. " a tué " .. name
+    elseif ev.k == "PVP_CLASH" then
+        text = name .. (p.result == "loss" and " a vaincu " or " accrochage avec ") .. member
     elseif ev.k == "DEATH" then
-        text = killedUs(e, ev) and ("a tué " .. Types.Who(ev)) or ("présent à la mort de " .. Types.Who(ev))
+        text = name .. (killedUs(e, ev) and " a tué " or " présent à la mort de ") .. Types.Who(ev)
     else
-        text = "croisé par " .. member
+        text = name .. " croisé par " .. member
     end
     local zone = Types.Zone(ev)
-    return UI.ClassName(e.display, e.class) .. " " .. text .. ((zone and zone ~= "") and (", " .. zone) or "")
+    return text .. ((zone and zone ~= "") and (", " .. zone) or "")
 end
 
 local function verdict(w, l)
@@ -425,6 +439,7 @@ local function refreshHome(c, ds, posters, enemies)
     end
     facts[#facts + 1] = plural(met, "ennemi") .. " croisé" .. (met > 1 and "s" or "")
     if sworn > 0 then facts[#facts + 1] = plural(sworn, "ennemi") .. " juré" .. (sworn > 1 and "s" or "") end
+    if ds.huntSince then facts[#facts + 1] = "depuis le " .. Views.DateLabel(ds.huntSince) end
     local text = table.concat(facts, "  ·  ")
     if not rival then text = text .. "\nLes officiers la choisissent dans Renatus Admin." end
     h.facts:SetText(text)
@@ -448,13 +463,17 @@ local function refreshHome(c, ds, posters, enemies)
     -- Those who beat us, rival or not.
     h.killers.list:SetItems(killers(enemies), "Personne ne nous a vaincus.\nPour l'instant.")
 
-    -- News: every encounter of every enemy, most recent first.
+    -- News: every encounter of every enemy, most recent first, plus the honorable kills
+    -- that name no one (outside the rival guild): without them only our deaths would show.
     local seen, items = {}, {}
     for _, e in ipairs(enemies) do
         for _, ev in ipairs(e.encounters) do
             local id = (ev.id or tostring(ev)) .. "@" .. e.key
             if not seen[id] then seen[id] = true; items[#items + 1] = { e = e, ev = ev } end
         end
+    end
+    for _, ev in ipairs(ds.events) do
+        if ev.k == "PVP_KILL" and not (ev.p and ev.p.name) and Views.InHunt(ds, ev) then items[#items + 1] = { ev = ev } end
     end
     table.sort(items, function(a, b) return (a.ev.t or 0) > (b.ev.t or 0) end)
     h.news.list:SetItems(items, "Rien à signaler sur le front.")
@@ -562,6 +581,12 @@ local function build(c)
         row.record:SetText("|cff66dd66V " .. Views.Total(e.wins) .. "|r   |cffdd5544D " .. Views.Total(e.losses) .. "|r")
     end)
     c.registry:SetPoint("TOPLEFT", 0, bodyTop)
+    -- Registry filter: every enemy met, or the rival guild only.
+    c.rivalFilter = UI.ToggleButton(c, "Guilde rivale", 110, 24, function()
+        c.rivalOnly = not c.rivalOnly
+        c:Refresh()
+    end)
+    c.rivalFilter:SetPoint("LEFT", c.tabRegistry, "RIGHT", 14, 0)
 
     -- Record view
     local d = CreateFrame("Frame", nil, c)
@@ -676,11 +701,19 @@ local function build(c)
         self.home:SetShown(self.view == "home" and not detailEnemy)
         posters:SetShown(self.view == "posters" and not detailEnemy)
         self.registry:SetShown(self.view == "registry" and not detailEnemy)
+        self.rivalFilter:SetShown(self.view == "registry" and not detailEnemy)
+        self.rivalFilter:SetSelected(self.rivalOnly == true)
         d:SetShown(detailEnemy ~= nil)
         if detailEnemy then self:ShowDetail(detailEnemy) return end
         if self.view == "home" then refreshHome(self, ds, postersList, enemies) return end
 
         if self.view == "registry" then
+            if self.rivalOnly then
+                local rivals = {}
+                for _, e in ipairs(enemies) do if e.rival then rivals[#rivals + 1] = e end end
+                self.registry:SetItems(rivals, "Aucun membre de la guilde rivale connu.\nL'armurerie ou une rencontre les fera apparaître.")
+                return
+            end
             self.registry:SetItems(enemies, "Aucun ennemi enregistré.\nLes membres de la guilde rivale (armurerie) et ceux croisés en jeu apparaîtront ici,\nou ajoute-les avec « + Ennemi ».")
             return
         end

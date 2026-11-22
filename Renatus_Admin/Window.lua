@@ -314,7 +314,43 @@ local function buildReset(f, page)
     page.info:SetPoint("TOPLEFT", 0, y - 34)
     page.info:SetWidth(BODY_W)
 
+    -- Wanted Board: a start date for the whole guild (guild setting); nothing is deleted.
+    local hy = y - 72
+    local hunt = UI.Section(page, "Tableau de chasse", 340)
+    hunt:SetPoint("TOPLEFT", 0, hy)
+    page.huntInfo = UI.Text(page, 11, UI.C.dim)
+    page.huntInfo:SetPoint("TOPLEFT", 0, hy - 28)
+    page.huntInfo:SetWidth(BODY_W)
+    page.huntReset = UI.Button(page, "Repartir de 0-0", 150, 24, function()
+        if not page.huntConfirm then page.huntConfirm = true; page:Refresh() return end
+        page.huntConfirm = nil
+        local _, why = GC.Publish({ huntSince = (GetServerTime and GetServerTime()) or time() })
+        notify(why)
+        f:Refresh()
+    end)
+    page.huntReset:SetPoint("TOPLEFT", 0, hy - 64)
+    page.huntUndo = UI.Button(page, "Tout reprendre depuis le début", 220, 24, function()
+        page.huntConfirm = nil
+        local _, why = GC.Publish({ huntSince = false })
+        notify(why)
+        f:Refresh()
+    end)
+    page.huntUndo:SetPoint("LEFT", page.huntReset, "RIGHT", 8, 0)
+
     function page:Refresh()
+        local since = GC.HuntSince()
+        if self.huntConfirm then
+            self.huntInfo:SetText("|cffff6644Remettre le tableau de chasse à 0-0 pour toute la guilde ? Reclique pour confirmer.|r")
+        else
+            self.huntInfo:SetText((since and ("Compté depuis le " .. R.Views.DateLabel(since) .. date(" à %H:%M", since) .. ". ")
+                or "Compté depuis le début. ")
+                .. "Repartir de 0-0 ignore les combats d'avant (score, registre, nouvelles, ennemis jurés) "
+                .. "sans rien effacer : les morts restent dans les journaux, les avis restent placardés.")
+        end
+        self.huntReset:SetLabel(self.huntConfirm and "Confirmer ?" or "Repartir de 0-0")
+        self.huntReset:SetDisabled(not A.IsOfficer())
+        self.huntUndo:SetDisabled(not A.IsOfficer() or not since)
+
         local any = false
         for _, cb in pairs(self.checks) do if cb:GetChecked() then any = true end end
         self.go:SetDisabled(not any or not A.IsOfficer())
