@@ -93,6 +93,8 @@ pub struct Brief {
     /// Names that must never go out (non-consenting members, rivals).
     pub forbidden: BTreeSet<String>,
     pub rival_guild: Option<String>,
+    /// Consenting members' character sex ("homme" / "femme"), by name, for the grammar.
+    pub sexes: BTreeMap<String, &'static str>,
     /// Exclusion reasons and counts, most frequent first.
     pub excluded: Vec<(String, usize)>,
     pub since: f64,
@@ -488,6 +490,12 @@ pub fn build_split(ch: &Chronicle, since: f64, until: f64, split: f64) -> Brief 
         .filter(|(_, ok)| **ok)
         .map(|(a, _)| a)
         .collect();
+    let sexes: BTreeMap<String, &'static str> = ch
+        .sexes()
+        .into_iter()
+        .filter(|(a, _)| allowed_guids.contains(a) && authors.contains_key(a))
+        .map(|(a, sex)| (authors[&a].clone(), sex))
+        .collect();
     // Known members without consent: authors without a "yes" + members seen in expeditions.
     let mut members: BTreeSet<String> = authors.values().cloned().collect();
     for e in ch.of_kind("EXPEDITION") {
@@ -861,6 +869,7 @@ pub fn build_split(ch: &Chronicle, since: f64, until: f64, split: f64) -> Brief 
         allowed,
         forbidden,
         rival_guild: rivals.guild.clone(),
+        sexes,
         excluded,
         since,
         until,
@@ -893,7 +902,7 @@ Règles impératives :
    recopiée MOT POUR MOT du corps de l'article ; « portrait » = le nom d'UN personnage nommé
    dans l'article, si l'article tourne autour de lui.
 10. Choisis la maquette de l'édition parmi : {templates}.
-{guild_line}
+{guild_line}{sex_line}
 Réponds par un unique objet JSON, sans texte autour :
 {\"maquette\": \"...\", \"articles\": [{\"title\": \"...\", \"format\": \"...\", \"style\": \"...\", \"body\": \"...\", \"refs\": [\"F1\", \"F4\"], \"exergue\": \"...\", \"portrait\": \"...\"}]}
 
@@ -915,6 +924,24 @@ pub fn prompt(brief: &Brief, max_articles: usize) -> String {
         .iter()
         .map(|f| format!("{}. {}", f.key, f.text))
         .collect();
+    // Only the members these facts name: their sex, so that the French agrees.
+    let sexes: Vec<String> = brief
+        .sexes
+        .iter()
+        .filter(|(n, _)| {
+            let name = Names::new([*n]);
+            brief.facts.iter().any(|f| name.find(&f.text).is_some())
+        })
+        .map(|(n, s)| format!("{n} ({s})"))
+        .collect();
+    let sex_line = if sexes.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "Personnages de la guilde, pour accorder le genre (« elle », « arrivée », « la championne ») : {}.\n",
+            sexes.join(", ")
+        )
+    };
     let templates: Vec<String> = crate::edition::TEMPLATES
         .iter()
         .map(|(n, d)| format!("« {n} » ({d})"))
@@ -925,6 +952,7 @@ pub fn prompt(brief: &Brief, max_articles: usize) -> String {
         .replace("{start}", &date(brief.since))
         .replace("{end}", &date(brief.until))
         .replace("{guild_line}", &guild_line)
+        .replace("{sex_line}", &sex_line)
         .replace("{facts}", &facts.join("\n"))
 }
 
@@ -1263,6 +1291,23 @@ mod tests {
         assert!(all.contains("Gorbash (voleur Orc, guilde rivale)"), "{all}");
         assert!(all.contains("ennemis impliqués"), "{all}");
         assert!(!brief.forbidden.contains("Décimeur"));
+    }
+
+    #[test]
+    fn prompt_gives_the_sex_of_named_members() {
+        let mut ch = chronicle();
+        let (k, v) = ev("A:40", "A", "Alice", "CARD_PROFILE", 100, json!({"sex": 3}));
+        ch.events.insert(k, v);
+        let brief = build(&ch, 0.0, 2000.0);
+        assert_eq!(brief.sexes.get("Alice"), Some(&"femme"));
+        let p = prompt(&brief, MAX_ARTICLES);
+        assert!(
+            p.contains("pour accorder le genre") && p.contains("Alice (femme)"),
+            "{p}"
+        );
+        // nobody named in the facts: no line
+        let none = brief.select(&[]);
+        assert!(!prompt(&none, MAX_ARTICLES).contains("accorder le genre"));
     }
 
     #[test]

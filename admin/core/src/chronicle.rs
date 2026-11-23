@@ -151,6 +151,25 @@ impl Chronicle {
             })
     }
 
+    /// Sex of each member's character, from their latest card profile (UnitSex: 2 male,
+    /// 3 female): author guid -> "homme" / "femme". Unknown members are absent.
+    pub fn sexes(&self) -> BTreeMap<String, &'static str> {
+        let mut best: HashMap<String, (f64, &'static str)> = HashMap::new();
+        for e in self.of_kind("CARD_PROFILE") {
+            let Some(a) = str_of(e, "a") else { continue };
+            let sex = match num_of(payload(e), "sex") as i64 {
+                2 => "homme",
+                3 => "femme",
+                _ => continue,
+            };
+            let t = num_of(e, "t");
+            if best.get(a).is_none_or(|(bt, _)| t > *bt) {
+                best.insert(a.to_string(), (t, sex));
+            }
+        }
+        best.into_iter().map(|(a, (_, s))| (a, s)).collect()
+    }
+
     /// Wanted posters still open: lowercase enemy name -> displayed name.
     pub fn wanted(&self) -> BTreeMap<String, String> {
         let mut last: HashMap<String, (f64, bool, String)> = HashMap::new();

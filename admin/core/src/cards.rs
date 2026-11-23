@@ -293,6 +293,7 @@ pub fn candidates(ch: &Chronicle, already: &HashSet<String>) -> Vec<Candidate> {
             _ => {}
         }
     }
+    let sexes = ch.sexes();
     for (guid, m) in &members {
         if out_of_album.contains(guid) {
             continue;
@@ -314,14 +315,23 @@ pub fn candidates(ch: &Chronicle, already: &HashSet<String>) -> Vec<Candidate> {
             art: Art::default(),
             t: m.first,
         };
-        let who = format!("{} ({})", m.name, m.class.as_deref().unwrap_or("?"));
+        let sex = sexes.get(guid).copied();
+        let who = match sex {
+            Some(s) => format!("{} ({}, {s})", m.name, m.class.as_deref().unwrap_or("?")),
+            None => format!("{} ({})", m.name, m.class.as_deref().unwrap_or("?")),
+        };
+        let arrived = match sex {
+            Some("femme") => "elle vient d'arriver",
+            Some(_) => "il vient d'arriver",
+            None => "nouvelle recrue",
+        };
         // The versions of a member's card are earned: common on arrival, then rare, epic,
         // legendary (MEMBER_RARE, MEMBER_EPIC, MEMBER_LEGENDARY), each in the issue after.
         push(base(
             format!("M:{guid}:common"),
             "common",
             "Membre de la guilde.".into(),
-            format!("Carte de membre de {who}, la plus simple : il vient d'arriver."),
+            format!("Carte de membre de {who}, la plus simple : {arrived}."),
         ));
         let record = format!(
             "{} sorties en groupe, {} boss vaincus, niveau {}",
@@ -979,6 +989,30 @@ mod tests {
         assert_eq!(
             cards_of(top),
             ["M:P-A:common", "M:P-A:epic", "M:P-A:legendary"]
+        );
+    }
+
+    #[test]
+    fn member_card_facts_say_the_character_sex() {
+        let saved = crate::lua::loads(
+            r#"RenatusDB = { ["events"] = {
+                ["P-A:1"] = { ["id"] = "P-A:1", ["a"] = "P-A", ["n"] = "Alhiénor", ["c"] = "PRIEST", ["k"] = "CARD_PROFILE", ["t"] = 10, ["vis"] = "G", ["p"] = { ["sex"] = 2 } },
+                ["P-A:2"] = { ["id"] = "P-A:2", ["a"] = "P-A", ["n"] = "Alhiénor", ["k"] = "CARD_PROFILE", ["t"] = 20, ["vis"] = "G", ["p"] = { ["sex"] = 3 } },
+                ["P-B:1"] = { ["id"] = "P-B:1", ["a"] = "P-B", ["n"] = "Bob", ["c"] = "MAGE", ["k"] = "LEVEL_UP", ["t"] = 10, ["vis"] = "G", ["p"] = { ["lvl"] = 5 } },
+            } }"#,
+        )
+        .unwrap();
+        let cards = candidates(&Chronicle::from_saved(&saved), &HashSet::new());
+        let facts = |id: &str| cards.iter().find(|c| c.id == id).unwrap().facts.clone();
+        // the latest profile wins
+        let alhienor = facts("M:P-A:common");
+        assert!(alhienor.contains("Alhiénor (PRIEST, femme)"), "{alhienor}");
+        assert!(alhienor.contains("elle vient d'arriver"), "{alhienor}");
+        // no profile yet: no guess
+        let bob = facts("M:P-B:common");
+        assert!(
+            bob.contains("Bob (MAGE)") && bob.contains("nouvelle recrue"),
+            "{bob}"
         );
     }
 
