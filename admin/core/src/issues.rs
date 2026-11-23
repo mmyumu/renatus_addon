@@ -112,6 +112,9 @@ pub struct Candidate {
     pub key: String,
     pub text: String,
     pub when: f64,
+    /// Family (gazette::category) and members named, for filtering.
+    pub cat: &'static str,
+    pub who: Vec<String>,
     /// Since the previous issue (else: older, listed for the record).
     pub recent: bool,
     /// Already told: by which article ("paru le 20/11 (« … »)"), for all its events.
@@ -175,6 +178,8 @@ pub fn prepare(ch: &Chronicle, pending: &[Value], now: f64) -> Selection {
                 key: f.key.clone(),
                 text: f.text.clone(),
                 when: f.when,
+                cat: f.cat,
+                who: f.who.clone(),
                 recent,
                 used: if all {
                     uses.first().map(|u| u.label())
@@ -263,6 +268,8 @@ mod tests {
         assert!(waiting.used.as_deref().unwrap().starts_with("en attente"));
         let new = by_text("11");
         assert!(new.recent && new.checked && new.used.is_none());
+        assert_eq!(new.cat, "Progression");
+        assert!(!new.who.is_empty(), "the member levelling up is named");
         assert_eq!(s.checked_keys(), vec![new.key.clone()]);
         let b = s.brief_for(&s.checked_keys());
         assert_eq!(b.facts.len(), 1);

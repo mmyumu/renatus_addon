@@ -34,6 +34,8 @@ const HIDDEN: &[&str] = &[
     "GUILD_CONFIG",
     "RIVAL_ROSTER",
     "BOOSTER_OPEN",
+    "TRADE_OFFER",
+    "TRADE_REPLY",
     "TOMBSTONE",
 ];
 
@@ -72,6 +74,10 @@ pub struct Fact {
     pub when: f64,
     pub text: String,
     pub refs: Vec<String>,
+    /// Family of the fact, for the editor's table (never sent to the AI).
+    pub cat: &'static str,
+    /// Consenting members the text names, for the editor's table.
+    pub who: Vec<String>,
 }
 
 impl Brief {
@@ -725,6 +731,25 @@ fn counters_fact(
     (Some((to, text, ids)), dropped)
 }
 
+const RECORDS: &str = "Records & jalons";
+const OTHER: &str = "Divers";
+
+/// Family of a fact, from the kind of its first source event.
+fn category(kind: &str) -> &'static str {
+    match kind {
+        "LEVEL_UP" | "PROFESSION" | "REPUTATION" | "MONEY" | "MOUNT" | "RARE_ITEM"
+        | "HEARTH_BIND" | "COUNTERS" => "Progression",
+        "DEATH" | "DEATH_CAUSE" | "NEAR_DEATH" | "RESCUED" => "Morts & frayeurs",
+        "BOSS_KILL" | "EXPEDITION" | "MOB_KILL" => "Expéditions & combats",
+        "ZONE_FIRST_VISIT" | "QUEST_DONE" => "Exploration & quêtes",
+        "PVP_CLASH" | "PVP_KILL" | "ENEMY_SEEN" | "WANTED" | "WANTED_CLOSE" | "ENEMY_NOTE" => {
+            "Rivaux & JcJ"
+        }
+        "DUEL" | "ROLL_EXTREME" | "ANECDOTE" | "GUILD_JOIN" => "Vie de guilde",
+        _ => OTHER,
+    }
+}
+
 pub fn build(ch: &Chronicle, since: f64, until: f64) -> Brief {
     build_split(ch, since, until, since)
 }
@@ -1187,6 +1212,21 @@ pub fn build_split(ch: &Chronicle, since: f64, until: f64, split: f64) -> Brief 
         }
         raw.extend(fact);
     }
+    // Facts so far come from the guild's events: their family follows their sources'.
+    let by_id: HashMap<&str, &str> = shared
+        .iter()
+        .filter_map(|e| Some((str_of(e, "id")?, str_of(e, "k").unwrap_or(""))))
+        .collect();
+    let mut raw: Vec<(f64, String, Vec<String>, &'static str)> = raw
+        .into_iter()
+        .map(|(t, text, refs)| {
+            let cat = refs
+                .iter()
+                .find_map(|r| by_id.get(r.as_str()))
+                .map_or(OTHER, |k| category(k));
+            (t, text, refs, cat)
+        })
+        .collect();
     let consenting: BTreeSet<String> = allowed_guids.iter().map(|g| (*g).clone()).collect();
     for fact in crate::derived::facts(&crate::derived::Input {
         events: &shared,
@@ -1199,18 +1239,25 @@ pub fn build_split(ch: &Chronicle, since: f64, until: f64, split: f64) -> Brief 
             exclude("nomme un membre sans consentement", 1);
             continue;
         }
-        raw.push(fact);
+        raw.push((fact.0, fact.1, fact.2, RECORDS));
     }
 
     raw.sort_by(|a, b| a.0.total_cmp(&b.0));
+    let named: Vec<(&String, Names)> = allowed.iter().map(|n| (n, Names::new([n]))).collect();
     let facts = raw
         .into_iter()
         .enumerate()
-        .map(|(i, (t, text, refs))| Fact {
+        .map(|(i, (t, text, refs, cat))| Fact {
             key: format!("F{}", i + 1),
             when: t,
+            who: named
+                .iter()
+                .filter(|(_, re)| re.find(&text).is_some())
+                .map(|(n, _)| (*n).clone())
+                .collect(),
             text: format!("{} — {text}", when(t)),
             refs,
+            cat,
         })
         .collect();
     let mut excluded: Vec<(String, usize)> = excluded.into_iter().collect();

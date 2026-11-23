@@ -154,24 +154,46 @@
     <section class="page" id="page-gazette" hidden>
       <div class="card">
         <div class="label">Prochain numéro</div>
-        <p class="hint">Chaque gazette publiée est un numéro. Les faits déjà parus dans un numéro (ou en attente en jeu) sont décochés, tu peux les recocher. Seuls les événements partagés des membres qui ont coché « La gazette rédigée par IA peut parler de moi » sont proposés ; les rivaux sont anonymisés, les articles douteux rejetés.</p>
+        <p class="hint">Chaque gazette publiée est un numéro. Les faits nouveaux depuis le dernier numéro sont cochés ; ceux déjà parus (ou en attente en jeu) et les plus anciens restent décochés, tu peux les recocher. Filtre, trie (clic sur un en-tête) et coche ce qui est affiché. Seuls les événements partagés des membres qui ont coché « La gazette rédigée par IA peut parler de moi » sont proposés ; les rivaux sont anonymisés, les articles douteux rejetés.</p>
         <div class="buttons">
           <button id="prepare-gazette">Choisir les faits</button>
         </div>
         <div id="selection" hidden>
           <div class="facts-head">
             <span id="selection-title"></span>
+          </div>
+          <div class="facts-filters">
+            <input type="text" id="facts-search" placeholder="Rechercher…">
+            <select id="facts-status">
+              <option value="todo">À raconter</option>
+              <option value="new">Nouveaux (depuis le dernier numéro)</option>
+              <option value="left">Non racontés, plus anciens</option>
+              <option value="told">Déjà parus (ou en partie)</option>
+              <option value="all">Tous</option>
+            </select>
+            <select id="facts-cat"></select>
+            <select id="facts-who"></select>
             <span class="facts-tools">
-              <button id="facts-all" class="small">Tout cocher</button>
-              <button id="facts-none" class="small">Tout décocher</button>
+              <button id="facts-all" class="small">Cocher l'affichage</button>
+              <button id="facts-none" class="small">Décocher l'affichage</button>
               <button id="facts-default" class="small">Par défaut</button>
             </span>
           </div>
-          <div id="facts-recent" class="facts"></div>
-          <details id="facts-older-box">
-            <summary id="facts-older-title">Plus anciens</summary>
-            <div id="facts-older" class="facts"></div>
-          </details>
+          <div class="facts">
+            <table class="facts-table">
+              <thead>
+                <tr>
+                  <th class="tick"><input type="checkbox" id="facts-shown" title="Cocher / décocher l'affichage"></th>
+                  <th data-sort="when">Date</th>
+                  <th data-sort="cat">Catégorie</th>
+                  <th data-sort="who">Membres</th>
+                  <th data-sort="text">Fait</th>
+                  <th data-sort="status">Statut</th>
+                </tr>
+              </thead>
+              <tbody id="facts-rows"></tbody>
+            </table>
+          </div>
           <div class="buttons">
             <span id="facts-count" class="hint"></span>
             <button id="preview">Voir la demande</button>

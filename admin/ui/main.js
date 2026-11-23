@@ -245,54 +245,125 @@ function day(t) {
   return new Date(t * 1000).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" });
 }
 
+// Status of a fact: new since the previous issue, left untold, partly or fully told.
+const STATUS_ORDER = { new: 0, left: 1, partly: 2, told: 3 };
+function statusOf(c) {
+  if (c.used) return "told";
+  if (c.partly) return "partly";
+  return c.recent ? "new" : "left";
+}
+function statusLabel(c) {
+  return { new: "nouveau", left: "non raconté", partly: "en partie déjà paru" }[statusOf(c)] ?? c.used;
+}
+// The fact without its leading date (shown in its own column).
+function factText(c) {
+  const i = c.text.indexOf(" — ");
+  return i < 0 ? c.text : c.text.slice(i + 3);
+}
+
+let factSort = { key: "when", dir: -1 };
+
+function shownFacts() {
+  const q = $("facts-search").value.trim().toLowerCase();
+  const status = $("facts-status").value;
+  const cat = $("facts-cat").value;
+  const who = $("facts-who").value;
+  const keep = (c) => {
+    const st = statusOf(c);
+    if (status === "todo" && st === "told") return false;
+    if (status === "new" && st !== "new") return false;
+    if (status === "left" && st !== "left") return false;
+    if (status === "told" && st !== "told" && st !== "partly") return false;
+    if (cat && c.cat !== cat) return false;
+    if (who && !c.who.includes(who)) return false;
+    return !q || c.text.toLowerCase().includes(q);
+  };
+  const val = {
+    when: (c) => c.when,
+    cat: (c) => c.cat,
+    who: (c) => c.who.join(", "),
+    text: (c) => factText(c).toLowerCase(),
+    status: (c) => STATUS_ORDER[statusOf(c)],
+  }[factSort.key];
+  return selection.candidates.filter(keep).sort((x, y) => {
+    const a = val(x), b = val(y);
+    const d = a < b ? -1 : a > b ? 1 : 0;
+    return d * factSort.dir || y.when - x.when;
+  });
+}
+
 function factRow(c) {
-  const row = document.createElement("label");
-  row.className = "fact" + (c.used ? " told" : "");
+  const row = document.createElement("tr");
+  const st = statusOf(c);
+  if (st === "told") row.className = "told";
   const box = document.createElement("input");
   box.type = "checkbox";
   box.checked = ticked.has(c.key);
-  box.dataset.key = c.key;
   box.addEventListener("change", () => {
     if (box.checked) ticked.add(c.key); else ticked.delete(c.key);
     countFacts();
   });
-  const text = document.createElement("span");
-  text.className = "text";
-  text.textContent = c.text;
-  row.append(box, text);
-  const note = c.used ?? (c.partly ? "en partie déjà paru" : null);
-  if (note) {
-    const u = document.createElement("span");
-    u.className = "used";
-    u.textContent = note;
-    row.appendChild(u);
-  }
+  const cell = (cls, text) => {
+    const td = document.createElement("td");
+    td.className = cls;
+    td.textContent = text;
+    row.appendChild(td);
+    return td;
+  };
+  cell("tick", "").appendChild(box);
+  cell("date", when(c.when));
+  cell("cat", c.cat);
+  cell("who", c.who.join(", "));
+  cell("text", factText(c));
+  cell("status" + (st === "told" || st === "partly" ? " used" : ""), statusLabel(c));
   return row;
 }
 
 function countFacts() {
+  const shown = shownFacts();
   const n = ticked.size;
-  $("facts-count").textContent = `${n} fait(s) coché(s)`;
+  $("facts-count").textContent = `${n} fait(s) coché(s) · ${shown.length} affiché(s) sur ${selection.candidates.length}`;
+  const on = shown.filter((c) => ticked.has(c.key)).length;
+  $("facts-shown").checked = shown.length > 0 && on === shown.length;
+  $("facts-shown").indeterminate = on > 0 && on < shown.length;
   $("preview").disabled = n === 0;
 }
 
-function fillFacts() {
-  const recent = selection.candidates.filter((c) => c.recent).reverse();
-  const older = selection.candidates.filter((c) => !c.recent).reverse();
-  for (const [box, list] of [[$("facts-recent"), recent], [$("facts-older"), older]]) {
-    box.textContent = "";
-    for (const c of list) box.appendChild(factRow(c));
-    if (list.length === 0) {
-      const empty = document.createElement("p");
-      empty.className = "hint fact";
-      empty.textContent = "Aucun fait.";
-      box.appendChild(empty);
-    }
+function fillOptions(id, all, values) {
+  const sel = $(id);
+  const prev = sel.value;
+  sel.textContent = "";
+  for (const [v, label] of [["", all], ...values.map((v) => [v, v])]) {
+    const o = document.createElement("option");
+    o.value = v;
+    o.textContent = label;
+    sel.appendChild(o);
   }
+  sel.value = values.includes(prev) ? prev : "";
+}
+
+function fillFacts() {
+  const body = $("facts-rows");
+  body.textContent = "";
+  const shown = shownFacts();
+  for (const c of shown) body.appendChild(factRow(c));
+  if (shown.length === 0) {
+    const tr = document.createElement("tr");
+    tr.className = "empty";
+    const td = document.createElement("td");
+    td.colSpan = 6;
+    td.textContent = "Aucun fait.";
+    tr.appendChild(td);
+    body.appendChild(tr);
+  }
+  for (const th of document.querySelectorAll(".facts-table th[data-sort]")) {
+    th.classList.toggle("asc", th.dataset.sort === factSort.key && factSort.dir > 0);
+    th.classList.toggle("desc", th.dataset.sort === factSort.key && factSort.dir < 0);
+  }
+  const recent = selection.candidates.filter((c) => c.recent).length;
   $("selection-title").textContent = selection.afterIssue
-    ? `Depuis le dernier numéro (écrit le ${day(selection.since)}) : ${recent.length} fait(s)`
-    : `30 derniers jours (aucun numéro paru, ou remise à zéro) : ${recent.length} fait(s)`;
-  $("facts-older-title").textContent = `Plus anciens (jusqu'à 30 jours) : ${older.length} fait(s)`;
+    ? `Depuis le dernier numéro (écrit le ${day(selection.since)}) : ${recent} fait(s) nouveau(x), plus ${selection.candidates.length - recent} des 30 derniers jours`
+    : `30 derniers jours (aucun numéro paru, ou remise à zéro) : ${recent} fait(s)`;
   countFacts();
 }
 
@@ -305,6 +376,9 @@ function renderSelection(sel, busy) {
     selection = sel;
     ticked.clear();
     for (const c of sel.candidates) if (c.checked) ticked.add(c.key);
+    const uniq = (l) => [...new Set(l)].sort((a, b) => a.localeCompare(b, "fr"));
+    fillOptions("facts-cat", "Toutes catégories", uniq(sel.candidates.map((c) => c.cat)));
+    fillOptions("facts-who", "Tous les membres", uniq(sel.candidates.flatMap((c) => c.who)));
     $("preview-summary").textContent = "";
     $("preview-prompt").hidden = true;
     fillFacts();
@@ -312,9 +386,9 @@ function renderSelection(sel, busy) {
   $("write-gazette").disabled = busy;
 }
 
-function tick(which) {
-  ticked.clear();
-  for (const c of selection.candidates) if (which(c)) ticked.add(c.key);
+// Ticks the facts shown (filters applied) on or off; "default" resets every tick.
+function tickShown(on) {
+  for (const c of shownFacts()) if (on) ticked.add(c.key); else ticked.delete(c.key);
   fillFacts();
 }
 
@@ -846,9 +920,24 @@ $("check-admin").addEventListener("click", () => call("check_admin_addon"));
 $("app-update").addEventListener("click", () => call("update_app"));
 $("refresh-rival").addEventListener("click", () => call("refresh_rival", { rival: $("rival").value }));
 $("prepare-gazette").addEventListener("click", () => { selectionKey = null; call("prepare_gazette"); });
-$("facts-all").addEventListener("click", () => tick(() => true));
-$("facts-none").addEventListener("click", () => tick(() => false));
-$("facts-default").addEventListener("click", () => tick((c) => c.checked));
+$("facts-all").addEventListener("click", () => tickShown(true));
+$("facts-none").addEventListener("click", () => tickShown(false));
+$("facts-shown").addEventListener("change", () => tickShown($("facts-shown").checked));
+$("facts-default").addEventListener("click", () => {
+  ticked.clear();
+  for (const c of selection.candidates) if (c.checked) ticked.add(c.key);
+  fillFacts();
+});
+for (const id of ["facts-search", "facts-status", "facts-cat", "facts-who"]) {
+  $(id).addEventListener("input", () => fillFacts());
+}
+for (const th of document.querySelectorAll(".facts-table th[data-sort]")) {
+  th.addEventListener("click", () => {
+    const key = th.dataset.sort;
+    factSort = factSort.key === key ? { key, dir: -factSort.dir } : { key, dir: key === "when" ? -1 : 1 };
+    fillFacts();
+  });
+}
 $("write-gazette").addEventListener("click", () => call("write_gazette", { keys: [...ticked] }));
 $("propose-gazette").addEventListener("click", () => call("propose_gazette"));
 $("discard-gazette").addEventListener("click", () => call("discard_gazette"));
