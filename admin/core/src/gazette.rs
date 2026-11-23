@@ -21,7 +21,6 @@ use serde_json::{json, Value};
 use crate::articles::sha1_hex;
 use crate::chronicle::{num_of, payload, str_of, Chronicle};
 
-pub const MAX_FACTS: usize = 150;
 pub const MAX_BODY: usize = 3500;
 pub const MAX_TITLE: usize = 90;
 /// Default of the "articles at most" setting (config::Config::max_articles).
@@ -84,6 +83,58 @@ impl Brief {
     }
 }
 
+/// A published issue, as the AI reads it again: (title, body) of its articles in order.
+#[derive(Debug, Clone, Serialize)]
+pub struct PastIssue {
+    pub edition: String,
+    pub when: f64,
+    pub articles: Vec<(String, String)>,
+}
+
+/// How many published issues the AI reads again before writing the next one.
+pub const PAST_ISSUES: usize = 3;
+
+/// The latest issues published before `until` (ARTICLE events with an edition), oldest
+/// first. An article naming a member without consent is left out.
+fn past_issues(ch: &Chronicle, until: f64, forbidden: &Names) -> Vec<PastIssue> {
+    let mut by_edition: BTreeMap<String, Vec<&Value>> = BTreeMap::new();
+    for e in ch.of_kind("ARTICLE") {
+        let t = num_of(e, "t");
+        if str_of(e, "vis") != Some("G") || t >= until {
+            continue;
+        }
+        if let Some(ed) = str_of(payload(e), "edition") {
+            by_edition.entry(ed.to_string()).or_default().push(e);
+        }
+    }
+    let mut issues: Vec<PastIssue> = by_edition
+        .into_iter()
+        .map(|(edition, mut arts)| {
+            arts.sort_by(|a, b| {
+                num_of(payload(a), "order")
+                    .total_cmp(&num_of(payload(b), "order"))
+                    .then(num_of(a, "t").total_cmp(&num_of(b, "t")))
+            });
+            let when = arts.iter().map(|a| num_of(a, "t")).fold(0.0, f64::max);
+            let articles = arts
+                .iter()
+                .map(|a| (s(payload(a), "title"), s(payload(a), "body")))
+                .filter(|(t, b)| !b.is_empty() && forbidden.find(&format!("{t}\n{b}")).is_none())
+                .collect();
+            PastIssue {
+                edition,
+                when,
+                articles,
+            }
+        })
+        .filter(|i| !i.articles.is_empty())
+        .collect();
+    issues.sort_by(|a, b| a.when.total_cmp(&b.when));
+    let skip = issues.len().saturating_sub(PAST_ISSUES);
+    issues.drain(..skip);
+    issues
+}
+
 /// Everything sent to the AI, plus what is needed to check the answer.
 #[derive(Debug, Clone, Serialize)]
 pub struct Brief {
@@ -97,6 +148,8 @@ pub struct Brief {
     pub sexes: BTreeMap<String, &'static str>,
     /// Exclusion reasons and counts, most frequent first.
     pub excluded: Vec<(String, usize)>,
+    /// The latest published issues, oldest first: the newsroom's memory.
+    pub past: Vec<PastIssue>,
     pub since: f64,
     pub until: f64,
 }
@@ -470,6 +523,208 @@ fn names_list(v: &Value) -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// First kills of creature species (MOB_KILL), one fact per member: the rare and elite
+/// ones first, then the highest levels.
+fn bestiary_fact(who: &str, evs: &[&Value]) -> (f64, String, Vec<String>) {
+    let rank = |cls: &str| match cls {
+        "worldboss" => 0,
+        "rareelite" => 1,
+        "rare" => 2,
+        "elite" => 3,
+        _ => 4,
+    };
+    let label = |cls: &str| match cls {
+        "worldboss" => " (boss mondial)",
+        "rareelite" => " (rare élite)",
+        "rare" => " (rare)",
+        "elite" => " (élite)",
+        _ => "",
+    };
+    let mut list: Vec<&Value> = evs.to_vec();
+    list.sort_by(|a, b| {
+        let (pa, pb) = (payload(a), payload(b));
+        rank(str_of(pa, "cls").unwrap_or(""))
+            .cmp(&rank(str_of(pb, "cls").unwrap_or("")))
+            .then(num_of(pb, "lvl").total_cmp(&num_of(pa, "lvl")))
+    });
+    let names: Vec<String> = list
+        .iter()
+        .take(6)
+        .filter_map(|e| {
+            let p = payload(e);
+            str_of(p, "name").map(|n| format!("{n}{}", label(str_of(p, "cls").unwrap_or(""))))
+        })
+        .collect();
+    let mut text = format!(
+        "{who} abat pour la première fois {} espèce(s) de créatures",
+        evs.len()
+    );
+    if !names.is_empty() {
+        text += &format!(", dont : {}", names.join(", "));
+    }
+    let ids: Vec<String> = evs
+        .iter()
+        .filter_map(|x| str_of(x, "id").map(str::to_string))
+        .collect();
+    let tail = ids[ids.len().saturating_sub(10)..].to_vec();
+    (num_of(evs[evs.len() - 1], "t"), text, tail)
+}
+
+/// "a giflé Alice": emotes aimed at a guild member (Collectors/Counters.lua).
+fn emote_fr(token: &str, to: &str) -> Option<String> {
+    let verb = match token {
+        "SLAP" => "giflé",
+        "KISS" => "embrassé",
+        "HUG" => "serré dans ses bras",
+        "LOVE" => "déclaré sa flamme à",
+        "CHICKEN" => "traité de poule mouillée",
+        "RUDE" => "fait un geste grossier à",
+        "SPIT" => "craché sur",
+        "ROFL" => "ri aux éclats devant",
+        "LAUGH" => "ri au nez de",
+        "BONK" => "assommé",
+        "POKE" => "poussé du doigt",
+        "TICKLE" => "chatouillé",
+        "CUDDLE" => "câliné",
+        "FLEX" => "montré ses muscles à",
+        "DANCE" => "dansé avec",
+        "CHEER" => "acclamé",
+        "THANK" => "remercié",
+        "BOW" => "salué bien bas",
+        "INSULT" => "insulté",
+        "FLIRT" => "flirté avec",
+        "CRY" => "pleuré sur l'épaule de",
+        "APPLAUD" => "applaudi",
+        "GIGGLE" => "gloussé devant",
+        "MOON" => "montré ses fesses à",
+        "PITY" => "pris en pitié",
+        "SHOO" => "chassé",
+        "BITE" => "mordu",
+        "PRAISE" => "porté aux nues",
+        _ => return None,
+    };
+    Some(format!("a {verb} {to}"))
+}
+
+fn gold(copper: f64) -> String {
+    let c = copper.round() as i64;
+    let (g, s) = (c / 10000, (c / 100) % 100);
+    if g > 0 {
+        format!("{g} po {s} pa")
+    } else {
+        format!("{s} pa")
+    }
+}
+
+/// A member's daily trivia (COUNTERS), summed: one fact. Emotes aimed at a member without
+/// consent are left out (their count is returned).
+fn counters_fact(
+    who: &str,
+    evs: &[&Value],
+    allowed: &BTreeSet<String>,
+) -> (Option<(f64, String, Vec<String>)>, usize) {
+    let mut sums: BTreeMap<&str, f64> = BTreeMap::new();
+    let mut emotes: BTreeMap<(String, String), f64> = BTreeMap::new();
+    let mut dropped = 0;
+    for e in evs {
+        let p = payload(e);
+        for key in [
+            "jumps", "drunk", "spirit", "bagfull", "fish", "hearth", "earned", "spent",
+        ] {
+            *sums.entry(key).or_default() += num_of(p, key);
+        }
+        for x in p
+            .get("emotes")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            let (Some(token), Some(to)) = (str_of(x, "e"), str_of(x, "to")) else {
+                continue;
+            };
+            if !allowed.contains(to) {
+                dropped += 1;
+                continue;
+            }
+            *emotes
+                .entry((token.to_string(), to.to_string()))
+                .or_default() += num_of(x, "n");
+        }
+    }
+    let mut bits: Vec<String> = Vec::new();
+    for (key, one, many) in [
+        ("jumps", "saut", "sauts"),
+        ("drunk", "cuite", "cuites"),
+        (
+            "spirit",
+            "visite à l'ange de la résurrection",
+            "visites à l'ange de la résurrection",
+        ),
+        ("bagfull", "fois « sacs pleins »", "fois « sacs pleins »"),
+        ("fish", "poisson pêché", "poissons pêchés"),
+        (
+            "hearth",
+            "pierre de foyer utilisée",
+            "pierres de foyer utilisées",
+        ),
+    ] {
+        let n = sums[key];
+        if n > 0.0 {
+            bits.push(format!("{n} {}", if n > 1.0 { many } else { one }));
+        }
+    }
+    if sums["earned"] > 0.0 {
+        bits.push(format!("{} gagnés", gold(sums["earned"])));
+    }
+    if sums["spent"] > 0.0 {
+        bits.push(format!("{} dépensés", gold(sums["spent"])));
+    }
+    let mut list: Vec<((String, String), f64)> = emotes.into_iter().collect();
+    list.sort_by(|a, b| b.1.total_cmp(&a.1));
+    let gestures: Vec<String> = list
+        .iter()
+        .take(6)
+        .filter_map(|((token, to), n)| {
+            emote_fr(token, to).map(|t| {
+                if *n > 1.0 {
+                    format!("{t} ({n} fois)")
+                } else {
+                    t
+                }
+            })
+        })
+        .collect();
+    if bits.is_empty() && gestures.is_empty() {
+        return (None, dropped);
+    }
+    let to = evs.iter().map(|e| num_of(e, "t")).fold(0.0, f64::max);
+    let from = evs
+        .iter()
+        .map(|e| {
+            Some(num_of(payload(e), "from"))
+                .filter(|f| *f > 0.0)
+                .unwrap_or(num_of(e, "t"))
+        })
+        .fold(to, f64::min);
+    let day = |t: f64| local(t).format("%d/%m").to_string();
+    let mut text = format!(
+        "petites statistiques de {who} (du {} au {})",
+        day(from),
+        day(to)
+    );
+    if !bits.is_empty() {
+        text += &format!(" : {}", bits.join(", "));
+    }
+    if !gestures.is_empty() {
+        text += &format!(" ; {who} {}", gestures.join(", "));
+    }
+    let ids: Vec<String> = evs
+        .iter()
+        .filter_map(|x| str_of(x, "id").map(str::to_string))
+        .collect();
+    (Some((to, text, ids)), dropped)
+}
+
 pub fn build(ch: &Chronicle, since: f64, until: f64) -> Brief {
     build_split(ch, since, until, since)
 }
@@ -514,7 +769,8 @@ pub fn build_split(ch: &Chronicle, since: f64, until: f64, split: f64) -> Brief 
     let mut exclude =
         |reason: &str, n: usize| *excluded.entry(reason.to_string()).or_default() += n;
 
-    let mut events: Vec<&Value> = ch
+    // The guild's shared events, all time: records and milestones need the history.
+    let mut shared: Vec<&Value> = ch
         .all()
         .filter(|e| {
             str_of(e, "vis") == Some("G")
@@ -522,20 +778,29 @@ pub fn build_split(ch: &Chronicle, since: f64, until: f64, split: f64) -> Brief 
                     .as_deref()
                     .zip(str_of(e, "g"))
                     .is_some_and(|(main, g)| crate::chronicle::same_guild(main, g))
-                && (since..until).contains(&num_of(e, "t"))
+                && num_of(e, "t") < until
                 && !HIDDEN.contains(&str_of(e, "k").unwrap_or(""))
         })
         .collect();
-    events.sort_by(|a, b| {
+    shared.sort_by(|a, b| {
         num_of(a, "t")
             .total_cmp(&num_of(b, "t"))
             .then_with(|| str_of(a, "id").cmp(&str_of(b, "id")))
     });
+    let events: Vec<&Value> = shared
+        .iter()
+        .filter(|e| num_of(e, "t") >= since)
+        .copied()
+        .collect();
 
     let mut raw: Vec<(f64, String, Vec<String>)> = Vec::new();
     // grouped per (author, recent?)
     let mut seen_rivals: BTreeMap<(String, bool), Vec<&Value>> = BTreeMap::new();
     let mut quests: BTreeMap<(String, bool), Vec<&Value>> = BTreeMap::new();
+    let mut bestiary: BTreeMap<(String, bool), Vec<&Value>> = BTreeMap::new();
+    let mut counters: BTreeMap<(String, bool), Vec<&Value>> = BTreeMap::new();
+    // Events several members recorded (same `occ`: a boss, an expedition, a duel): one fact.
+    let mut occurrences: HashMap<String, usize> = HashMap::new();
     // Fights with enemy players: close ones become a single "affrontement" fact.
     let mut fights: Vec<Fight> = Vec::new();
 
@@ -566,6 +831,21 @@ pub fn build_split(ch: &Chronicle, since: f64, until: f64, split: f64) -> Brief 
         }
         if k == "QUEST_DONE" {
             quests.entry((author, recent)).or_default().push(e);
+            continue;
+        }
+        if k == "MOB_KILL" {
+            bestiary.entry((author, recent)).or_default().push(e);
+            continue;
+        }
+        if k == "COUNTERS" {
+            counters.entry((author, recent)).or_default().push(e);
+            continue;
+        }
+        let occ = str_of(e, "occ").map(str::to_string);
+        if let Some(i) = occ.as_ref().and_then(|o| occurrences.get(o)) {
+            if let Some(id) = str_of(e, "id") {
+                raw[*i].2.push(id.to_string());
+            }
             continue;
         }
         let text: Option<String> = match k {
@@ -773,6 +1053,54 @@ pub fn build_split(ch: &Chronicle, since: f64, until: f64, split: f64) -> Brief 
                     .unwrap_or("un objet rare".into())
             )),
             "GUILD_JOIN" => Some(format!("{who} rejoint la guilde")),
+            "DUEL" => {
+                let (winner, loser) = (s(p, "winner"), s(p, "loser"));
+                Some(if p.get("fled").and_then(Value::as_bool) == Some(true) {
+                    format!("{loser} prend la fuite devant {winner} lors d'un duel{at}")
+                } else {
+                    format!("{winner} bat {loser} en duel{at}")
+                })
+            }
+            "NEAR_DEATH" => {
+                let mut t = format!(
+                    "{who} survit de justesse à un combat{at}, avec {} % de vie",
+                    s(p, "pct")
+                );
+                if !s(p, "lvl").is_empty() {
+                    t += &format!(" (niveau {})", s(p, "lvl"));
+                }
+                Some(t)
+            }
+            "RESCUED" => Some(format!("{who} revient à la vie grâce à {}{at}", s(p, "by"))),
+            "ROLL_EXTREME" => {
+                let how = match s(p, "kind").as_str() {
+                    "need" => "à un jet de besoin",
+                    "greed" => "à un jet de cupidité",
+                    _ => "en lançant les dés (1-100)",
+                };
+                let mut t = format!("{who} fait {} {how}", s(p, "roll"));
+                if !s(p, "item").is_empty() {
+                    t += &format!(" pour {}", s(p, "item"));
+                }
+                Some(t)
+            }
+            "REPUTATION" => Some(format!(
+                "{who} devient {} auprès de {}",
+                s(p, "standing"),
+                s(p, "faction")
+            )),
+            "MONEY" => Some(format!(
+                "{who} possède pour la première fois {} pièces d'or",
+                s(p, "gold")
+            )),
+            "MOUNT" => Some(format!("{who} obtient une monture : {}", s(p, "name"))),
+            "HEARTH_BIND" => {
+                let mut t = format!("{who} lie sa pierre de foyer à {}", s(p, "place"));
+                if !s(p, "from").is_empty() {
+                    t += &format!(" (auparavant : {})", s(p, "from"));
+                }
+                Some(t)
+            }
             _ => None,
         };
         let Some(mut text) = text else {
@@ -793,6 +1121,9 @@ pub fn build_split(ch: &Chronicle, since: f64, until: f64, split: f64) -> Brief 
         if let Some(fight) = Fight::of(e, &who, &zone, &text, &id, &mut rivals) {
             fights.push(fight);
             continue;
+        }
+        if let Some(o) = occ {
+            occurrences.insert(o, raw.len());
         }
         raw.push((num_of(e, "t"), text, vec![id]));
     }
@@ -844,14 +1175,34 @@ pub fn build_split(ch: &Chronicle, since: f64, until: f64, split: f64) -> Brief 
         raw.push((num_of(evs[evs.len() - 1], "t"), text, tail));
     }
 
-    raw.sort_by(|a, b| a.0.total_cmp(&b.0));
-    if raw.len() > MAX_FACTS {
-        exclude(
-            "au-delà des 150 faits les plus récents",
-            raw.len() - MAX_FACTS,
-        );
-        raw.drain(..raw.len() - MAX_FACTS);
+    for ((author, _), evs) in &bestiary {
+        let who = authors.get(author).cloned().unwrap_or_else(|| "?".into());
+        raw.push(bestiary_fact(&who, evs));
     }
+    for ((author, _), evs) in &counters {
+        let who = authors.get(author).cloned().unwrap_or_else(|| "?".into());
+        let (fact, dropped) = counters_fact(&who, evs, &allowed);
+        if dropped > 0 {
+            exclude("nomme un membre sans consentement", dropped);
+        }
+        raw.extend(fact);
+    }
+    let consenting: BTreeSet<String> = allowed_guids.iter().map(|g| (*g).clone()).collect();
+    for fact in crate::derived::facts(&crate::derived::Input {
+        events: &shared,
+        consenting: &consenting,
+        since,
+        until,
+        split,
+    }) {
+        if member_re.find(&fact.1).is_some() {
+            exclude("nomme un membre sans consentement", 1);
+            continue;
+        }
+        raw.push(fact);
+    }
+
+    raw.sort_by(|a, b| a.0.total_cmp(&b.0));
     let facts = raw
         .into_iter()
         .enumerate()
@@ -871,6 +1222,7 @@ pub fn build_split(ch: &Chronicle, since: f64, until: f64, split: f64) -> Brief 
         rival_guild: rivals.guild.clone(),
         sexes,
         excluded,
+        past: past_issues(ch, until, &member_re),
         since,
         until,
     }
@@ -902,11 +1254,22 @@ Règles impératives :
    recopiée MOT POUR MOT du corps de l'article ; « portrait » = le nom d'UN personnage nommé
    dans l'article, si l'article tourne autour de lui.
 10. Choisis la maquette de l'édition parmi : {templates}.
+11. Tu n'es pas obligé d'utiliser tous les faits : garde les plus marquants ou les plus drôles.
+    Les « petites statistiques » (sauts, cuites, émotes…) sont un vivier de gags et de brèves.
+12. Les faits RECORD, JALON, PALMARÈS, DUO et ANNIVERSAIRE sont calculés sur le journal
+    Renatus (depuis que chacun a installé l'addon), pas sur toute la vie des personnages :
+    présente-les comme des records « de la gazette » ou « depuis nos archives », jamais
+    comme des records absolus.
+13. Varie d'un numéro à l'autre. Si des numéros précédents figurent plus bas, ils servent de
+    mémoire de la rédaction : fais suivre un feuilleton, rappelle un gag récurrent, note un
+    retour (« la semaine dernière, X jurait… »). Mais ne reprends ni leurs titres, ni leurs
+    tournures, ni leurs angles, et ne t'en sers jamais comme source : seuls les faits
+    numérotés font foi, et les refs ne citent que des faits numérotés.
 {guild_line}{sex_line}
 Réponds par un unique objet JSON, sans texte autour :
 {\"maquette\": \"...\", \"articles\": [{\"title\": \"...\", \"format\": \"...\", \"style\": \"...\", \"body\": \"...\", \"refs\": [\"F1\", \"F4\"], \"exergue\": \"...\", \"portrait\": \"...\"}]}
 
-Faits retenus pour cette édition :
+{past}Faits retenus pour cette édition :
 {facts}
 ";
 
@@ -942,6 +1305,20 @@ pub fn prompt(brief: &Brief, max_articles: usize) -> String {
             sexes.join(", ")
         )
     };
+    let past = if brief.past.is_empty() {
+        String::new()
+    } else {
+        let mut text = String::from(
+            "Numéros précédents (déjà publiés, pour mémoire seulement — pas des sources) :\n",
+        );
+        for issue in &brief.past {
+            text += &format!("\n=== Numéro du {} ===\n", date(issue.when));
+            for (title, body) in &issue.articles {
+                text += &format!("\n# {title}\n{body}\n");
+            }
+        }
+        text + "\n=== Fin des numéros précédents ===\n\n"
+    };
     let templates: Vec<String> = crate::edition::TEMPLATES
         .iter()
         .map(|(n, d)| format!("« {n} » ({d})"))
@@ -953,6 +1330,7 @@ pub fn prompt(brief: &Brief, max_articles: usize) -> String {
         .replace("{end}", &date(brief.until))
         .replace("{guild_line}", &guild_line)
         .replace("{sex_line}", &sex_line)
+        .replace("{past}", &past)
         .replace("{facts}", &facts.join("\n"))
 }
 
@@ -1396,6 +1774,125 @@ mod tests {
         assert!(texts.iter().any(|t| t
             .ends_with("Alice remporte une victoire honorable sur un Orc guerrier de niveau 25")));
         assert!(prompt(&brief, MAX_ARTICLES).contains("AFFRONTEMENT MAJEUR"));
+    }
+
+    #[test]
+    fn trivia_bestiary_duplicates_and_past_issues() {
+        let mut ch = chronicle();
+        let mut add = |(id, e): (String, Value)| {
+            ch.events.insert(id, e);
+        };
+        add(ev(
+            "A:10",
+            "A",
+            "Alice",
+            "MOB_KILL",
+            1010,
+            json!({"name": "Loup", "cls": "normal", "lvl": 5}),
+        ));
+        add(ev(
+            "A:11",
+            "A",
+            "Alice",
+            "MOB_KILL",
+            1011,
+            json!({"name": "Ours rare", "cls": "rare", "lvl": 3}),
+        ));
+        add(ev(
+            "A:12",
+            "A",
+            "Alice",
+            "COUNTERS",
+            1012,
+            json!({"from": 900, "jumps": 412, "drunk": 2, "earned": 123456,
+                "emotes": [{"e": "SLAP", "to": "Bob", "n": 3}, {"e": "KISS", "to": "Alice", "n": 1}]}),
+        ));
+        // the same duel, recorded by both duellists (Carl consents too)
+        add(ev(
+            "C:1",
+            "C",
+            "Carl",
+            "AI_CONSENT",
+            100,
+            json!({"ok": true}),
+        ));
+        let mut d1 = ev(
+            "A:13",
+            "A",
+            "Alice",
+            "DUEL",
+            1013,
+            json!({"winner": "Alice", "loser": "Carl"}),
+        );
+        d1.1["occ"] = json!("DUEL:Alice:Carl:1");
+        let mut d2 = ev(
+            "C:2",
+            "C",
+            "Carl",
+            "DUEL",
+            1013,
+            json!({"winner": "Alice", "loser": "Carl"}),
+        );
+        d2.1["occ"] = json!("DUEL:Alice:Carl:1");
+        add(d1);
+        add(d2);
+        // a published issue
+        let mut art = ev(
+            "A:14",
+            "A",
+            "Alice",
+            "ARTICLE",
+            500,
+            json!({"title": "Le lac", "body": "Alice nage.", "edition": "E1"}),
+        );
+        art.1["refs"] = json!(["A:2"]);
+        add(art);
+        let mut shy = ev(
+            "A:15",
+            "A",
+            "Alice",
+            "ARTICLE",
+            501,
+            json!({"title": "Bob", "body": "Bob nage.", "edition": "E1"}),
+        );
+        shy.1["refs"] = json!(["A:2"]);
+        add(shy);
+        let brief = build(&ch, 900.0, 2000.0);
+        let texts: Vec<&str> = brief.facts.iter().map(|f| f.text.as_str()).collect();
+        let find = |needle: &str| texts.iter().find(|t| t.contains(needle)).copied();
+        let bestiary = find("abat pour la première fois").expect("bestiary");
+        assert!(
+            bestiary.ends_with("2 espèce(s) de créatures, dont : Ours rare (rare), Loup"),
+            "{bestiary}"
+        );
+        let stats = find("petites statistiques").expect("counters");
+        assert!(
+            stats.contains("412 sauts, 2 cuites, 12 po 34 pa gagnés"),
+            "{stats}"
+        );
+        assert!(
+            stats.contains("Alice a embrassé Alice") && !stats.contains("Bob"),
+            "{stats}"
+        );
+        let duels: Vec<&Fact> = brief
+            .facts
+            .iter()
+            .filter(|f| f.text.contains("en duel"))
+            .collect();
+        assert_eq!(duels.len(), 1, "one fact for both records");
+        assert_eq!(duels[0].refs, ["A:13", "C:2"]);
+        assert_eq!(brief.past.len(), 1);
+        assert_eq!(
+            brief.past[0].articles,
+            [("Le lac".to_string(), "Alice nage.".to_string())]
+        );
+        let p = prompt(&brief, MAX_ARTICLES);
+        assert!(
+            p.contains("=== Numéro du ") && p.contains("# Le lac\nAlice nage."),
+            "{p}"
+        );
+        assert!(!p.contains("Bob nage"));
+        assert!(p.find("Numéros précédents") < p.find("Faits retenus"));
     }
 
     #[test]

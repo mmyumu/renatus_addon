@@ -180,6 +180,34 @@ local TYPES = {
             return ("rapporte, d'après son journal de combat, la mort de %s : %s"):format(
                 tostring(ev.p.victim), tostring(ev.p.cause))
         end },
+    -- Collectors/Feats.lua: small feats and mishaps, mostly for the gazette.
+    DUEL = { cat = "pvp", icon = "Interface\\Icons\\INV_Sword_04", importance = 2,
+        text = function(ev)
+            local p = ev.p
+            if p.fled then return ("duel : %s prend la fuite devant %s"):format(tostring(p.loser), tostring(p.winner)) end
+            return ("duel : %s bat %s"):format(tostring(p.winner), tostring(p.loser))
+        end },
+    NEAR_DEATH = { cat = "combat", icon = "Interface\\Icons\\Spell_Holy_GuardianSpirit", importance = 2,
+        text = function(ev) return ("survit de justesse (%s %% de vie)"):format(tostring(ev.p.pct or "?")) end },
+    RESCUED = { cat = "combat", icon = "Interface\\Icons\\Spell_Holy_Resurrection", importance = 2,
+        text = function(ev) return "revient à la vie grâce à " .. tostring(ev.p.by or "?") end },
+    ROLL_EXTREME = { cat = "social", icon = "Interface\\Icons\\INV_Misc_Dice_01", importance = 1,
+        text = function(ev)
+            local s = "fait " .. tostring(ev.p.roll) .. " aux dés"
+            if ev.p.item then s = s .. " (" .. (ev.p.kind == "need" and "besoin" or "cupidité") .. " sur " .. ev.p.item .. ")" end
+            return s
+        end },
+    REPUTATION = { cat = "progression", icon = "Interface\\Icons\\INV_Misc_Token_ArgentDawn", importance = 2,
+        text = function(ev) return ("devient %s auprès de %s"):format(tostring(ev.p.standing), tostring(ev.p.faction)) end },
+    MONEY = { cat = "progression", icon = "Interface\\Icons\\INV_Misc_Coin_02", importance = 2,
+        text = function(ev) return ("possède pour la première fois %s pièces d'or"):format(tostring(ev.p.gold)) end },
+    MOUNT = { cat = "progression", icon = "Interface\\Icons\\Ability_Mount_RidingHorse", importance = 3,
+        text = function(ev) return "obtient une monture : " .. tostring(ev.p.name) end },
+    HEARTH_BIND = { cat = "exploration", icon = "Interface\\Icons\\INV_Misc_Rune_01", importance = 1,
+        text = function(ev) return "lie sa pierre de foyer à " .. tostring(ev.p.place) end },
+    -- Daily trivia (Collectors/Counters.lua): jumps, drunk, emotes... For the gazette only.
+    COUNTERS = { cat = "social", icon = "Interface\\Icons\\INV_Misc_Note_01", importance = 0, hidden = true,
+        text = function() return "tient ses compteurs du jour" end },
     LETTER = { cat = "anecdote", icon = "Interface\\Icons\\INV_Letter_15", importance = 1,
         text = function(ev) return "écrit au courrier des lecteurs : « " .. tostring(ev.p.title) .. " »" end },
 }

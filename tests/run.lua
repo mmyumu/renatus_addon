@@ -2229,6 +2229,120 @@ test("butin : premier objet bleu ou mieux de ce personnage, avec son numero ; ic
     ns.Loot.patterns = nil
 end)
 
+print("Faits divers (gazette)")
+
+test("motifs des messages du client : arguments dans l'ordre, positionnels compris", function()
+    local ns = boot({ specIndex = 1 })
+    local a = ns.Feats.Match("%2$s s'est enfui devant %1$s lors d'un duel.", "Bob s'est enfui devant Testeur lors d'un duel.")
+    eq(a[1], "Testeur"); eq(a[2], "Bob")
+    a = ns.Feats.Match("Jet de Besoin : %d pour %s par %s", "Jet de Besoin : 100 pour [Epee (bleue)] par Testeur")
+    eq(a[1], "100"); eq(a[2], "[Epee (bleue)]"); eq(a[3], "Testeur")
+    eq(ns.Feats.Match("%s obtient un %d (%d-%d).", "autre chose"), nil)
+end)
+
+test("duels, des extremes, reputation, pierre de foyer : messages systeme hors instance", function()
+    DUEL_WINNER_KNOCKOUT = "%1$s a vaincu %2$s en duel."
+    DUEL_WINNER_RETREAT = "%2$s s'est enfui devant %1$s lors d'un duel."
+    RANDOM_ROLL_RESULT = "%s obtient un %d (%d-%d)."
+    LOOT_ROLL_ROLLED_NEED = "Jet de Besoin : %d pour %s par %s"
+    FACTION_STANDING_CHANGED = "Vous êtes maintenant %s auprès de %s."
+    FACTION_STANDING_LABEL4, FACTION_STANDING_LABEL6, FACTION_STANDING_LABEL8 = "Neutre", "Honoré", "Exalté"
+    local bind = "Comté-de-l'Or"
+    GetBindLocation = function() return bind end
+    local ns = boot({ specIndex = 1 })
+    Stub.fire("CHAT_MSG_SYSTEM", "Testeur a vaincu Bob en duel.")
+    Stub.fire("CHAT_MSG_SYSTEM", "Alice a vaincu Bob en duel.") -- not about me
+    Stub.fire("CHAT_MSG_SYSTEM", "Testeur s'est enfui devant Alice lors d'un duel.")
+    local duels = eventsOf(ns, "DUEL")
+    table.sort(duels, function(x, y) return tostring(x.p.fled) < tostring(y.p.fled) end)
+    eq(#duels, 2)
+    eq(duels[1].p.winner, "Testeur"); eq(duels[1].p.loser, "Bob"); eq(duels[1].p.fled, nil)
+    assert(duels[1].occ:find("^DUEL:Testeur:Bob:"), "meme occurrence chez les deux duellistes")
+    eq(duels[2].p.winner, "Alice"); eq(duels[2].p.loser, "Testeur"); eq(duels[2].p.fled, true)
+    Stub.fire("CHAT_MSG_SYSTEM", "Testeur obtient un 1 (1-100).")
+    Stub.fire("CHAT_MSG_SYSTEM", "Testeur obtient un 57 (1-100).")
+    Stub.fire("CHAT_MSG_SYSTEM", "Testeur obtient un 1 (1-6).")
+    Stub.fire("CHAT_MSG_SYSTEM", "Bob obtient un 100 (1-100).")
+    Stub.fire("CHAT_MSG_LOOT", "Jet de Besoin : 100 pour [Lame bleue] par Testeur")
+    local rolls = eventsOf(ns, "ROLL_EXTREME")
+    table.sort(rolls, function(x, y) return x.p.roll < y.p.roll end)
+    eq(#rolls, 2, "1 ou 100 sur 1-100, les miens seulement")
+    eq(rolls[1].p.kind, "roll"); eq(rolls[2].p.kind, "need"); eq(rolls[2].p.item, "Lame bleue")
+    Stub.fire("CHAT_MSG_SYSTEM", "Vous êtes maintenant Neutre auprès de Hurlevent.")
+    Stub.fire("CHAT_MSG_SYSTEM", "Vous êtes maintenant Exalté auprès de Forgefer.")
+    local rep = eventsOf(ns, "REPUTATION")
+    eq(#rep, 1); eq(rep[1].p.faction, "Forgefer"); eq(rep[1].p.standing, "Exalté")
+    eq(#eventsOf(ns, "HEARTH_BIND"), 0, "premier lieu connu : rien a raconter")
+    bind = "Hurlevent"
+    Stub.fire("CHAT_MSG_SYSTEM", "Hurlevent est maintenant votre foyer.")
+    local b = eventsOf(ns, "HEARTH_BIND")
+    eq(#b, 1); eq(b[1].p.place, "Hurlevent"); eq(b[1].p.from, "Comté-de-l'Or")
+    DUEL_WINNER_KNOCKOUT, DUEL_WINNER_RETREAT, RANDOM_ROLL_RESULT, LOOT_ROLL_ROLLED_NEED = nil, nil, nil, nil
+    FACTION_STANDING_CHANGED, FACTION_STANDING_LABEL4, FACTION_STANDING_LABEL6, FACTION_STANDING_LABEL8 = nil, nil, nil, nil
+    GetBindLocation = nil
+end)
+
+test("miracule, sauveteur, paliers d'or", function()
+    local hp, copper = 1000, 50 * 10000
+    UnitHealth = function() return hp end
+    UnitHealthMax = function() return 1000 end
+    GetMoney = function() return copper end
+    local ns, S = boot({ specIndex = 1 })
+    eq(#eventsOf(ns, "MONEY"), 0, "l'or deja possede n'est pas une nouvelle")
+    copper = 150 * 10000
+    Stub.fire("PLAYER_MONEY")
+    local money = eventsOf(ns, "MONEY")
+    eq(#money, 1); eq(money[1].p.gold, 100)
+    -- a fight down to 3 % of health, survived
+    Stub.fire("PLAYER_REGEN_DISABLED")
+    hp = 30; Stub.fire("UNIT_HEALTH", "player")
+    hp = 600; Stub.fire("UNIT_HEALTH", "player")
+    Stub.fire("PLAYER_REGEN_ENABLED")
+    local near = eventsOf(ns, "NEAR_DEATH")
+    eq(#near, 1); eq(near[1].p.pct, 3)
+    -- a fight down to 20 %: nothing; a fight lost: nothing
+    Stub.fire("PLAYER_REGEN_DISABLED"); hp = 200; Stub.fire("UNIT_HEALTH", "player"); Stub.fire("PLAYER_REGEN_ENABLED")
+    Stub.fire("PLAYER_REGEN_DISABLED"); hp = 10; Stub.fire("UNIT_HEALTH", "player")
+    S.dead = true; Stub.fire("PLAYER_DEAD"); Stub.fire("PLAYER_REGEN_ENABLED")
+    eq(#eventsOf(ns, "NEAR_DEATH"), 1)
+    -- dead, a priest offers a resurrection, accepted
+    Stub.fire("RESURRECT_REQUEST", "Alice")
+    S.dead = false; Stub.fire("PLAYER_ALIVE")
+    Stub.advance(2)
+    local r = eventsOf(ns, "RESCUED")
+    eq(#r, 1); eq(r[1].p.by, "Alice")
+    UnitHealth, UnitHealthMax, GetMoney = nil, nil, nil
+end)
+
+test("compteurs du jour : un seul evenement au changement de jour, emotes visant la guilde", function()
+    JumpOrAscendStart = function() end
+    DoEmote = function() end
+    DRUNK_MESSAGE_SELF1, DRUNK_MESSAGE_SELF3 = "Vous vous sentez dégrisé.", "Vous vous sentez ivre."
+    local copper = 1000
+    GetMoney = function() return copper end
+    local ns, S = boot({ specIndex = 1, roster = { { name = "Alice", guid = "Player-1-ALI" } },
+        units = { target = { name = "Alice", guid = "Player-1-ALI" } } })
+    for _ = 1, 3 do JumpOrAscendStart() end
+    Stub.fire("CHAT_MSG_SYSTEM", "Vous vous sentez ivre.")
+    Stub.fire("CHAT_MSG_SYSTEM", "Vous vous sentez ivre.")
+    Stub.fire("CHAT_MSG_SYSTEM", "Vous vous sentez dégrisé.")
+    Stub.fire("CHAT_MSG_SYSTEM", "Vous vous sentez ivre.")
+    DoEmote("SLAP"); DoEmote("slap"); DoEmote("SLAP", "Inconnu"); DoEmote("WAVE")
+    copper = 5000; Stub.fire("PLAYER_MONEY")
+    copper = 2000; Stub.fire("PLAYER_MONEY")
+    eq(#eventsOf(ns, "COUNTERS"), 0, "rien avant la fin du jour")
+    Stub.advance(86400)
+    JumpOrAscendStart()
+    local c = eventsOf(ns, "COUNTERS")
+    eq(#c, 1)
+    local p = c[1].p
+    eq(p.jumps, 3); eq(p.drunk, 2, "une cuite par retour a la sobriete")
+    eq(p.earned, 4000); eq(p.spent, 3000)
+    eq(#p.emotes, 1); eq(p.emotes[1].e, "SLAP"); eq(p.emotes[1].to, "Alice"); eq(p.emotes[1].n, 2)
+    eq(ns.Types.Get("COUNTERS").hidden, true)
+    JumpOrAscendStart, DoEmote, DRUNK_MESSAGE_SELF1, DRUNK_MESSAGE_SELF3, GetMoney = nil, nil, nil, nil, nil
+end)
+
 print("Suppression (tombstones)")
 
 local function inDataset(ns, id)

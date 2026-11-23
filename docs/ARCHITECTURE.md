@@ -25,6 +25,18 @@
 - Dépôt public `mmyumu/renatus_addon`. Push sur `main` avec une nouvelle version dans `Renatus.toc` → `addon-release.yml` publie `v<version>` (`Renatus-<version>.zip`, notes = message du commit ; tiret = version de test, en prerelease).
 - `launcher/` : application Tauri 2 (Windows) qui détecte `_forever_`, vérifie toutes les 10 minutes, installe la dernière release (même règles que `tools/deploy.sh`) et se met à jour elle-même (`launcher-v*`, release « latest », `latest.json` signé). Détails : `launcher/README.md`.
 
+### Avancement v1.0.11 et Renatus Admin 0.4.6 (23/11/2026) : de quoi varier la gazette
+
+- **Nouveaux faits collectés par l'addon** (pour tous les membres, catégories de confidentialité habituelles) :
+  - `Collectors/Feats.lua` : `DUEL` (vainqueur, perdant, fuite ; `occ` commun aux deux duellistes), `NEAR_DEATH` (combat survécu à 5 % de vie ou moins), `RESCUED` (ramené à la vie par quelqu'un), `ROLL_EXTREME` (1 ou 100 au `/roll` 1-100, au besoin ou à la cupidité), `REPUTATION` (honoré, révéré, exalté), `MONEY` (10, 100, 1000 po pour la première fois ; l'or déjà possédé au premier passage ne compte pas), `MOUNT` (journal des montures, peut ne jamais venir sur Forever), `HEARTH_BIND` (pierre de foyer liée ailleurs).
+  - `Collectors/Counters.lua` : compteurs du jour, envoyés en **un seul** événement caché `COUNTERS` au changement de jour : sauts, cuites, visites à l'ange, « sacs pleins », poissons, pierres de foyer, or gagné et dépensé, émotes visant un membre de la guilde (`/gifle`, `/bise`…).
+  - Sources : messages système du client, reconnus avec ses propres chaînes (toute langue, arguments positionnels compris). En instance, Forever les rend secrets : ignorés. **À confirmer en jeu (V12).**
+- **Renatus Admin, gazette** :
+  - Plus de plafond de 150 faits : toute la période part à l'IA.
+  - Nouveaux faits : bestiaire (`MOB_KILL`, un fait par membre, rares et élites d'abord), petites statistiques (`COUNTERS` additionnés ; une émote visant un membre sans consentement est retirée), textes des nouveaux événements, et un seul fait pour un événement enregistré par plusieurs membres (même `occ` : boss, sortie, duel).
+  - Faits calculés (`derived.rs`) sur tout l'historique du journal : **records** de la guilde (par jour : morts, quêtes, victoires honorables, niveaux, espèces, contrées, sauts, cuites ; par sortie : durée, morts, boss ; survie la plus juste), un seul par catégorie et par période, contre le record d'avant ; **jalons** (10e mort, 100e quête…, par membre et pour toute la guilde) ; **anniversaires** (mois dans la guilde, années dans le journal) ; **palmarès** et **duo inséparable** du nouveau numéro. Les textes précisent qu'ils sont comptés depuis le début du journal Renatus.
+  - **Mémoire de la rédaction** : les 3 derniers numéros publiés, en entier, sont joints à la demande (un article nommant un membre sans consentement en est retiré), avec la consigne de faire suivre les feuilletons sans reprendre titres, tournures ni angles, et de ne citer que les faits numérotés.
+
 ### Avancement v0.11.0 (19/11/2026)
 
 - **Album** : boosters réels (par défaut 1 par jour joué, +1 par niveau, boss ou sortie avec un membre de la guilde, 5 par jour au plus ; ces trois nombres sont un réglage de guilde `GUILD_CONFIG.p.boosters`, onglet **Boosters** de `Renatus_Admin`, appliqué à partir du jour de sa diffusion : les jours passés gardent la règle d'alors ; ouvertures enregistrées en événements `BOOSTER_OPEN` cachés, collection rejouée depuis eux). Série fixe **Azeroth** (`Core/Cards.lua`, 123 cartes en 7 séries) et cartes de guilde enrichies (paliers de niveau, avis de recherche, boss, sorties, morts mémorables, unes).
@@ -514,6 +526,7 @@ Points nouveaux :
 | V9 | Format de `UnitGUID` et de `GetGuildInfo` |
 | V10 | ✅ partiel (21/11/2026) : `COMBATLOG_HONORGAIN` et `GetPVPSessionStats()` existent ; l'arrivée de `CHAT_MSG_COMBAT_HONOR_GAIN` reste à voir à la prochaine victoire. **PvP** : un joueur ennemi en cible, survol ou barre de nom donne-t-il nom, guilde, niveau, race et classe ? `CHAT_MSG_COMBAT_HONOR_GAIN` existe-t-il ? |
 | V11 | `/combatlog` écrit-il un fichier dans `_forever_/Logs/` ? (vérification à faire à la main) |
+| V12 | Faits divers (v1.0.11), hors instance : messages de duel (`DUEL_WINNER_KNOCKOUT`/`RETREAT`), `/roll` (`RANDOM_ROLL_RESULT`), jets de besoin (`LOOT_ROLL_ROLLED_NEED`), réputation (`FACTION_STANDING_CHANGED`), ivresse (`DRUNK_MESSAGE_SELF*`), `RESURRECT_REQUEST`, `CONFIRM_XP_LOSS`, `NEW_MOUNT_ADDED`, `GetBindLocation`, `UnitHealth` du joueur en combat (secret ?), crochets `JumpOrAscendStart` et `DoEmote`. Les compteurs se vérifient le lendemain (événement `COUNTERS`). |
 
 Mode d'emploi :
 1. Copier `tools/ChronicleProbe` **et** `Renatus` dans `_forever_/Interface/AddOns/`.

@@ -11,6 +11,7 @@ pub mod cards;
 pub mod chronicle;
 pub mod combatlog;
 pub mod config;
+pub mod derived;
 pub mod edition;
 pub mod gazette;
 pub mod issues;
