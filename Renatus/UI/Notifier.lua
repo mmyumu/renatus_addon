@@ -26,7 +26,8 @@ function N.Notices(ds)
             if (a.t or 0) > seen and not (a.ev and a.ev.a == ds.me) then unread = unread + 1 end
         end
     end
-    return { gazette = unread, boosters = ds.boosters or 0 }
+    local trades = (not ds.isDemo and ns.Trade) and #ns.Trade.Incoming(ds) or 0
+    return { gazette = unread, boosters = ds.boosters or 0, trades = trades }
 end
 
 -- Everything published so far counts as read.
@@ -78,7 +79,7 @@ local function onClick(_, button)
 end
 
 local function tooltip()
-    local n = N.last or { gazette = 0, boosters = 0 }
+    local n = N.last or { gazette = 0, boosters = 0, trades = 0 }
     local lines = {}
     if n.gazette > 0 then
         lines[#lines + 1] = { n.gazette > 1 and (n.gazette .. " nouveaux articles dans la gazette !")
@@ -89,6 +90,10 @@ local function tooltip()
     if n.boosters > 0 then
         lines[#lines + 1] = { n.boosters > 1 and (n.boosters .. " boosters à ouvrir dans l'album.")
             or "Un booster à ouvrir dans l'album.", 1, 0.82, 0.2 }
+    end
+    if (n.trades or 0) > 0 then
+        lines[#lines + 1] = { n.trades > 1 and (n.trades .. " offres d'échange de cartes attendent ta réponse.")
+            or "Une offre d'échange de cartes attend ta réponse.", 1, 0.82, 0.2 }
     end
     lines[#lines + 1] = " "
     lines[#lines + 1] = { "Clic gauche : la gazette", 0.6, 0.6, 0.6 }
@@ -158,7 +163,8 @@ function N:Refresh(ds)
     local n = N.Notices(ds)
     N.last = n
     local gazettePip = n.gazette > 0 and "!" or nil
-    local boosterPip = pipText(n.boosters)
+    -- the gold pip: boosters to open and trade offers to answer, both in the album
+    local boosterPip = pipText(n.boosters + (n.trades or 0))
     UI.SetNavBadge("gazette", not windowOn("gazette") and gazettePip or nil)
     UI.SetNavBadge("album", boosterPip)
     local b = self.button

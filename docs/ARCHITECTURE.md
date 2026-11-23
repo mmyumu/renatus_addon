@@ -468,6 +468,14 @@ Les enrichissements `LOG` (causes de mort, coups fataux PvP) passent par le mêm
 - **Échanges** : `TRADE_OFFER` (A propose X contre Y à B) puis `TRADE_ACCEPT` (B, en référençant l'offre). La propriété des cartes est obtenue en **rejouant** les journaux. Si A offre la même carte à deux personnes, la première acceptation (horodatage serveur) gagne et l'autre échoue de façon visible.
 - Ce système n'est pas infalsifiable : un client modifié pourrait forger des événements. C'est acceptable entre amis.
 
+### 9.4 Échanges et dons (implémentés, `Core/Trade.lua`, `UI/Trade.lua`)
+
+- **Bonne foi assumée** : aucun contrôle des tirages ni des boosters gagnés (un client modifié peut toujours se donner des cartes). Les seules vérifications servent aussi la cohérence : on ne donne pas une carte qu'on n'a pas, ni deux fois la même.
+- **Événements partagés** : `TRADE_OFFER` (le donneur : `p.to`, `p.toName`, `p.give` 1 à 5 cartes, `p.want` 0 à 5 cartes ; vide = **don**) et `TRADE_REPLY` (`refs = { offre }`, `p.ok`) : du destinataire, accepte ou refuse ; du donneur, retire l'offre. Une offre sans réponse expire au bout de 7 jours.
+- **Propriété rejouée** (`Trade.Replay`, dans `Store.Dataset` : `ds.trades`) : ouvertures **partagées** et échanges acceptés, dans l'ordre du temps. À l'acceptation, si le donneur n'a plus ses cartes ou le destinataire celles demandées, l'échange **échoue**, pareil chez tous. Les cartes d'un booster ouvert avec l'album en privé restent dans l'album de leur propriétaire mais ne s'échangent pas (les autres ne les voient pas). Échanger demande l'album sur « Guilde ».
+- **Réservation** : une carte proposée dans une offre en attente ne peut pas être proposée ailleurs (`Trade.Tradable`).
+- **Interface** : bouton « Échanges » de l'album (offres reçues : Voir, Accepter, Refuser ; envoyées : Retirer ; historique), « Nouvelle offre » (mes cartes à gauche, les siennes à droite, d'abord celles que l'autre n'a pas ; la carte survolée en grand au milieu). Menu « Ma collection / membre » de l'album, et « Voir sa collection » dans Membres : clic sur une de ses cartes = la lui demander. Pastille dorée (album, icône de la gazette) = boosters + offres à répondre ; annonce dans le chat à l'arrivée d'une offre ou d'une réponse ; « Reçue de X le … » sous une carte agrandie.
+
 ---
 
 ## 10. Synchronisation

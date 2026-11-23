@@ -8,8 +8,7 @@ local UI = ns.UI
 local Album = ns.Album
 
 local CARD_W, CARD_H = 132, 184
-local COLS, ROWS = 5, 2
-local PER_PAGE = COLS * ROWS
+local COLS = 5
 -- The illustration fills the card inside its frame band (ART_INSET), down to the name banner.
 local ART_INSET = 4
 local ART_W, ART_H = CARD_W - 2 * ART_INSET, 98
@@ -694,8 +693,15 @@ local function buildReveal()
     r.ok:SetPoint("BOTTOM", 0, 20)   -- takes the place of "Tout retourner" once all are turned
     -- preview of more than five cards: the next ones (opts.onNext)
     r.more = UI.Button(r, "Cartes suivantes", 150, 24, function()
+        local onNext = r.onNext
+        r.onClose = nil
         r:Hide()
-        if r.onNext then r.onNext() end
+        if onNext then onNext() end
+    end)
+    r:SetScript("OnHide", function()
+        local onClose = r.onClose
+        r.onClose = nil
+        if onClose then onClose() end
     end)
     r.more:SetPoint("BOTTOMRIGHT", -20, 20)
     return r
@@ -713,9 +719,10 @@ local function showReveal(cards, collection, opts)
     r.tweens = {}
     r.got, r.collection, r.revealed = cards, collection or {}, 0
     r.title:SetText(opts.title or "Nouveau booster !")
-    r.hint:SetText(opts.preview and "Aperçu : rien n'est encore publié." or "Clique le paquet pour l'ouvrir.")
+    r.hint:SetText(opts.hint or (opts.preview and "Aperçu : rien n'est encore publié." or "Clique le paquet pour l'ouvrir."))
     r.ok:SetLabel(opts.preview and "Fermer" or "Ranger dans l'album")
     r.onNext = opts.onNext
+    r.onClose = opts.onClose   -- called once the window is closed (not on "Cartes suivantes")
     r.preview = opts.preview   -- unpublished cards: not shared in the chat
     r.more:SetShown(opts.onNext ~= nil)
     local centerX = (r:GetWidth() - CARD_W) / 2
@@ -871,8 +878,9 @@ end
 -- Zoom: one card, large.
 ------------------------------------------------------------------------
 local zoom
--- hint: line under the card (default: how to close it).
-local function showZoom(card, count, hint)
+-- hint: line under the card (default: how to close it). onCard: called when the card
+-- itself is clicked (the zoom closes first); otherwise a click on the card closes it.
+local function showZoom(card, count, hint, onCard)
     if not zoom then
         zoom = CreateFrame("Button", nil, UI.GetWindow())
         zoom:SetFrameStrata("DIALOG")
@@ -885,7 +893,9 @@ local function showZoom(card, count, hint)
         zoom.card:SetPoint("CENTER", 0, 8)
         zoom.card:SetScript("OnClick", function(self)
             if ns.CardLink.ShiftClick(self.card) then return end
+            local fn = zoom.onCard
             zoom:Hide()
+            if fn then fn() end
         end)
         zoom.hint = UI.Text(zoom, 11, UI.C.dim)
         -- right under the card: the album's own note line sits at the bottom of the tab
@@ -893,6 +903,7 @@ local function showZoom(card, count, hint)
         zoom:SetScript("OnClick", function() zoom:Hide() end)
     end
     UI.FillCard(zoom.card, card, count)
+    zoom.onCard = onCard
     zoom.hint:SetText(hint or "Clique pour refermer. Maj-clic : la partager dans le chat.")
     zoom:Show()
     return zoom
@@ -902,9 +913,42 @@ UI.ShowCardZoom = showZoom
 ------------------------------------------------------------------------
 -- Tab
 ------------------------------------------------------------------------
+-- The album is a virtual grid: only VISIBLE_ROWS rows of card frames exist, recycled as the
+-- player scrolls, so it stays light whatever the size of the catalogue (a card can hold a
+-- 3D model, and models ignore clipping, hence whole-row steps rather than pixel scrolling).
+local VISIBLE_ROWS = 2
+local ROW_H = CARD_H + 10
+local GRID_TOP = -82
+
+-- Lowercase, accents folded, for the name search.
+local FOLD = {}
+for from, to in pairs({ ["à"] = "a", ["â"] = "a", ["ä"] = "a", ["é"] = "e", ["è"] = "e", ["ê"] = "e",
+    ["ë"] = "e", ["î"] = "i", ["ï"] = "i", ["ô"] = "o", ["ö"] = "o", ["ù"] = "u", ["û"] = "u", ["ü"] = "u",
+    ["ç"] = "c", ["œ"] = "oe", ["æ"] = "ae", ["À"] = "a", ["Â"] = "a", ["É"] = "e", ["È"] = "e",
+    ["Ê"] = "e", ["Î"] = "i", ["Ô"] = "o", ["Û"] = "u", ["Ç"] = "c", ["Œ"] = "oe" }) do
+    FOLD[from] = to
+end
+local function fold(s) return (s or ""):lower():gsub("[\195\197][\128-\191]", FOLD) end
+UI.Fold = fold
+
+local OWNED_OPTS = {
+    { value = "all", label = "Toutes les cartes" },
+    { value = "owned", label = "Mes cartes" },
+    { value = "missing", label = "Manquantes" },
+    { value = "doubles", label = "Doublons" },
+}
+local SORT_OPTS = {
+    { value = "series", label = "Tri : série" },
+    { value = "rarity", label = "Tri : rareté" },
+    { value = "name", label = "Tri : nom" },
+    { value = "recent", label = "Tri : plus récentes" },
+    { value = "copies", label = "Tri : exemplaires" },
+}
+
 local function build(c)
-    c.series = "all"
-    c.page = 1
+    c.series, c.rarity, c.owned, c.sort, c.search = "all", "all", "all", "series", ""
+    c.offset = 0          -- first visible row
+    c.visible = {}
     local title = UI.Title(c, 20)
     title:SetPoint("TOPLEFT", 4, -2)
     title:SetText("Album de la Guilde")
@@ -932,43 +976,115 @@ local function build(c)
         UI.Notifier:Refresh(ds)
     end)
     c.booster:SetPoint("TOPRIGHT", -4, -6)
+
+    -- Trades (UI/Trade.lua), with a pip for the offers waiting for an answer.
+    c.trades = UI.Button(c, "Échanges", 96, 26, function() UI.ShowTrades() end)
+    c.trades:SetPoint("RIGHT", c.booster, "LEFT", -6, 0)
+    c.trades.badge = UI.Badge(c.trades, 16)
+    c.trades.badge:SetPoint("CENTER", c.trades, "TOPRIGHT", -3, -3)
+    UI.Tooltip(c.trades, "Échanges", { "Propose tes cartes aux autres membres, contre les leurs ou en cadeau, et réponds à leurs offres." })
+
+    -- Whose collection is shown: mine, or another member's (to see what to ask them).
+    c.who = UI.Dropdown(c, 130, function()
+        local opts = { { value = "", label = "Ma collection" } }
+        for _, m in ipairs(UI.TradePartners(ns.Store.Dataset())) do
+            opts[#opts + 1] = { value = m.guid, label = UI.ClassName(m.display, m.class) }
+        end
+        return opts
+    end, function(v)
+        c.viewing = v ~= "" and v or nil
+        c.offset = 0
+        c:Refresh()
+    end)
+    c.who:SetPoint("RIGHT", c.trades, "LEFT", -6, 0)
+    c.who:SetValue("")
+    -- the counts line stops before the header controls (never under them)
+    c.progress:SetWidth(UI.CONTENT_W - 4 - 170 - 6 - 96 - 6 - 130 - 12)
+    c.progress:SetWordWrap(false)
+    UI.Tooltip(c.who, "Collection", { "Regarde la collection d'un autre membre : clique une de ses cartes pour la lui demander en échange." })
     UI.Tooltip(c.booster, function()
         return "Booster", { "5 cartes, dont au moins une rare. Le contenu est déterminé par l'identifiant du booster : impossible de relancer le tirage.",
             Album.DescribeRule(ns.Store.Dataset().isDemo and Album.DEFAULT_RULE or ns.GuildConfig.Boosters()) }
     end)
 
+    -- Filter bar: series, rarity, possession, sort, name search.
+    local function changed(key)
+        return function(v) c[key] = v; c.offset = 0; c:Apply() end
+    end
     local seriesOpts = { { value = "all", label = "Toutes les séries" },
         { value = "family:guild", label = "— Guilde (toutes)" }, { value = "family:azeroth", label = "— Azeroth (toutes)" } }
     for _, s in ipairs(Album.SERIES) do table.insert(seriesOpts, { value = s.key, label = s.label }) end
-    c.seriesDropdown = UI.Dropdown(c, 170, seriesOpts, function(v) c.series = v; c.page = 1; c:Refresh() end)
+    c.seriesDropdown = UI.Dropdown(c, 158, seriesOpts, changed("series"))
     c.seriesDropdown:SetPoint("TOPLEFT", 4, -48)
     c.seriesDropdown:SetValue("all")
-    c.ownedOnly = UI.Checkbox(c, "Seulement mes cartes", function(v) c.onlyOwned = v; c.page = 1; c:Refresh() end)
-    c.ownedOnly:SetPoint("LEFT", c.seriesDropdown, "RIGHT", 14, 0)
+    local rarityOpts = { { value = "all", label = "Toutes raretés" } }
+    for _, r in ipairs(Album.RARITIES) do
+        table.insert(rarityOpts, { value = r.key, label = "|c" .. UI.ColorHex(r.color[1], r.color[2], r.color[3]) .. r.label .. "|r" })
+    end
+    c.rarityDropdown = UI.Dropdown(c, 118, rarityOpts, changed("rarity"))
+    c.rarityDropdown:SetPoint("LEFT", c.seriesDropdown, "RIGHT", 6, 0)
+    c.rarityDropdown:SetValue("all")
+    c.ownedDropdown = UI.Dropdown(c, 124, OWNED_OPTS, changed("owned"))
+    c.ownedDropdown:SetPoint("LEFT", c.rarityDropdown, "RIGHT", 6, 0)
+    c.ownedDropdown:SetValue("all")
+    c.sortDropdown = UI.Dropdown(c, 136, SORT_OPTS, changed("sort"))
+    c.sortDropdown:SetPoint("LEFT", c.ownedDropdown, "RIGHT", 6, 0)
+    c.sortDropdown:SetValue("series")
+    c.searchBox = UI.EditBox(c, 1, 22, false, 40)
+    c.searchBox:SetPoint("LEFT", c.sortDropdown, "RIGHT", 6, 0)
+    c.searchBox:SetPoint("RIGHT", c, "TOPRIGHT", -4, -59)
+    c.searchHint = UI.Text(c.searchBox, 12, UI.C.dim)
+    c.searchHint:SetPoint("LEFT", 7, 0)
+    c.searchHint:SetText("Rechercher…")
+    c.searchBox.edit:SetScript("OnTextChanged", function(self)
+        local text = self:GetText() or ""
+        c.searchHint:SetShown(text == "")
+        if text ~= c.search then c.search = text; c.offset = 0; c:Apply() end
+    end)
+    UI.Tooltip(c.searchBox, "Recherche", { "Par nom, parmi les cartes que tu possèdes." })
 
-    c.prev = UI.Button(c, "<", 28, 22, function() c.page = c.page - 1; c:Refresh() end)
-    c.prev:SetPoint("TOPRIGHT", -80, -48)
-    c.pageText = UI.Text(c, 11, UI.C.dim)
-    c.pageText:SetPoint("LEFT", c.prev, "RIGHT", 4, 0)
-    c.pageText:SetWidth(40)
-    c.pageText:SetJustifyH("CENTER")
-    c.pageText:SetJustifyV("MIDDLE")
-    c.next = UI.Button(c, ">", 28, 22, function() c.page = c.page + 1; c:Refresh() end)
-    c.next:SetPoint("LEFT", c.pageText, "RIGHT", 4, 0)
-
+    -- Grid of recycled card frames + scrollbar.
     c.cards = {}
-    local gapX = math.floor((UI.CONTENT_W - COLS * CARD_W) / (COLS + 1))
-    for i = 1, PER_PAGE do
+    local gridW = UI.CONTENT_W - 14
+    local gapX = math.floor((gridW - COLS * CARD_W) / (COLS + 1))
+    for i = 1, COLS * VISIBLE_ROWS do
         local f = UI.CreateCard(c)
         local col, line = (i - 1) % COLS, math.floor((i - 1) / COLS)
-        f:SetPoint("TOPLEFT", gapX + col * (CARD_W + gapX), -82 - line * (CARD_H + 10))
+        f:SetPoint("TOPLEFT", gapX + col * (CARD_W + gapX), GRID_TOP - line * ROW_H)
         f:SetScript("OnClick", function(self)
             if not (self.owned and self.card) then return end
             if ns.CardLink.ShiftClick(self.card) then return end
-            UI.Click(); c.zoom = showZoom(self.card, self.copies)
+            UI.Click()
+            if c.viewing then
+                local to, id = c.viewing, self.card.id
+                c.zoom = showZoom(self.card, self.copies,
+                    "Clique la carte pour la lui demander en échange, à côté pour refermer.",
+                    function() UI.ShowTradeComposer(to, id) end)
+            else
+                c.zoom = showZoom(self.card, self.copies, c:Provenance(self.card.id))
+            end
         end)
         c.cards[i] = f
     end
+    local bar = CreateFrame("Slider", nil, c)
+    bar:SetOrientation("VERTICAL")
+    bar:SetPoint("TOPRIGHT", 0, GRID_TOP)
+    bar:SetSize(10, VISIBLE_ROWS * ROW_H - 10)
+    UI.Box(bar, { 0.03, 0.02, 0.015, 0.8 }, { 0.32, 0.2, 0.1, 1 })
+    local thumb = bar:CreateTexture(nil, "OVERLAY")
+    thumb:SetColorTexture(0.62, 0.16, 0.1, 1)
+    thumb:SetSize(10, 30)
+    bar:SetThumbTexture(thumb)
+    bar:SetMinMaxValues(0, 0)
+    bar:SetValueStep(1)
+    bar:SetScript("OnValueChanged", function(_, value)
+        value = math.floor(value + 0.5)
+        if value ~= c.offset then c.offset = value; c:Layout() end
+    end)
+    c.bar = bar
+    c:EnableMouseWheel(true)
+    c:SetScript("OnMouseWheel", function(_, delta) c:ScrollTo(c.offset - delta) end)
+
     c.empty = UI.Text(c, 13, UI.C.dim)
     c.empty:SetPoint("TOP", 0, -160)
     c.empty:SetWidth(520)
@@ -976,69 +1092,158 @@ local function build(c)
     c.note = UI.Text(c, 10, UI.C.dim)
     c.note:SetPoint("BOTTOMLEFT", 4, 0)
 
-    function c:Refresh()
-        local ds = ns.Store.Dataset()
-        UI.cardProfiles = ds.profiles or {}
-        local cards = Album.Catalogue(ds)
-        local all = {}
-        for _, card in ipairs(cards) do all[#all + 1] = card end
-        for _, card in ipairs(Album.Orphans(ds, cards, ds.collection)) do all[#all + 1] = card end
-        local family = self.series:match("^family:(.+)$")
-        local function inFilter(card)
-            if self.series == "all" then return true end
-            if family then return (card.azeroth and "azeroth" or "guild") == family end
-            return card.series == self.series
-        end
-        local owned, total, doubles = 0, 0, 0
-        for _, card in ipairs(cards) do
-            if inFilter(card) then
-                total = total + 1
-                local n = ds.collection[card.id] or 0
-                if n > 0 then owned = owned + 1 end
-                if n > 1 then doubles = doubles + n - 1 end
-            end
-        end
-        self.progress:SetText(("%d / %d cartes  ·  %d doublon(s)"):format(owned, total, doubles))
-        local nb = ds.boosters or 0
-        self.booster:SetLabel("Ouvrir un booster (" .. nb .. ")")
-        self.booster:SetDisabled(nb <= 0)
-        self.note:SetText(cards.published and "Catalogue publié par les officiers avec la gazette. Clique une carte pour l'agrandir, Maj-clic pour la partager dans le chat."
-            or "Cartes de guilde calculées en attendant le premier catalogue publié. Clique une carte pour l'agrandir, Maj-clic pour la partager.")
+    local function maxOffset()
+        return math.max(0, math.ceil(#c.visible / COLS) - VISIBLE_ROWS)
+    end
+    function c:ScrollTo(row)
+        row = math.max(0, math.min(maxOffset(), row))
+        if row == self.offset then return end   -- already at the top or bottom: keep the models still
+        self.offset = row
+        self.bar:SetValue(row)
+        self:Layout()
+    end
 
-        local visible = {}
-        for _, card in ipairs(all) do
-            local n = ds.collection[card.id] or 0
-            if inFilter(card) and (not self.onlyOwned or n > 0) then
-                table.insert(visible, card)
-            end
-        end
-        local order = {}
-        for i, sr in ipairs(Album.SERIES) do order[sr.key] = i end
-        table.sort(visible, function(a, b)
-            if a.series ~= b.series then return (order[a.series] or 99) < (order[b.series] or 99) end
-            local na, nb2 = type(a.no) == "number" and a.no or nil, type(b.no) == "number" and b.no or nil
-            if na and nb2 and na ~= nb2 then return na < nb2 end
-            local ra, rb = Album.RARITY_INDEX[a.rarity], Album.RARITY_INDEX[b.rarity]
-            if ra ~= rb then return ra < rb end
-            return a.name < b.name
-        end)
-        local pages = math.max(1, math.ceil(#visible / PER_PAGE))
-        self.page = math.max(1, math.min(self.page, pages))
+    -- Fill the frames from the current scroll position.
+    function c:Layout()
+        local collection = self.collection or {}
         for i, f in ipairs(self.cards) do
-            local card = visible[(self.page - 1) * PER_PAGE + i]
+            local card = self.visible[self.offset * COLS + i]
             if card then
-                f.copies = ds.collection[card.id] or 0
+                f.copies = collection[card.id] or 0
                 UI.FillCard(f, card, f.copies)
                 f:Show()
             else
                 f:Hide()
             end
         end
-        self.pageText:SetText(self.page .. "/" .. pages)
-        self.prev:SetDisabled(self.page <= 1)
-        self.next:SetDisabled(self.page >= pages)
-        self.empty:SetText(#visible == 0 and "Aucune carte à afficher.\nLe catalogue se construit à partir de l'histoire de la guilde : membres, ennemis jurés, exploits, faits divers." or "")
     end
+
+    -- Filter and sort the cards gathered by Refresh, without rebuilding the catalogue
+    -- (the search box calls it on every keystroke).
+    function c:Apply()
+        local collection = self.collection or {}
+        local family = self.series:match("^family:(.+)$")
+        local function inSeries(card)
+            if self.series == "all" then return true end
+            if family then return (card.azeroth and "azeroth" or "guild") == family end
+            return card.series == self.series
+        end
+        local owned, total, doubles = 0, 0, 0
+        for _, card in ipairs(self.catalogue or {}) do
+            if inSeries(card) then
+                total = total + 1
+                local n = collection[card.id] or 0
+                if n > 0 then owned = owned + 1 end
+                if n > 1 then doubles = doubles + n - 1 end
+            end
+        end
+
+        -- A card not owned shows its back only: its name and date stay secret, so the search
+        -- never matches it and name/date sorts leave it after the owned ones.
+        local needle = fold(self.search):match("^%s*(.-)%s*$")
+        local visible = {}
+        for _, card in ipairs(self.all or {}) do
+            local n = collection[card.id] or 0
+            local keep = inSeries(card)
+                and (self.rarity == "all" or card.rarity == self.rarity)
+                and (self.owned == "all" or (self.owned == "owned" and n > 0)
+                    or (self.owned == "missing" and n == 0) or (self.owned == "doubles" and n > 1))
+                and (needle == "" or (n > 0 and fold(card.name):find(needle, 1, true) ~= nil))
+            if keep then table.insert(visible, card) end
+        end
+        local order = {}
+        for i, sr in ipairs(Album.SERIES) do order[sr.key] = i end
+        local function bySeries(a, b)
+            if a.series ~= b.series then return (order[a.series] or 99) < (order[b.series] or 99) end
+            local na, nb = type(a.no) == "number" and a.no or nil, type(b.no) == "number" and b.no or nil
+            if na and nb and na ~= nb then return na < nb end
+            local ra, rb = Album.RARITY_INDEX[a.rarity] or 0, Album.RARITY_INDEX[b.rarity] or 0
+            if ra ~= rb then return ra < rb end
+            if a.name ~= b.name then return a.name < b.name end
+            return a.id < b.id
+        end
+        local sort = self.sort
+        table.sort(visible, function(a, b)
+            local ca, cb = collection[a.id] or 0, collection[b.id] or 0
+            if sort == "rarity" then
+                local ra, rb = Album.RARITY_INDEX[a.rarity] or 0, Album.RARITY_INDEX[b.rarity] or 0
+                if ra ~= rb then return ra > rb end
+            elseif sort == "name" or sort == "recent" then
+                if (ca > 0) ~= (cb > 0) then return ca > 0 end
+                if ca > 0 then
+                    if sort == "name" and a.name ~= b.name then return fold(a.name) < fold(b.name) end
+                    if sort == "recent" and (a.t or 0) ~= (b.t or 0) then return (a.t or 0) > (b.t or 0) end
+                end
+            elseif sort == "copies" then
+                if ca ~= cb then return ca > cb end
+            end
+            return bySeries(a, b)
+        end)
+        self.visible = visible
+
+        local filtered = self.rarity ~= "all" or self.owned ~= "all" or needle ~= ""
+        self.progress:SetText(("%d / %d cartes · %d doublons"):format(owned, total, doubles)
+            .. (filtered and (" · %d affichées"):format(#visible) or ""))
+        local maxOff = maxOffset()
+        self.offset = math.max(0, math.min(self.offset, maxOff))
+        self.bar:SetMinMaxValues(0, maxOff)
+        self.bar:SetValue(self.offset)
+        self.bar:SetShown(maxOff > 0)
+        self.empty:SetText(#visible > 0 and ""
+            or (#(self.all or {}) == 0 and "Aucune carte à afficher.\nLe catalogue se construit à partir de l'histoire de la guilde : membres, ennemis jurés, exploits, faits divers."
+            or "Aucune carte ne correspond à ces filtres."))
+        self:Layout()
+    end
+
+    -- Zoom line of one of my cards: who gave it to me, if it came from a trade.
+    function c:Provenance(id)
+        local ds = ns.Store.Dataset()
+        local got = ds.trades and ds.trades.received[ds.me] and ds.trades.received[ds.me][id]
+        local close = "Clique pour refermer. Maj-clic : la partager dans le chat."
+        if not got then return close end
+        local from
+        for _, m in ipairs(ns.Views.Members(ds)) do if m.guid == got.from then from = m.display end end
+        return ("Reçue de %s le %s. %s"):format(from or "?", date("%d/%m/%Y", got.t), close)
+    end
+
+    -- Rebuild the catalogue from the dataset, then filter.
+    function c:Refresh()
+        local ds = ns.Store.Dataset()
+        UI.cardProfiles = ds.profiles or {}
+        local viewingName
+        if self.viewing then
+            for _, m in ipairs(UI.TradePartners(ds)) do if m.guid == self.viewing then viewingName = m.display end end
+            if not viewingName then self.viewing = nil end
+        end
+        self.who:SetValue(self.viewing or "")
+        local collection = self.viewing and ns.Trade.CollectionOf(ds, self.viewing) or ds.collection
+        local cards = Album.Catalogue(ds)
+        local all = {}
+        for _, card in ipairs(cards) do all[#all + 1] = card end
+        for _, card in ipairs(Album.Orphans(ds, cards, collection)) do all[#all + 1] = card end
+        self.catalogue, self.all, self.collection = cards, all, collection
+        local nb = ds.boosters or 0
+        self.booster:SetLabel("Ouvrir un booster (" .. nb .. ")")
+        self.booster:SetDisabled(nb <= 0 or self.viewing ~= nil)
+        local incoming = ds.isDemo and 0 or #ns.Trade.Incoming(ds)
+        self.trades.badge:Set(incoming > 0 and incoming or nil)
+        if self.viewing then
+            self.note:SetText("Collection de " .. viewingName .. ". Clique une de ses cartes pour la lui demander en échange.")
+        else
+            self.note:SetText(cards.published and "Catalogue publié par les officiers avec la gazette. Clique une carte pour l'agrandir, Maj-clic pour la partager dans le chat."
+                or "Cartes de guilde calculées en attendant le premier catalogue publié. Clique une carte pour l'agrandir, Maj-clic pour la partager.")
+        end
+        self:Apply()
+    end
+end
+
+-- Opens the album on a member's collection (nil: mine).
+function UI.ShowCollection(guid)
+    UI.Open("album")
+    local c = UI.GetWindow().containers.album
+    c.viewing = guid
+    c.offset = 0
+    c:Refresh()
 end
 
 UI.RegisterTab({ key = "album", group = "main", label = "Album", icon = "Interface\\Icons\\INV_Misc_Ticket_Tarot_Stack_01", order = 2,

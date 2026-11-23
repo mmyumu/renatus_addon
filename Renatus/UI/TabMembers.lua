@@ -61,6 +61,12 @@ local function build(c)
     p.titles:SetPoint("TOPLEFT", p.sub, "BOTTOMLEFT", 0, -4)
     p.titles:SetWidth(380)
 
+    -- Their album cards: see them, and ask for some in a trade (UI/Trade.lua).
+    p.collection = UI.Button(p, "Voir sa collection", 150, 22, function()
+        if c.guid then UI.ShowCollection(c.guid) end
+    end)
+    p.collection:SetPoint("TOPRIGHT", -38, -8)
+
     p.stats = {}
     for i, s in ipairs(STATS) do
         local cell = CreateFrame("Frame", nil, p)
@@ -104,6 +110,8 @@ local function build(c)
         for _, x in ipairs(members) do if x.name == self.selected then m = x end end
         if not m then p:Hide() return end
         p:Show()
+        self.guid = m.guid
+        p.collection:SetShown(m.hasAddon and m.guid ~= nil and m.guid ~= ds.me and not ds.isDemo)
         UI.SetClassIcon(p.portrait, m.class)
         p.name:SetText(UI.ClassName(m.display, m.class))
         local sub = (m.level and ("Niveau " .. m.level) or "Niveau inconnu")

@@ -164,6 +164,12 @@ local TYPES = {
     -- Opening of a booster: p.n (number), p.cards (card ids), p.cv (catalogue version).
     BOOSTER_OPEN = { cat = "album", icon = "Interface\\Icons\\INV_Misc_Ticket_Tarot_Stack_01", importance = 0, hidden = true,
         text = function(ev) return "ouvre un booster" end },
+    -- Card trade between members (Core/Trade.lua): p.to, p.toName, p.give, p.want (empty = gift).
+    TRADE_OFFER = { cat = "album", icon = "Interface\\Icons\\INV_Misc_Ticket_Tarot_Stack_01", importance = 0, hidden = true,
+        text = function(ev) return "propose un échange de cartes" end },
+    -- Answer to a TRADE_OFFER (refs[1]): p.ok. From the giver, a withdrawal.
+    TRADE_REPLY = { cat = "album", icon = "Interface\\Icons\\INV_Misc_Ticket_Tarot_Stack_01", importance = 0, hidden = true,
+        text = function(ev) return "répond à une offre de cartes" end },
     -- Published cards of the album (Core/Album.lua): p.set (issue key), p.cards = { { id, no, s, r, n, f,
     -- cl, g, ic, npc }, ... }. Counts only if an officer published it; never displayed.
     CARD_SET = { cat = "album", icon = "Interface\\Icons\\INV_Misc_Ticket_Tarot_Stack_01", importance = 0, hidden = true,

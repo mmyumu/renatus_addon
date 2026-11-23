@@ -142,6 +142,8 @@ pub fn kind_label(kind: &str) -> &str {
         "RIVAL_ROSTER" => "Effectif rival",
         "MOB_KILL" => "Créature tuée",
         "BOOSTER_OPEN" => "Booster ouvert",
+        "TRADE_OFFER" => "Offre de cartes",
+        "TRADE_REPLY" => "Réponse à une offre de cartes",
         "CARD_SET" => "Cartes publiées",
         "CARD_PROFILE" => "Profil de carte",
         "TOMBSTONE" => "Suppression",

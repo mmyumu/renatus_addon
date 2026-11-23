@@ -2608,6 +2608,56 @@ test("album : booster distribue face cachee, cartes retournees une a une ; filtr
     Stub.advance(2)
 end)
 
+test("album : filtres rarete / possession / recherche, tri, defilement par rangee", function()
+    local ns = boot({ specIndex = 1 })
+    SlashCmdList.RENATUS("demo")
+    ns.UI.Open("album")
+    local c = RenatusMainFrame.containers.album
+    local col = ns.Store.Dataset().collection
+    -- the whole catalogue in a 2-row grid: one frame set, scrolled a row at a time
+    eq(#c.cards, 10, "cadres recycles")
+    assert(#c.visible > 10, "plus d'une rangee a defiler")
+    c:GetScript("OnMouseWheel")(c, -1)
+    eq(c.offset, 1)
+    eq(c.cards[1].card, c.visible[6], "premiere carte de la 2e rangee")
+    c:GetScript("OnMouseWheel")(c, 1)
+    eq(c.offset, 0)
+    c:ScrollTo(10000)
+    eq(c.offset, math.ceil(#c.visible / 5) - 2, "bute en bas")
+    -- rarity filter
+    c.rarity = "epic"; c:Apply()
+    assert(#c.visible > 0, "la demo a des epiques")
+    for _, card in ipairs(c.visible) do eq(card.rarity, "epic") end
+    -- possession
+    c.rarity = "all"; c.owned = "missing"; c:Apply()
+    for _, card in ipairs(c.visible) do eq(col[card.id] or 0, 0) end
+    c.owned = "doubles"; c:Apply()
+    assert(#c.visible > 0, "la demo a des doublons")
+    for _, card in ipairs(c.visible) do assert((col[card.id] or 0) > 1) end
+    -- search: accents folded, owned cards only (an unknown card keeps its name secret)
+    c.owned = "all"
+    local ownedCard, missingCard
+    for _, card in ipairs(c.all) do
+        if (col[card.id] or 0) > 0 and not ownedCard then ownedCard = card end
+        if (col[card.id] or 0) == 0 and not missingCard then missingCard = card end
+    end
+    c.searchBox:SetText(ownedCard.name:upper())
+    local found = false
+    for _, card in ipairs(c.visible) do if card.id == ownedCard.id then found = true end end
+    assert(found, "trouvee par son nom : " .. ownedCard.name)
+    c.searchBox:SetText(missingCard.name)
+    for _, card in ipairs(c.visible) do assert(card.id ~= missingCard.id, "carte non possedee jamais trouvee") end
+    c.searchBox:SetText("")
+    -- name sort: owned cards first, alphabetical
+    c.sort = "name"; c:Apply()
+    local seenMissing = false
+    for _, card in ipairs(c.visible) do
+        if (col[card.id] or 0) == 0 then seenMissing = true else assert(not seenMissing, "possedees d'abord") end
+    end
+    c.sort = "copies"; c:Apply()
+    assert((col[c.visible[1].id] or 0) >= (col[c.visible[#c.visible].id] or 0))
+end)
+
 local function foreign(ns, author, name, s, kind, p, t)
     local ev = { v = 1, id = author .. ":" .. s, a = author, n = name, s = s, k = kind, t = t or 1000, vis = "G",
         g = ns.Context.GuildKey(), p = p }
@@ -2670,7 +2720,7 @@ test("catalogue publie : cartes possedees hors catalogue gardees, opt-out d'un m
     for _, c in ipairs(orphans) do eq(c.orphan, true) end
     ns.UI.Open("album")
     local c = RenatusMainFrame.containers.album
-    c.onlyOwned = true; c:Refresh()
+    c.owned = "owned"; c:Refresh()
     local shown = 0
     for _, f in ipairs(c.cards) do if f:IsShown() then shown = shown + 1 end end
     eq(shown, 2, "les deux cartes possedees restent visibles")
@@ -2835,7 +2885,7 @@ test("booster : le paquet s'ouvre, cartes face cachee, une retournee au clic, pu
     eq(r.revealed, 5); eq(r.stage, "done")
     assert(r.ok:IsShown() and not r.all:IsShown())
     -- zoom on an owned card of the grid
-    c.onlyOwned = true; c:Refresh()
+    c.owned = "owned"; c:Refresh()
     c.cards[1]:Click()
     assert(c.zoom and c.zoom:IsShown(), "carte agrandie")
     local z = ns.UI.ShowCardZoom(ns.Cards.LIST[1], 1)
@@ -3286,6 +3336,215 @@ test("courrier des lecteurs : la lettre parait dans le numero lu, page de courri
     assert(c.reader.body.fontString:GetText():find("pas au lac"), "nouvelle lettre dans le meme numero")
     c.back:Click()
     eq(c.mail, false); eq(c.front:IsShown(), true)
+end)
+
+print("Album : echanges de cartes")
+
+local BOB, CAROL = "Player-1-BOB", "Player-1-CAROL"
+
+-- An event of another member, at `dt` seconds from now (server time), with refs.
+local function other(ns, author, name, s, kind, p, dt, refs, rx)
+    local ev = { v = 1, id = author .. ":" .. s, a = author, n = name, s = s, k = kind, vis = "G", prov = "OBS",
+        t = GetServerTime() + (dt or 0), g = ns.Context.GuildKey(), p = p, refs = refs, rx = rx }
+    assert(ns.Store.Insert(ev))
+    return ev
+end
+
+-- Two base set cards, and the player and Bob owning one each.
+local function tradeSetup()
+    local ns, S = boot({ specIndex = 1 })
+    local mine, his = ns.Cards.LIST[1].id, ns.Cards.LIST[2].id
+    ns.Store.Add("BOOSTER_OPEN", { n = 1, cards = { mine } }, { keep = true, noExp = true, loc = {} })
+    other(ns, BOB, "Bob", 1, "BOOSTER_OPEN", { n = 1, cards = { his } }, -100)
+    Stub.advance(10)
+    return ns, S, mine, his
+end
+
+test("echanges : offre acceptee, les cartes changent de main chez tout le monde", function()
+    local ns, S, mine, his = tradeSetup()
+    local ds = ns.Store.Dataset()
+    eq(ns.Trade.CollectionOf(ds, BOB)[his], 1, "collection de Bob visible")
+    local offer = assert(ns.Trade.Offer(ds, BOB, "Bob", { mine }, { his }))
+    eq(offer.vis, "G", "offre partagee")
+    eq(offer.p.to, BOB)
+    ds = ns.Store.Dataset()
+    eq(#ns.Trade.Outgoing(ds), 1)
+    eq(ds.collection[mine], 1, "la carte reste a moi tant que rien n'est accepte")
+    eq(ns.Trade.Tradable(ds)[mine], nil, "mais elle est reservee")
+    local again, why = ns.Trade.Offer(ds, BOB, "Bob", { mine }, {})
+    eq(again, nil); assert(why:find("déjà proposées"), why)
+    -- Bob accepts
+    Stub.advance(10)
+    other(ns, BOB, "Bob", 2, "TRADE_REPLY", { ok = true }, 0, { offer.id }, { by = "Bob" })
+    ds = ns.Store.Dataset()
+    eq(ds.trades.offers[offer.id].status, "accepted")
+    eq(ds.collection[mine], nil); eq(ds.collection[his], 1)
+    eq(ns.Trade.CollectionOf(ds, BOB)[mine], 1); eq(ns.Trade.CollectionOf(ds, BOB)[his], nil)
+    eq(ds.trades.received[ds.me][his].from, BOB, "provenance gardee")
+    assert(table.concat(S.printed, "\n"):find("Bob a accepté ton offre"), "annonce dans le chat")
+    eq(#ns.Trade.History(ds), 1)
+end)
+
+test("echanges : la meme carte promise a deux membres, seule la premiere acceptation passe", function()
+    local ns, S, mine, his = tradeSetup()
+    local o1 = other(ns, BOB, "Bob", 2, "TRADE_OFFER", { to = ns.Store.Dataset().me, toName = "Testeur", give = { his }, want = {} }, 0,
+        nil, { by = "Bob" })
+    assert(table.concat(S.printed, "\n"):find("Bob t'offre des cartes"), "annonce du cadeau")
+    local o2 = other(ns, BOB, "Bob", 3, "TRADE_OFFER", { to = CAROL, toName = "Carol", give = { his }, want = {} }, 1)
+    local ds = ns.Store.Dataset()
+    eq(#ns.Trade.Incoming(ds), 1)
+    eq(ns.UI.Notifier.Notices(ds).trades, 1, "offre a repondre")
+    -- Carol accepts first
+    other(ns, CAROL, "Carol", 1, "TRADE_REPLY", { ok = true }, 5, { o2.id })
+    ds = ns.Store.Dataset()
+    eq(ds.trades.offers[o2.id].status, "accepted")
+    local ok, why = ns.Trade.CanAccept(ds, ds.trades.offers[o1.id])
+    eq(ok, false); assert(why:find("plus toutes les cartes"), why)
+    eq(ns.Trade.Reply(ds, o1.id, true), nil, "refuse avant meme d'envoyer")
+    -- a client that accepted anyway (late sync): the trade fails the same way everywhere
+    Stub.advance(10)
+    ns.Store.Add("TRADE_REPLY", { ok = true }, { vis = "G", keep = true, noExp = true, loc = {}, refs = { o1.id } })
+    ds = ns.Store.Dataset()
+    eq(ds.trades.offers[o1.id].status, "failed")
+    eq(ds.collection[his], nil)
+    eq(ns.Trade.CollectionOf(ds, CAROL)[his], 1)
+end)
+
+test("echanges : refus, retrait, expiration, cartes d'un booster prive", function()
+    local ns, S, mine, his = tradeSetup()
+    local ds = ns.Store.Dataset()
+    -- declined
+    local a = assert(ns.Trade.Offer(ds, BOB, "Bob", { mine }, { his }))
+    other(ns, BOB, "Bob", 2, "TRADE_REPLY", { ok = false }, 5, { a.id })
+    ds = ns.Store.Dataset()
+    eq(ds.trades.offers[a.id].status, "declined")
+    eq(ns.Trade.Tradable(ds)[mine], 1, "la carte est a nouveau libre")
+    -- withdrawn: a late acceptance changes nothing
+    Stub.advance(10)
+    local b = assert(ns.Trade.Offer(ds, BOB, "Bob", { mine }, {}))
+    Stub.advance(10)
+    assert(ns.Trade.Cancel(ns.Store.Dataset(), b.id))
+    other(ns, BOB, "Bob", 3, "TRADE_REPLY", { ok = true }, 5, { b.id })
+    ds = ns.Store.Dataset()
+    eq(ds.trades.offers[b.id].status, "cancelled")
+    eq(ds.collection[mine], 1)
+    -- expired: after a week without answer
+    Stub.advance(10)
+    local c = assert(ns.Trade.Offer(ds, BOB, "Bob", { mine }, {}))
+    Stub.advance(ns.Trade.TTL + 10)
+    other(ns, BOB, "Bob", 4, "TRADE_REPLY", { ok = true }, 0, { c.id })
+    ds = ns.Store.Dataset()
+    eq(ds.trades.offers[c.id].status, "expired")
+    eq(ds.collection[mine], 1)
+    -- a booster opened while the album was private: in my album, not tradable
+    ns.char.privacy.album = "P"
+    local private = ns.Cards.LIST[3].id
+    ns.Store.Add("BOOSTER_OPEN", { n = 2, cards = { private } }, { keep = true, noExp = true, loc = {} })
+    ds = ns.Store.Dataset()
+    assert(ns.Trade.Unavailable(ds):find("partage ton album"), "echanges fermes avec un album prive")
+    ns.char.privacy.album = "G"
+    ds = ns.Store.Dataset()
+    eq(ds.collection[private], 1)
+    eq(ns.Trade.Tradable(ds)[private], nil)
+    eq(ns.Trade.Unavailable(ds), nil)
+end)
+
+test("echanges : interface, de la collection de Bob a l'offre, puis reponse a une offre recue", function()
+    local ns, S, mine, his = tradeSetup()
+    -- the Members tab leads to Bob's collection
+    ns.UI.Open("members")
+    local members = RenatusMainFrame.containers.members
+    members.selected = "Bob"; members:Refresh()
+    eq(members.profile.collection:IsShown(), true)
+    members.profile.collection:Click()
+    local c = RenatusMainFrame.containers.album
+    eq(c.viewing, BOB)
+    eq(c.booster.gcDisabled, true, "pas de booster dans la collection d'un autre")
+    assert(c.progress:GetText():find("^1 /"), c.progress:GetText())
+    -- click his card, then the large card: the offer opens with it asked
+    local frame
+    for _, f in ipairs(c.cards) do if f:IsShown() and f.owned then frame = f end end
+    eq(frame.card.id, his)
+    frame:Click()
+    c.zoom.card:Click()
+    local w = ns.UI.ShowTradeComposer()
+    eq(w.to, BOB); eq(w.want[his], true)
+    eq(w.send.gcDisabled, true, "rien a donner encore")
+    eq(w.giveList.rows[1].item.id, mine)
+    eq(w.giveList.rows[1].tag:GetText(), "il ne l'a pas")
+    w.giveList.rows[1]:Click()
+    eq(w.send.label:GetText(), "Proposer l'échange")
+    w.send:Click()
+    local offer = eventsOf(ns, "TRADE_OFFER")[1]
+    assert(offer, "offre envoyee")
+    eq(offer.p.give[1], mine); eq(offer.p.want[1], his)
+    local t = ns.UI.ShowTrades()
+    eq(t.list.rows[1].item.id, offer.id)
+    eq(t.list.rows[1].b.label:GetText(), "Retirer")
+    eq(t.list.rows[1].a:IsShown(), false)
+    -- Bob sends a gift in return: the album pip, then accept it
+    Stub.advance(10)
+    local other1 = ns.Cards.LIST[4].id
+    other(ns, BOB, "Bob", 2, "BOOSTER_OPEN", { n = 2, cards = { other1 } }, 0)
+    local gift = other(ns, BOB, "Bob", 3, "TRADE_OFFER", { to = ns.Store.Dataset().me, toName = "Testeur", give = { other1 } }, 1)
+    Stub.advance(10)
+    ns.UI.Open("album")
+    eq(c.trades.badge.label:GetText(), "1")
+    t = ns.UI.ShowTrades()
+    local row
+    for _, r in ipairs(t.list.rows) do if r.item and r.item.id == gift.id then row = r end end
+    assert(row.title:GetText():find("Bob t'offre des cartes"), row.title:GetText())
+    row.a:Click()
+    local ds = ns.Store.Dataset()
+    eq(ds.trades.offers[gift.id].status, "accepted")
+    eq(ds.collection[other1], 1)
+    ns.UI.ShowCollection(nil)
+    eq(c.viewing, nil)
+    assert(c:Provenance(other1):find("^Reçue de Bob le "), c:Provenance(other1))
+end)
+
+test("echanges : recherche et filtres de la nouvelle offre, cartes choisies toujours en tete", function()
+    local ns, S, mine, his = tradeSetup()
+    local L = ns.Cards.LIST
+    -- Bob also has two copies of another card, of another rarity than `his`
+    local double
+    for i = 3, #L do if L[i].rarity ~= L[2].rarity then double = L[i] break end end
+    other(ns, BOB, "Bob", 2, "BOOSTER_OPEN", { n = 2, cards = { double.id, double.id } }, 0)
+    Stub.advance(10)
+    local w = ns.UI.ShowTradeComposer(BOB, his)
+    local function shown(list)
+        local out = {}
+        for _, r in ipairs(list.rows) do if r.item then out[#out + 1] = r.item.id end end
+        return out
+    end
+    eq(#shown(w.wantList), 2)
+    -- name search, accents and case folded: the picked card stays, first
+    w.wantSearch:SetText(ns.UI.Fold(double.name):upper())
+    local ids = shown(w.wantList)
+    eq(#ids, 2); eq(ids[1], his, "choisie, toujours en tete"); eq(ids[2], double.id)
+    w.wantSearch:SetText("zzz introuvable")
+    ids = shown(w.wantList)
+    eq(#ids, 1); eq(ids[1], his)
+    w.wantSearch:SetText("")
+    -- unpick, then rarity and doubles filters
+    w.wantList.rows[1]:Click()
+    eq(w.want[his], nil)
+    w.filters.want.rarity = double.rarity; w:Update()
+    ids = shown(w.wantList)
+    eq(#ids, 1); eq(ids[1], double.id)
+    w.filters.want.rarity = "all"; w.filters.want.show = "doubles"; w:Update()
+    ids = shown(w.wantList)
+    eq(#ids, 1); eq(ids[1], double.id, "ses doublons")
+    w.filters.want.show = "all"; w.filters.want.search = "zzz"; w:Update()
+    eq(w.wantList.empty:GetText(), "Aucune carte ne correspond à ces filtres.")
+end)
+
+test("echanges : pas en mode demo", function()
+    local ns = boot({ specIndex = 1 })
+    SlashCmdList.RENATUS("demo")
+    local t = ns.UI.ShowTrades()
+    eq(t.new.gcDisabled, true)
+    assert(t.info:GetText():find("mode démo"))
 end)
 
 print(string.format("\n%d ok, %d echec(s)", passed, failed))

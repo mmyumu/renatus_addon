@@ -267,7 +267,8 @@ function Store.Dataset()
         if p.optOut and author ~= guid then ds.optOut[author] = true end
     end
     local opened, collection = ns.Album.Opened(events, guid)
-    ds.collection = collection
+    ds.trades = ns.Trade.Replay(events)
+    ds.collection = ns.Trade.Apply(collection, ds.trades, guid)
     ds.boostersOpened = opened
     ds.boosters = math.max(0, ns.Album.Earned(events, guid, ns.db.played[guid],
         ns.GuildConfig.BoosterRules()) - opened)
