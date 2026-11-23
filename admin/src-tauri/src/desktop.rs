@@ -10,7 +10,7 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 use std::time::{Duration, SystemTime};
 
-use renatus_admin_core::config::Config;
+use renatus_admin_core::config::{self, Config};
 use renatus_admin_core::ops::{self, Proposal, Status};
 use renatus_admin_core::paths::{WowPaths, ADMIN_ADDON};
 use renatus_admin_core::{addon, armory, chronicle::Chronicle, edition, gazette, issues, revise};
@@ -326,9 +326,7 @@ async fn write_gazette(app: AppHandle, keys: Vec<String>) -> Result<View, String
             &sel,
             &keys,
             cfg.articles_dir.as_deref(),
-            &cfg.llm_command,
-            Duration::from_secs(cfg.llm_timeout_secs),
-            &cfg.gazette_template,
+            &cfg.gazette_options(),
         ))
     })
     .await;
@@ -533,7 +531,7 @@ async fn preview_gazette(app: AppHandle, keys: Vec<String>) -> Result<Preview, S
         let b = sel.brief_for(&keys);
         Ok(Preview {
             summary: ops::brief_summary(&b, ch.members().len()),
-            prompt: gazette::prompt(&b),
+            prompt: gazette::prompt(&b, cfg.gazette_options().max_articles),
         })
     })
     .await
@@ -547,6 +545,7 @@ struct Settings {
     llm_command: String,
     llm_timeout_secs: u64,
     gazette_template: String,
+    max_articles: usize,
     auto: bool,
     auto_gazette: bool,
     test_channel: bool,
@@ -569,6 +568,8 @@ fn save_settings(app: AppHandle, settings: Settings) -> Result<View, String> {
         } else {
             "auto".into()
         };
+        let (lo, hi) = config::ARTICLES_RANGE;
+        c.max_articles = settings.max_articles.clamp(lo, hi);
         c.auto = settings.auto;
         c.auto_gazette = settings.auto_gazette;
         c.test_channel = settings.test_channel;
@@ -768,9 +769,7 @@ async fn watch(app: AppHandle) {
                         &sel,
                         &sel.checked_keys(),
                         cfg.articles_dir.as_deref(),
-                        &cfg.llm_command,
-                        Duration::from_secs(cfg.llm_timeout_secs),
-                        &cfg.gazette_template,
+                        &cfg.gazette_options(),
                     ))
                 })
                 .await;

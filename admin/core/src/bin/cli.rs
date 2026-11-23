@@ -3,7 +3,6 @@
 
 use std::path::PathBuf;
 use std::process::ExitCode;
-use std::time::Duration;
 
 use renatus_admin_core::chronicle::{num_of, str_of};
 use renatus_admin_core::config::Config;
@@ -352,21 +351,13 @@ fn run() -> Result<(), String> {
                 print_notes(&ops::brief_summary(&b, ch.members().len()));
                 println!(
                     "\n----- demande qui serait envoyée à l'IA -----\n{}",
-                    gazette::prompt(&b)
+                    gazette::prompt(&b, cfg.gazette_options().max_articles)
                 );
                 return Ok(());
             }
             println!("Rédaction en cours (une ou deux minutes)…");
             let dir = articles_dir(&cfg, None);
-            let prop = ops::gazette(
-                &ch,
-                &sel,
-                &keys,
-                dir.as_deref(),
-                &cfg.llm_command,
-                Duration::from_secs(cfg.llm_timeout_secs),
-                &cfg.gazette_template,
-            );
+            let prop = ops::gazette(&ch, &sel, &keys, dir.as_deref(), &cfg.gazette_options());
             publish(&p, &ch, prop, args.dry_run)?;
         }
         "rival" => {
@@ -405,9 +396,7 @@ fn run() -> Result<(), String> {
                     &sel,
                     &sel.checked_keys(),
                     dir.as_deref(),
-                    &cfg.llm_command,
-                    Duration::from_secs(cfg.llm_timeout_secs),
-                    &cfg.gazette_template,
+                    &cfg.gazette_options(),
                 ));
             }
             publish(&p, &ch, prop, args.dry_run)?;

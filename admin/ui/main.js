@@ -91,6 +91,7 @@ function render(s) {
     $("llm-command").value = JSON.stringify(s.config.llmCommand);
     $("llm-timeout").value = s.config.llmTimeoutSecs;
     $("gazette-template").value = s.config.gazetteTemplate || "auto";
+    $("max-articles").value = s.config.maxArticles;
     $("auto").checked = s.config.auto;
     $("auto-gazette").checked = s.config.autoGazette;
     $("test-channel").checked = s.config.testChannel;
@@ -874,6 +875,7 @@ $("save-settings").addEventListener("click", async () => {
         llmCommand: $("llm-command").value,
         llmTimeoutSecs: Number($("llm-timeout").value) || 600,
         gazetteTemplate: $("gazette-template").value,
+        maxArticles: Number($("max-articles").value) || 5,
         auto: $("auto").checked,
         autoGazette: $("auto-gazette").checked,
         testChannel: $("test-channel").checked,

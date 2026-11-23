@@ -5,12 +5,12 @@
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
 
 use serde::Serialize;
 use serde_json::{json, Value};
 
 use crate::chronicle::{num_of, payload, str_of, Chronicle};
+use crate::config::GazetteOptions;
 use crate::paths::{WowPaths, ADMIN_ADDON};
 use crate::{armory, articles, cards, combatlog, edition, gazette, issues, llm, press, revise};
 
@@ -238,18 +238,16 @@ fn hand_written(dir: &Path, ch: &Chronicle) -> (Vec<Value>, Vec<String>) {
 
 /// Writes a gazette issue (blocking: one or two minutes with the AI): the AI's articles
 /// from the facts `keys` of `sel`, the hand-written articles of `articles_dir`, then the
-/// issue's page layout. `template`: a name from edition::TEMPLATES, or "auto" for the
+/// issue's page layout. `opts.template`: a name from edition::TEMPLATES, or "auto" for the
 /// AI's choice (checked, with a fallback).
-#[allow(clippy::too_many_arguments)]
 pub fn gazette(
     ch: &Chronicle,
     sel: &issues::Selection,
     keys: &[String],
     articles_dir: Option<&Path>,
-    command: &[String],
-    timeout: Duration,
-    template: &str,
+    opts: &GazetteOptions,
 ) -> Proposal {
+    let (command, timeout, template) = (opts.command, opts.timeout, opts.template);
     let edition = &sel.edition;
     let b = sel.brief_for(keys);
     let mut out = Proposal {
@@ -261,10 +259,10 @@ pub fn gazette(
     let mut items = Vec::new();
     let mut wanted = (template != "auto").then(|| template.to_string());
     if !b.facts.is_empty() {
-        match llm::run(&gazette::prompt(&b), command, timeout) {
+        match llm::run(&gazette::prompt(&b, opts.max_articles), command, timeout) {
             Err(e) => out.notes.push(format!("IA indisponible : {e}")),
             Ok(answer) => {
-                let (ai, notes) = gazette::check(&b, &answer, edition);
+                let (ai, notes) = gazette::check(&b, &answer, edition, opts.max_articles);
                 out.notes.extend(notes);
                 out.notes
                     .push(format!("{} article(s) de l'IA retenu(s).", ai.len()));
@@ -301,7 +299,7 @@ pub fn gazette(
     ));
     out.items = items;
     out.items.push(layout);
-    let (card_items, notes) = album_cards(ch, &sel.pending_cards, edition, command, timeout);
+    let (card_items, notes) = album_cards(ch, &sel.pending_cards, edition, opts);
     out.notes.extend(notes);
     out.items.extend(card_items);
     out
@@ -313,9 +311,9 @@ pub fn album_cards(
     ch: &Chronicle,
     pending: &[Value],
     edition: &str,
-    command: &[String],
-    timeout: Duration,
+    opts: &GazetteOptions,
 ) -> (Vec<Value>, Vec<String>) {
+    let (command, timeout) = (opts.command, opts.timeout);
     let (done, last) = cards::published(ch, pending);
     let mut list = cards::candidates(ch, &done);
     if list.is_empty() {
@@ -325,11 +323,41 @@ pub fn album_cards(
         );
     }
     let mut notes = Vec::new();
-    if list.iter().any(|c| c.ai) {
-        match llm::run(&cards::prompt(&list), command, timeout) {
-            Ok(answer) => notes.extend(cards::apply(&mut list, &answer)),
-            Err(e) => notes.push(format!("Cartes : IA indisponible ({e}), textes simples.")),
+    // Every card the AI may write goes to it, in batches; one it did not write waits for
+    // the next issue rather than being published with a plain text.
+    let todo: Vec<cards::Candidate> = list.iter().filter(|c| c.ai).cloned().collect();
+    let mut written = std::collections::HashSet::new();
+    for batch in todo.chunks(cards::BATCH) {
+        match llm::run(&cards::prompt(batch), command, timeout) {
+            Ok(answer) => {
+                let (done, problems) = cards::apply(&mut list, &answer);
+                written.extend(done);
+                notes.extend(problems);
+            }
+            Err(e) => {
+                notes.push(format!("Cartes : IA indisponible ({e})."));
+                break;
+            }
         }
+    }
+    if !todo.is_empty() {
+        notes.push(format!("{} carte(s) rédigée(s) par l'IA.", written.len()));
+    }
+    let plain = list.iter().filter(|c| !c.ai).count();
+    if plain > 0 {
+        notes.push(format!(
+            "{plain} carte(s) en texte simple (membres qui refusent la gazette IA)."
+        ));
+    }
+    let postponed = todo.len() - written.len();
+    if postponed > 0 {
+        notes.push(format!(
+            "{postponed} carte(s) pas rédigée(s) par l'IA : reportée(s) à la prochaine édition."
+        ));
+    }
+    list.retain(|c| !c.ai || written.contains(&c.id));
+    if list.is_empty() {
+        return (Vec::new(), notes);
     }
     let items = cards::items(&list, edition, last);
     notes.push(format!(
@@ -439,6 +467,7 @@ pub fn publish(paths: &WowPaths, ch: &Chronicle, items: Vec<Value>) -> Result<us
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::Config;
     use std::fs;
 
     #[test]
@@ -492,9 +521,7 @@ mod tests {
             &sel,
             &[],
             Some(&md),
-            &[],
-            Duration::from_secs(1),
-            "auto",
+            &Config::default().gazette_options(),
         );
         assert_eq!(p.items.len(), 3, "{:?}", p.notes);
         assert_eq!(

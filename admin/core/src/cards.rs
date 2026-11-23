@@ -8,8 +8,9 @@
 //! creature that killed a member: one per creature and member, named by the AI).
 //! Bosses and creatures carry their npc id (the card shows their 3D model), items their item
 //! id (the card shows their icon): from the game's own data, never from the AI. The AI only writes each card's
-//! name and text, for the members who agreed to the AI gazette; the others, and any card
-//! the AI leaves out or gets wrong, get a plain text. Cards are numbered after the last
+//! name and text, for the members who agreed to the AI gazette; the others get a plain text.
+//! Any card the AI leaves out or gets wrong waits for the next issue (never published with a
+//! plain text: the AI is asked again next time). Cards are numbered after the last
 //! published or pending one; an officer publishes them in game with the issue.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
@@ -21,8 +22,9 @@ use crate::gazette;
 
 pub const MAX_NAME: usize = 40;
 pub const MAX_TEXT: usize = 140;
-/// Cards sent to the AI in one request (the rest keep their plain text).
-pub const MAX_AI: usize = 80;
+/// Cards sent to the AI in one request: an issue's cards go in several requests, each
+/// answer short enough to come back whole within the timeout.
+pub const BATCH: usize = 40;
 /// Size of one CARD_SET payload, well under the sync limit (6000 bytes once encoded).
 const MAX_SET_BYTES: usize = 4000;
 
@@ -762,12 +764,12 @@ Réponds uniquement par un objet JSON :
 Cartes :
 {cards}";
 
-/// The request sent to the AI: only the cards it may write.
+/// The request sent to the AI: only the cards it may write (all of `cards`: the caller
+/// splits them in batches).
 pub fn prompt(cards: &[Candidate]) -> String {
     let lines: Vec<String> = cards
         .iter()
         .filter(|c| c.ai)
-        .take(MAX_AI)
         .map(|c| {
             let fighter = if c.fighter() {
                 format!(
@@ -800,17 +802,17 @@ fn squash(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-/// Applies the AI's names and texts to the cards it was allowed to write; returns the
-/// problems (a rejected card keeps its plain text).
-pub fn apply(cards: &mut [Candidate], answer: &str) -> Vec<String> {
+/// Applies the AI's names and texts to the cards it was allowed to write; returns the ids
+/// of the cards written and the problems (a rejected card is not written).
+pub fn apply(cards: &mut [Candidate], answer: &str) -> (HashSet<String>, Vec<String>) {
+    let mut done = HashSet::new();
     let Some(data) = json_object(answer) else {
-        return vec!["cartes : réponse illisible, textes simples conservés".into()];
+        return (done, vec!["cartes : réponse illisible".into()]);
     };
     let Some(list) = data.get("cartes").and_then(Value::as_array) else {
-        return vec!["cartes : réponse sans liste « cartes », textes simples conservés".into()];
+        return (done, vec!["cartes : réponse sans liste « cartes »".into()]);
     };
     let mut notes = Vec::new();
-    let mut done = 0;
     for item in list {
         let Some(id) = str_of(item, "id") else {
             continue;
@@ -857,10 +859,9 @@ pub fn apply(cards: &mut [Candidate], answer: &str) -> Vec<String> {
         }
         card.name = name;
         card.text = text;
-        done += 1;
+        done.insert(card.id.clone());
     }
-    notes.push(format!("{done} carte(s) rédigée(s) par l'IA."));
-    notes
+    (done, notes)
 }
 
 /// Numbers the cards after `last` and packs them into CARD_SET items for `edition`.
@@ -1133,7 +1134,7 @@ mod tests {
             {"id": "M:P-B:common", "nom": "Bob le magnifique", "texte": "Non consentant."},
             {"id": "L:P-A:10", "nom": "Dakey niveau 10", "texte": ""}
         ]}"#;
-        let notes = apply(&mut cards, answer);
+        let (done, notes) = apply(&mut cards, answer);
         let get = |id: &str| cards.iter().find(|c| c.id == id).unwrap();
         assert_eq!(get("M:P-A:epic").name, "Dakey, l'ombre du marché");
         assert_eq!(
@@ -1146,7 +1147,7 @@ mod tests {
             get("L:P-A:10").text,
             "Niveau 10 atteint. Le plus dur reste à venir, comme toujours."
         );
-        assert!(notes.iter().any(|n| n.contains("2 carte(s) rédigée(s)")));
+        assert_eq!(done.len(), 2, "{done:?}");
         assert_eq!(get("M:P-A:epic").final_stats(), Some((9, 5)), "AI stats");
         assert_eq!(
             get("M:P-A:legendary").final_stats(),

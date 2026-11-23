@@ -24,6 +24,7 @@ use crate::chronicle::{num_of, payload, str_of, Chronicle};
 pub const MAX_FACTS: usize = 150;
 pub const MAX_BODY: usize = 3500;
 pub const MAX_TITLE: usize = 90;
+/// Default of the "articles at most" setting (config::Config::max_articles).
 pub const MAX_ARTICLES: usize = 5;
 /// Not facts (or already editorial content, or settings).
 const HIDDEN: &[&str] = &[
@@ -894,7 +895,7 @@ Faits retenus pour cette édition :
 {facts}
 ";
 
-pub fn prompt(brief: &Brief) -> String {
+pub fn prompt(brief: &Brief, max_articles: usize) -> String {
     let date = |t: f64| local(t).format("%d/%m/%Y").to_string();
     let guild_line = brief
         .rival_guild
@@ -913,7 +914,7 @@ pub fn prompt(brief: &Brief) -> String {
         .map(|(n, d)| format!("« {n} » ({d})"))
         .collect();
     PROMPT
-        .replace("{max_articles}", &MAX_ARTICLES.to_string())
+        .replace("{max_articles}", &max_articles.to_string())
         .replace("{templates}", &templates.join(", "))
         .replace("{start}", &date(brief.since))
         .replace("{end}", &date(brief.until))
@@ -948,7 +949,12 @@ pub const MAX_QUOTE: usize = 140;
 
 /// AI answer -> (Press.lua items, problems). A dubious article is rejected; a dubious
 /// pull quote or portrait is only dropped (the article stands without it).
-pub fn check(brief: &Brief, answer: &str, edition: &str) -> (Vec<Value>, Vec<String>) {
+pub fn check(
+    brief: &Brief,
+    answer: &str,
+    edition: &str,
+    max_articles: usize,
+) -> (Vec<Value>, Vec<String>) {
     let data = match extract_json(answer) {
         Ok(d) => d,
         Err(e) => return (Vec::new(), vec![format!("réponse illisible : {e}")]),
@@ -965,7 +971,7 @@ pub fn check(brief: &Brief, answer: &str, edition: &str) -> (Vec<Value>, Vec<Str
         Some(Value::Null) | None => String::new(),
         Some(v) => v.to_string(),
     };
-    for (n, a) in arts.iter().take(MAX_ARTICLES).enumerate() {
+    for (n, a) in arts.iter().take(max_articles).enumerate() {
         let n = n + 1;
         if !a.is_object() {
             notes.push(format!("article {n} : format invalide"));
@@ -1165,7 +1171,7 @@ mod tests {
             reasons["nomme un membre sans consentement"], 1,
             "anecdote naming Bob"
         );
-        let p = prompt(&brief);
+        let p = prompt(&brief, MAX_ARTICLES);
         assert!(p.contains("F2. ") && p.contains("« Les Crocs »") && p.contains("Gorbash"));
     }
 
@@ -1179,7 +1185,7 @@ mod tests {
             {"title": "Bob frappe", "body": "z", "refs": ["F2"]},
             {"title": "Bobby", "body": "Bobby n'est pas Bob-le-Rouge", "refs": ["F2"]}
         ]}"#;
-        let (items, notes) = check(&brief, answer, "2026-11-20-2147");
+        let (items, notes) = check(&brief, answer, "2026-11-20-2147", MAX_ARTICLES);
         // enemies may be named, a member without consent may not
         assert_eq!(items.len(), 3, "{notes:?}");
         assert_eq!(items[0]["refs"], json!(["A:2"]));
@@ -1190,7 +1196,7 @@ mod tests {
             .starts_with("ia:2026-11-20-2147:"));
         assert!(notes[0].contains("F9"));
         assert!(notes[1].contains("« Bob »"), "{notes:?}");
-        assert!(check(&brief, "pas de json", "x").1[0].contains("illisible"));
+        assert!(check(&brief, "pas de json", "x", MAX_ARTICLES).1[0].contains("illisible"));
     }
 
     #[test]
@@ -1202,7 +1208,7 @@ mod tests {
             {"title": "Encore Alice", "body": "Alice monte.", "refs": ["F1"],
              "exergue": "Une phrase inventée", "portrait": "Bob"}
         ]}"#;
-        let (items, notes) = check(&brief, answer, "E");
+        let (items, notes) = check(&brief, answer, "E", MAX_ARTICLES);
         assert_eq!(items.len(), 2, "{notes:?}");
         let p = &items[0]["p"];
         assert_eq!(p["quote"], "La montagne tremble.");
@@ -1213,7 +1219,7 @@ mod tests {
         assert!(items[1]["p"].get("quote").is_none() && items[1]["p"].get("portrait").is_none());
         assert_eq!(notes.len(), 2, "{notes:?}");
         assert_eq!(requested_template(answer).as_deref(), Some("grande_une"));
-        assert!(prompt(&brief).contains("« portrait »"));
+        assert!(prompt(&brief, MAX_ARTICLES).contains("« portrait »"));
     }
 
     #[test]
@@ -1309,7 +1315,7 @@ mod tests {
         assert_eq!(big.refs.len(), 6);
         assert!(texts.iter().any(|t| t
             .ends_with("Alice remporte une victoire honorable sur un Orc guerrier de niveau 25")));
-        assert!(prompt(&brief).contains("AFFRONTEMENT MAJEUR"));
+        assert!(prompt(&brief, MAX_ARTICLES).contains("AFFRONTEMENT MAJEUR"));
     }
 
     #[test]
