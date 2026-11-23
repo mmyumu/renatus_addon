@@ -717,8 +717,14 @@ pub fn build_split(ch: &Chronicle, since: f64, until: f64, split: f64) -> Brief 
                     "{who} placarde un avis de recherche contre {}",
                     rivals.alias(str_of(p, "name"))
                 );
+                if !s(p, "nickname").is_empty() {
+                    t += &format!(" (surnommé « {} »)", s(p, "nickname"));
+                }
                 if !s(p, "reason").is_empty() {
                     t += &format!(" — motif : {}", s(p, "reason"));
+                }
+                if !s(p, "reward").is_empty() {
+                    t += &format!(" — prime offerte : {}", s(p, "reward"));
                 }
                 Some(t)
             }
@@ -1257,6 +1263,35 @@ mod tests {
         assert!(all.contains("Gorbash (voleur Orc, guilde rivale)"), "{all}");
         assert!(all.contains("ennemis impliqués"), "{all}");
         assert!(!brief.forbidden.contains("Décimeur"));
+    }
+
+    #[test]
+    fn wanted_poster_keeps_its_reward() {
+        let mut ch = chronicle();
+        let (k, v) = ev(
+            "A:30",
+            "A",
+            "Alice",
+            "WANTED",
+            1500,
+            json!({"name": "Décimeur", "nickname": "le Boucher", "reason": "camping",
+                   "reward": "100 pièces de vantardise"}),
+        );
+        ch.events.insert(k, v);
+        let brief = build(&ch, 0.0, 2000.0);
+        let fact = brief
+            .facts
+            .iter()
+            .find(|f| f.text.contains("avis de recherche"))
+            .expect("wanted fact");
+        assert!(fact.text.contains("« le Boucher »"), "{}", fact.text);
+        assert!(fact.text.contains("motif : camping"), "{}", fact.text);
+        assert!(
+            fact.text
+                .contains("prime offerte : 100 pièces de vantardise"),
+            "{}",
+            fact.text
+        );
     }
 
     #[test]
