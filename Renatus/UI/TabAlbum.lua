@@ -231,6 +231,28 @@ local function unitOf(guid)
     return nil
 end
 
+-- A creature with several looks (the Defias Bandit is a man or a woman) gets a random one
+-- from SetCreature: the first look shown is kept, per account, so the card never changes.
+local function pinnedDisplays()
+    if not ns.db then return nil end
+    ns.db.cardModels = ns.db.cardModels or {}
+    return ns.db.cardModels
+end
+
+local function setCreature(m, npc)
+    local pins = pinnedDisplays()
+    local display = pins and pins[npc]
+    if display and call(m, "SetCreature", npc, display) then return true end
+    return call(m, "SetCreature", npc)
+end
+
+local function pinDisplay(m, npc)
+    local pins = pinnedDisplays()
+    if not pins or pins[npc] then return end
+    local ok, display = call(m, "GetDisplayInfo")
+    if ok and type(display) == "number" and display > 0 then pins[npc] = display end
+end
+
 -- Returns true if a model is being shown (the icon waits for its check).
 local function showModel(f, card)
     local profile = card.guid and UI.cardProfiles[card.guid]
@@ -238,7 +260,7 @@ local function showModel(f, card)
     local m
     if card.npc then
         m = modelFrame(f, "creature")
-        if not m or not call(m, "SetCreature", card.npc) then return false end
+        if not m or not setCreature(m, card.npc) then return false end
         call(m, "SetPortraitZoom", 0.55)
     elseif unit then
         -- the member in person: as they look right now
@@ -260,6 +282,7 @@ local function showModel(f, card)
         if f.fillToken ~= token then return end
         local ok, id = call(m, "GetModelFileID")
         if ok and id and id ~= 0 then
+            if card.npc then pinDisplay(m, card.npc) end
             f.icon:Hide(); f.iconFrame:Hide(); f.classIcon:Hide(); f.ring:Hide()
             m:Show()
             return
@@ -268,7 +291,7 @@ local function showModel(f, card)
         if tries == 0 then showIcon(f, card) end
         tries = tries + 1
         if C_Timer and card.npc and tries <= 4 then
-            call(m, "SetCreature", card.npc)
+            setCreature(m, card.npc)
             C_Timer.After(1, check)
         end
     end
