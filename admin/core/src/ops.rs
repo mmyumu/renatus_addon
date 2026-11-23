@@ -316,6 +316,7 @@ pub fn album_cards(
     let (command, timeout) = (opts.command, opts.timeout);
     let (done, last) = cards::published(ch, pending);
     let mut list = cards::candidates(ch, &done);
+    let mut taken = cards::taken_names(ch, pending);
     if list.is_empty() {
         return (
             Vec::new(),
@@ -328,9 +329,9 @@ pub fn album_cards(
     let todo: Vec<cards::Candidate> = list.iter().filter(|c| c.ai).cloned().collect();
     let mut written = std::collections::HashSet::new();
     for batch in todo.chunks(cards::BATCH) {
-        match llm::run(&cards::prompt(batch), command, timeout) {
+        match llm::run(&cards::prompt(batch, &taken), command, timeout) {
             Ok(answer) => {
-                let (done, problems) = cards::apply(&mut list, &answer);
+                let (done, problems) = cards::apply(&mut list, &answer, &mut taken);
                 written.extend(done);
                 notes.extend(problems);
             }

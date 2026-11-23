@@ -5,7 +5,8 @@
 //! ten levels, first kill of a boss, outings of two members or more, anecdotes, deaths with
 //! a player or a fall for a killer, published articles, enemies who matter, the first rare item
 //! brought back, the guild's bestiary (each kind of creature killed, once) and its terrors (a
-//! creature that killed a member: one per creature and member, named by the AI).
+//! creature that killed a member: one per creature and member, named by the AI with a given
+//! name no other terror of the album has).
 //! Bosses and creatures carry their npc id (the card shows their 3D model), items their item
 //! id (the card shows their icon): from the game's own data, never from the AI. The AI only writes each card's
 //! name and text, for the members who agreed to the AI gazette; the others get a plain text.
@@ -141,32 +142,68 @@ pub fn default_stats(rarity: &str, class: Option<&str>) -> (i64, i64) {
     (force, budget - force)
 }
 
-/// Ids already published (events) or waiting in Press.lua, and the highest number used.
-pub fn published(ch: &Chronicle, pending: &[Value]) -> (HashSet<String>, i64) {
-    let mut ids = HashSet::new();
-    let mut max = 0;
-    let sets = ch
-        .of_kind("CARD_SET")
+/// Every card published (events) or waiting in Press.lua.
+fn published_cards<'a>(ch: &'a Chronicle, pending: &'a [Value]) -> impl Iterator<Item = &'a Value> {
+    ch.of_kind("CARD_SET")
         .filter(|e| str_of(e, "vis") == Some("G") && e.get("del").is_none())
         .chain(
             pending
                 .iter()
                 .filter(|i| str_of(i, "kind") == Some("CARD_SET")),
-        );
-    for e in sets {
-        for c in payload(e)
-            .get("cards")
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-        {
-            if let Some(id) = str_of(c, "id") {
-                ids.insert(id.to_string());
-            }
-            max = max.max(num_of(c, "no") as i64);
+        )
+        .flat_map(|e| {
+            payload(e)
+                .get("cards")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+        })
+}
+
+/// Ids already published (events) or waiting in Press.lua, and the highest number used.
+pub fn published(ch: &Chronicle, pending: &[Value]) -> (HashSet<String>, i64) {
+    let mut ids = HashSet::new();
+    let mut max = 0;
+    for c in published_cards(ch, pending) {
+        if let Some(id) = str_of(c, "id") {
+            ids.insert(id.to_string());
         }
+        max = max.max(num_of(c, "no") as i64);
     }
     (ids, max)
+}
+
+/// Given names of the terrors already published or waiting: a new terror gets another one
+/// (two creatures named Gaston in the same album read like a bug).
+pub fn taken_names(ch: &Chronicle, pending: &[Value]) -> HashSet<String> {
+    published_cards(ch, pending)
+        .filter(|c| str_of(c, "s") == Some("terreurs"))
+        .filter_map(|c| str_of(c, "n").and_then(given_name))
+        .collect()
+}
+
+/// The given name of a terror's title, lowercased: its first word after an article
+/// ("Gaston, le garde des Tarides" → "gaston", "Le grand Sven" → "grand").
+fn given_name(title: &str) -> Option<String> {
+    title
+        .split(|c: char| c.is_whitespace() || c == ',')
+        .map(|w| {
+            let w = w.to_lowercase();
+            w.strip_prefix("l'")
+                .or_else(|| w.strip_prefix("l’"))
+                .unwrap_or(&w)
+                .trim_matches(|c: char| !c.is_alphanumeric())
+                .to_string()
+        })
+        .find(|w| !w.is_empty() && !["le", "la", "les"].contains(&w.as_str()))
+}
+
+fn capitalized(word: &str) -> String {
+    let mut chars = word.chars();
+    chars
+        .next()
+        .map(|f| f.to_uppercase().chain(chars).collect())
+        .unwrap_or_default()
 }
 
 /// Rarity of a creature's card by its kind (UnitClassification): modest in the bestiary,
@@ -767,7 +804,7 @@ Pour chaque carte ci-dessous, écris :
 - « texte » : une phrase d'ambiance, {max_text} caractères au plus, drôle et bienveillante, fidèle aux faits donnés, sans rien inventer de vérifiable.
 - pour les cartes marquées « combattant » : « force » et « endurance », deux entiers de 0 à {stat_max}, dont la somme reste proche du budget indiqué (à {slack} près). Répartis-les selon le personnage et les faits : qui frappe fort, qui encaisse, qui fuit.
 
-Réponds uniquement par un objet JSON :
+{terrors}Réponds uniquement par un objet JSON :
 {\"cartes\": [{\"id\": \"…\", \"nom\": \"…\", \"texte\": \"…\", \"force\": 0, \"endurance\": 0}]}
 (« force » et « endurance » seulement pour les combattants.)
 
@@ -775,8 +812,8 @@ Cartes :
 {cards}";
 
 /// The request sent to the AI: only the cards it may write (all of `cards`: the caller
-/// splits them in batches).
-pub fn prompt(cards: &[Candidate]) -> String {
+/// splits them in batches). `taken`: given names terrors already have (taken_names).
+pub fn prompt(cards: &[Candidate], taken: &HashSet<String>) -> String {
     let lines: Vec<String> = cards
         .iter()
         .filter(|c| c.ai)
@@ -792,7 +829,22 @@ pub fn prompt(cards: &[Candidate]) -> String {
             format!("- id {} ({}){fighter} : {}", c.id, c.rarity, c.facts)
         })
         .collect();
+    let terrors = if cards.iter().any(|c| c.ai && c.series == "terreurs") {
+        let mut names: Vec<String> = taken.iter().map(|n| capitalized(n)).collect();
+        names.sort();
+        format!(
+            "Chaque terreur porte un prénom à elle, en premier mot du titre : jamais deux fois le même prénom dans cette liste{}.\n\n",
+            if names.is_empty() {
+                String::new()
+            } else {
+                format!(", ni un de ceux déjà donnés dans l'album ({})", names.join(", "))
+            }
+        )
+    } else {
+        String::new()
+    };
     PROMPT
+        .replace("{terrors}", &terrors)
         .replace("{stat_max}", &STAT_MAX.to_string())
         .replace("{slack}", &STAT_SLACK.to_string())
         .replace("{max_name}", &MAX_NAME.to_string())
@@ -813,8 +865,13 @@ fn squash(text: &str) -> String {
 }
 
 /// Applies the AI's names and texts to the cards it was allowed to write; returns the ids
-/// of the cards written and the problems (a rejected card is not written).
-pub fn apply(cards: &mut [Candidate], answer: &str) -> (HashSet<String>, Vec<String>) {
+/// of the cards written and the problems (a rejected card is not written). A terror whose
+/// given name is in `taken` is rejected; the given names accepted are added to it.
+pub fn apply(
+    cards: &mut [Candidate],
+    answer: &str,
+    taken: &mut HashSet<String>,
+) -> (HashSet<String>, Vec<String>) {
     let mut done = HashSet::new();
     let Some(data) = json_object(answer) else {
         return (done, vec!["cartes : réponse illisible".into()]);
@@ -866,6 +923,18 @@ pub fn apply(cards: &mut [Candidate], answer: &str) -> (HashSet<String>, Vec<Str
                 "cartes : texte refusé pour {id} (vide ou trop long)"
             ));
             continue;
+        }
+        if card.series == "terreurs" {
+            // The species' own word is no given name ("Loup affamé" twice is fine).
+            let species = card.keep_name.as_deref().map(first_name);
+            if let Some(given) = given_name(&name).filter(|g| Some(g) != species.as_ref()) {
+                if !taken.insert(given) {
+                    notes.push(format!(
+                        "cartes : « {name} » reprend le prénom d'une autre terreur, refusé"
+                    ));
+                    continue;
+                }
+            }
         }
         card.name = name;
         card.text = text;
@@ -1152,6 +1221,58 @@ mod tests {
     }
 
     #[test]
+    fn terrors_get_distinct_given_names() {
+        let terror = |id: &str, species: &str| Candidate {
+            id: id.into(),
+            series: "terreurs",
+            rarity: "rare",
+            name: species.into(),
+            text: String::new(),
+            class: None,
+            guid: None,
+            icon: None,
+            facts: String::new(),
+            ai: true,
+            keep_name: Some(species.into()),
+            stats: None,
+            art: Art::default(),
+            t: 0.0,
+        };
+        let mut cards = vec![
+            terror("T:1:A", "Garde des Tarides"),
+            terror("T:2:A", "Chasseur Daguéchine"),
+            terror("T:3:A", "Loup affamé"),
+            terror("T:4:A", "Loup gris"),
+            terror("T:5:A", "Ours brun"),
+        ];
+        // Gaston is already in the album (an earlier issue)
+        let mut taken: HashSet<String> = [given_name("Gaston, chasseur du rivage").unwrap()].into();
+        assert!(prompt(&cards, &taken).contains("déjà donnés dans l'album (Gaston)"));
+        let answer = r#"{"cartes": [
+            {"id": "T:1:A", "nom": "Gaston, le garde des Tarides", "texte": "Zélé.", "force": 5, "endurance": 4},
+            {"id": "T:2:A", "nom": "Marcel, chasseur Daguéchine", "texte": "Précis.", "force": 5, "endurance": 4},
+            {"id": "T:3:A", "nom": "Loup affamé", "texte": "Faim.", "force": 5, "endurance": 4},
+            {"id": "T:4:A", "nom": "Loup gris", "texte": "Gris.", "force": 5, "endurance": 4},
+            {"id": "T:5:A", "nom": "L'ours brun Marcel", "texte": "Brun.", "force": 5, "endurance": 4}
+        ]}"#;
+        let (done, notes) = apply(&mut cards, answer, &mut taken);
+        assert!(!done.contains("T:1:A"), "Gaston is taken");
+        assert!(done.contains("T:2:A"));
+        assert!(
+            done.contains("T:3:A") && done.contains("T:4:A"),
+            "the species is no given name"
+        );
+        assert!(
+            done.contains("T:5:A"),
+            "\"ours\" is its species, Marcel is not checked"
+        );
+        assert_eq!(notes.len(), 1, "{notes:?}");
+        assert!(taken.contains("marcel"));
+        assert_eq!(given_name("Le grand Sven").as_deref(), Some("grand"));
+        assert_eq!(given_name("L'Édouard des bois").as_deref(), Some("édouard"));
+    }
+
+    #[test]
     fn ai_answer_is_checked() {
         // Dakey has earned every version of the card (25 bosses)
         let bosses: String = (1..=25)
@@ -1159,7 +1280,7 @@ mod tests {
             .collect();
         let ch = chronicle_with(&bosses);
         let mut cards = candidates(&ch, &HashSet::new());
-        let p = prompt(&cards);
+        let p = prompt(&cards, &HashSet::new());
         assert!(p.contains("M:P-A:epic") && !p.contains("M:P-B:common"));
         let answer = r#"Voici : {"cartes": [
             {"id": "M:P-A:epic", "nom": "Dakey, l'ombre du marché", "texte": "Vend tout, même ce qui n'est pas à lui.", "force": 9, "endurance": 5},
@@ -1168,7 +1289,7 @@ mod tests {
             {"id": "M:P-B:common", "nom": "Bob le magnifique", "texte": "Non consentant."},
             {"id": "L:P-A:10", "nom": "Dakey niveau 10", "texte": ""}
         ]}"#;
-        let (done, notes) = apply(&mut cards, answer);
+        let (done, notes) = apply(&mut cards, answer, &mut HashSet::new());
         let get = |id: &str| cards.iter().find(|c| c.id == id).unwrap();
         assert_eq!(get("M:P-A:epic").name, "Dakey, l'ombre du marché");
         assert_eq!(
