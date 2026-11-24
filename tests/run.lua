@@ -1458,6 +1458,26 @@ test("officier : guilde rivale diffusee depuis Renatus_Admin, appliquee au table
     eq(ns.GuildConfig.Rival(), nil)
 end)
 
+test("tableau de chasse : les champs de bataille et les arenes ne comptent pas", function()
+    local ns = boot()
+    local bg, arena, world = { it = "pvp", z = "Goulet des Chanteguerres" }, { it = "arena" }, { z = "Les Paluns" }
+    local ds = { rival = "Les Crocs", events = {
+        { k = "DEATH", t = 400, p = { killer = { n = "Brute", pl = true, gd = "Les Crocs" } }, prov = "OBS", loc = bg },
+        { k = "DEATH", t = 390, p = { killer = { n = "Duelliste", pl = true } }, prov = "OBS", loc = arena },
+        { k = "ENEMY_SEEN", t = 380, p = { name = "Guetteur", guild = "Les Crocs" }, prov = "OBS", loc = bg },
+        { k = "DEATH", t = 300, p = { killer = { n = "Embusque", pl = true, gd = "Les Crocs" } }, prov = "OBS", loc = world },
+        { k = "PVP_KILL", t = 200, p = {}, prov = "DED", loc = world },
+    } }
+    local enemies, byKey = ns.Views.Enemies(ds)
+    local horde, rival = ns.Views.PvpScore(ds, enemies)
+    eq(horde.w, 1); eq(horde.l, 1, "seule la mort en monde ouvert compte")
+    eq(rival.l, 1)
+    eq(byKey["brute"], nil, "tueur de champ de bataille ignore")
+    eq(byKey["duelliste"], nil, "tueur d'arene ignore")
+    eq(byKey["guetteur"], nil, "rival vu en champ de bataille ignore")
+    eq(#byKey["embusque"].encounters, 1)
+end)
+
 test("tableau de chasse : repartir de 0-0 a une date, sans rien effacer, pour toute la guilde", function()
     local ns, A = bootAdmin({ specIndex = 1, rank = 1, roster = OFFICERS })
     local ds = { rival = "Les Crocs", events = {

@@ -192,10 +192,16 @@ Views.EnemyKey = enemyKey
 
 local function emptyRecord() return { OBS = 0, LOG = 0, MAN = 0, DED = 0 } end
 
--- Fights count on the Wanted Board only from its start date (guild setting huntSince).
+-- Fights count on the Wanted Board only from its start date (guild setting huntSince),
+-- and never in battlegrounds or arenas: opponents there are picked by the game, not met
+-- on the front, and the expedition already sums those up (our kills there were never recorded,
+-- so counting our deaths alone would tilt the score).
 local HUNT_KINDS = { ENEMY_SEEN = true, PVP_CLASH = true, PVP_KILL = true, DEATH = true }
+local PVP_INSTANCES = { pvp = true, arena = true }
 function Views.InHunt(ds, ev)
-    return not (ds.huntSince and HUNT_KINDS[ev.k] and (ev.t or 0) < ds.huntSince)
+    if not HUNT_KINDS[ev.k] then return true end
+    if type(ev.loc) == "table" and PVP_INSTANCES[ev.loc.it] then return false end
+    return not (ds.huntSince and (ev.t or 0) < ds.huntSince)
 end
 
 function Views.Enemies(ds)
