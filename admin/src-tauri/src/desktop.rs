@@ -13,7 +13,9 @@ use std::time::{Duration, SystemTime};
 use renatus_admin_core::config::{self, Config, GazetteOptions};
 use renatus_admin_core::ops::{self, Proposal, Status};
 use renatus_admin_core::paths::{WowPaths, ADMIN_ADDON};
-use renatus_admin_core::{addon, armory, chronicle::Chronicle, edition, gazette, issues, revise};
+use renatus_admin_core::{
+    addon, armory, chronicle::Chronicle, edition, gazette, issues, revise, special,
+};
 use renatus_launcher_core::wow;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager};
@@ -100,6 +102,8 @@ struct View {
     app_update: Option<String>,
     /// The built-in gazette prompt, shown when the settings have no custom one.
     default_prompt: &'static str,
+    /// Special issue themes, with their default period and reminder.
+    specials: Vec<special::ThemeView>,
 }
 
 fn view(app: &AppHandle) -> View {
@@ -149,6 +153,7 @@ fn view(app: &AppHandle) -> View {
         app_version: app.package_info().version.to_string(),
         app_update: s.app_update.clone(),
         default_prompt: gazette::PROMPT,
+        specials: special::themes(ops::now() as f64),
     }
 }
 
@@ -518,6 +523,26 @@ async fn prepare_gazette(app: AppHandle) -> Result<View, String> {
         let paths = game_paths(&cfg)?;
         let (_, ch) = ops::load(&paths)?;
         Ok::<_, String>(ops::prepare(&paths, &ch))
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    app.state::<Shared>().state.lock().unwrap().selection = Some(sel);
+    Ok(view(&app))
+}
+
+/// Lists the facts offered for a special issue on `theme`, over `since..until`.
+#[tauri::command]
+async fn prepare_special(
+    app: AppHandle,
+    theme: special::Special,
+    since: f64,
+    until: f64,
+) -> Result<View, String> {
+    let cfg = config(&app);
+    let sel = tauri::async_runtime::spawn_blocking(move || {
+        let paths = game_paths(&cfg)?;
+        let (_, ch) = ops::load(&paths)?;
+        ops::prepare_special(&paths, &ch, &theme, since, until)
     })
     .await
     .map_err(|e| e.to_string())??;
@@ -1000,6 +1025,7 @@ pub fn run() {
             revise_article,
             retract_article,
             prepare_gazette,
+            prepare_special,
             preview_gazette,
             save_settings,
             pick_wow_folder,

@@ -12,7 +12,9 @@ use serde_json::{json, Value};
 use crate::chronicle::{num_of, payload, str_of, Chronicle};
 use crate::config::GazetteOptions;
 use crate::paths::{WowPaths, ADMIN_ADDON};
-use crate::{armory, articles, cards, combatlog, edition, gazette, issues, llm, press, revise};
+use crate::{
+    armory, articles, cards, combatlog, edition, gazette, issues, llm, press, revise, special,
+};
 
 pub fn now() -> i64 {
     chrono::Utc::now().timestamp()
@@ -183,11 +185,25 @@ pub fn prepare(paths: &WowPaths, ch: &Chronicle) -> issues::Selection {
     issues::prepare(ch, &pending(paths, ch), now() as f64)
 }
 
+/// The facts offered for a special issue (see special.rs).
+pub fn prepare_special(
+    paths: &WowPaths,
+    ch: &Chronicle,
+    theme: &special::Special,
+    since: f64,
+    until: f64,
+) -> Result<issues::Selection, String> {
+    special::prepare(ch, &pending(paths, ch), theme, since, until, now() as f64)
+}
+
 /// Is a new issue due (automatic mode)? None waiting in Press.lua, and the latest one
 /// covers up to a week ago or more.
 pub fn issue_due(paths: &WowPaths, ch: &Chronicle) -> bool {
     let waiting = pending(paths, ch);
-    if waiting.iter().any(|i| str_of(i, "kind") == Some("EDITION")) {
+    if waiting
+        .iter()
+        .any(|i| str_of(i, "kind") == Some("EDITION") && !issues::in_special(i))
+    {
         return false;
     }
     issues::last_issue_end(ch, &waiting)
@@ -255,7 +271,13 @@ pub fn gazette(
         notes: brief_summary(&b, ch.members().len()),
         answer: None,
     };
-    out.notes.insert(0, format!("Gazette {edition}"));
+    out.notes.insert(
+        0,
+        match &sel.special {
+            Some(s) => format!("Hors-série « {} » ({edition})", s.title),
+            None => format!("Gazette {edition}"),
+        },
+    );
     if opts.request.is_some() {
         out.notes
             .insert(1, "Demande relue et envoyée telle quelle.".into());
@@ -285,7 +307,8 @@ pub fn gazette(
             }
         }
     }
-    if let Some(dir) = articles_dir {
+    // Hand-written articles wait for the next regular issue.
+    if let Some(dir) = articles_dir.filter(|_| sel.special.is_none()) {
         let (mut mine, notes) = hand_written(dir, ch);
         out.notes.extend(notes);
         for a in &mut mine {
@@ -304,12 +327,21 @@ pub fn gazette(
         edition,
     );
     layout["p"]["till"] = json!(sel.until);
+    if let Some(s) = &sel.special {
+        // The addon numbers special issues apart and shows their title and period.
+        layout["p"]["special"] = json!(s.title);
+        layout["p"]["since"] = json!(sel.since);
+    }
     out.notes.push(format!(
         "Mise en page : {}.",
         str_of(&layout["p"], "template").unwrap_or("?")
     ));
     out.items = items;
     out.items.push(layout);
+    if sel.special.is_some() {
+        // Album cards go with the regular issues.
+        return out;
+    }
     let (card_items, notes) = album_cards(ch, &sel.pending_cards, edition, opts);
     out.notes.extend(notes);
     out.items.extend(card_items);

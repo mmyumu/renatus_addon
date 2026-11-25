@@ -132,3 +132,10 @@ tr.mine td:first-child::after { content: " (toi)"; color: var(--muted); }
 .activity .bar-day.zero { background: var(--border); }
 #mon-feed td, #mon-members td { user-select: text; }
 #mon-feed .muted, #mon-members .muted { color: var(--muted); }
+
+/* Gazette: regular issue or special issue ("hors-série"), and the holidays coming up */
+.issue-kind { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-top: 6px; }
+#special-reminders { display: flex; gap: 6px; flex-wrap: wrap; margin-left: auto; }
+.reminder { font-size: 12px; padding: 2px 8px; border-radius: 10px; cursor: pointer; }
+#special-title { flex: 1; }
+#special-member-box { display: inline-flex; align-items: center; gap: 6px; }

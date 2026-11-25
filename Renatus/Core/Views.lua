@@ -478,6 +478,9 @@ function Views.Layouts(events)
                 layout.edition = type(ev.p.edition) == "string" and ev.p.edition or nil
                 -- end of the period the issue covers (when it was written)
                 layout.till = tonumber(ev.p.till)
+                -- special issue ("hors-série"): its title and the start of its period
+                layout.special = type(ev.p.special) == "string" and ev.p.special ~= "" and ev.p.special:sub(1, 60) or nil
+                layout.since = tonumber(ev.p.since)
                 table.insert(out, layout)
             end
         end
@@ -517,6 +520,20 @@ end
 -- previous one (its "In brief", its figure). Readers' letters (LETTER events) go with the
 -- issue that was being read when they were written (p.edition), else with the latest issue
 -- published before them; each issue lists its letters oldest first (e.letters).
+-- Special issues ("hors-série", key "hs:…", written by Renatus Admin) are numbered apart
+-- (e.special = their title) and cover their own period: the regular issues ignore them.
+Views.SPECIAL_PREFIX = "hs:"
+
+function Views.IsSpecialKey(key)
+    return type(key) == "string" and key:sub(1, #Views.SPECIAL_PREFIX) == Views.SPECIAL_PREFIX
+end
+
+-- "n° 12" or "hors-série n° 2 « Spécial Noël »".
+function Views.EditionName(e)
+    if e.special then return "hors-série n° " .. e.number .. " « " .. e.special .. " »" end
+    return "n° " .. e.number
+end
+
 function Views.Editions(ds)
     local groups, list = {}, {}
     for _, a in ipairs(ds.articles or {}) do
@@ -571,11 +588,21 @@ function Views.Editions(ds)
         end)
     end
     local cited = {}
+    local count, lastRegular = { regular = 0, special = 0 }, nil
     for i = #list, 1, -1 do
-        local e, previous = list[i], list[i + 1]
-        e.number = #list - i + 1
+        local e = list[i]
+        if Views.IsSpecialKey(e.key) then
+            e.special = e.layout and e.layout.special or "Hors-série"
+            count.special = count.special + 1
+            e.number = count.special
+            e.since = e.layout and e.layout.since or (e.till - 7 * DAY)
+        else
+            count.regular = count.regular + 1
+            e.number = count.regular
+            e.since = lastRegular and lastRegular.till or (e.till - 7 * DAY)
+            lastRegular = e
+        end
         e.label = "Paru le " .. Views.DateLabel(e.t)
-        e.since = previous and previous.till or (e.till - 7 * DAY)
         for _, a in ipairs(e.articles) do
             for _, id in ipairs(a.refs or {}) do
                 if cited[id] == nil then cited[id] = e end

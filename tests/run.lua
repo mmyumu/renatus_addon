@@ -3403,6 +3403,41 @@ test("numeros : deux parutions la meme semaine = deux numeros ; evenements cites
     eq(marked, 1, "l'evenement cite porte la mention")
 end)
 
+test("hors-serie : numerote a part, la gazette s'ouvre sur le numero regulier, bouton et notification jusqu'a lecture", function()
+    local ns = boot({ specIndex = 1, rank = 3, roster = { { name = "Testeur", rank = 3 }, { name = "Bob", rank = 1 } } })
+    local now = time()
+    local cells = { { pg = 1, r = 1, w = 12, b = { { t = "story", a = "@1" } } } }
+    foreign(ns, "Player-1-BOB", "Bob", 1, "ARTICLE", { title = "Quotidienne", body = "x", edition = "E1", order = 1 }, now - 200)
+    foreign(ns, "Player-1-BOB", "Bob", 2, "EDITION", { edition = "E1", till = now - 200, cells = cells }, now - 200)
+    foreign(ns, "Player-1-BOB", "Bob", 3, "ARTICLE", { title = "Le Voile d'hiver", body = "y", edition = "hs:noel", order = 1 }, now - 50)
+    foreign(ns, "Player-1-BOB", "Bob", 4, "EDITION", { edition = "hs:noel", till = now - 50, since = now - 1000,
+        special = "Spécial Noël", cells = cells }, now - 50)
+    local list = ns.Views.Editions(ns.Store.Dataset())
+    eq(#list, 2)
+    eq(list[1].special, "Spécial Noël"); eq(list[1].number, 1); eq(list[1].since, now - 1000)
+    eq(list[2].special, nil); eq(list[2].number, 1, "numerotation a part")
+    eq(ns.Views.EditionName(list[1]), "hors-série n° 1 « Spécial Noël »")
+    local N = ns.UI.Notifier
+    eq(#N.Notices().specials, 1)
+    ns.UI.Open("gazette")
+    local c = RenatusMainFrame.containers.gazette
+    eq(c.front.topRight:GetText(), "ÉDITION N° 1", "le numero regulier, pas le hors-serie plus recent")
+    local btn = c.paper.special
+    eq(btn:IsShown(), true); eq(btn.halo:IsShown(), true); eq(btn.unread.label:GetText(), "!")
+    btn:Click()
+    eq(c.front.topRight:GetText(), "HORS-SÉRIE N° 1")
+    assert(c.front.info:GetText():find("« Spécial Noël »"), c.front.info:GetText())
+    eq(#N.Notices().specials, 0, "lu")
+    eq(btn:IsShown(), false, "pas de raccourci vers le numero affiche")
+    -- back on the regular issue: the shortcut stays (out this week), without glowing
+    c:OpenEdition(2)
+    eq(btn:IsShown(), true); eq(btn.halo:IsShown(), false)
+    -- archives: special issues first
+    c:OpenArchive()
+    eq(c.archive.list.rows[1].number:GetText(), "HS n° 1")
+    eq(c.archive.list.rows[2].number:GetText(), "N° 1")
+end)
+
 print("Notifications (icone de la gazette)")
 
 test("icone de la gazette : nouvel article, boosters, pastilles du menu", function()

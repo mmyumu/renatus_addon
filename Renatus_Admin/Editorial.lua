@@ -81,7 +81,8 @@ function Press.Label(item)
         local n = #Press.EditionArticles(item)
         local layout = R.UI.Newsprint.Sanitize(p)
         local pages = layout and #layout.pages or 0
-        return ("Mise en page « %s » : %d page(s), %d article(s)"):format(tostring(p.template or "libre"), pages, n)
+        local special = type(p.special) == "string" and ("Hors-série « " .. p.special .. " », ") or ""
+        return ("%sMise en page « %s » : %d page(s), %d article(s)"):format(special, tostring(p.template or "libre"), pages, n)
     end
     if item.kind == "DEATH_CAUSE" then return ("Mort de %s : %s"):format(tostring(p.victim), tostring(p.cause)) end
     if item.kind == "PVP_CLASH" then

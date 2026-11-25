@@ -155,6 +155,22 @@
       <div class="card">
         <div class="label">Prochain numéro</div>
         <p class="hint">Chaque gazette publiée est un numéro. Les faits nouveaux depuis le dernier numéro sont cochés ; ceux déjà parus (ou en attente en jeu) et les plus anciens restent décochés, tu peux les recocher. Filtre, trie (clic sur un en-tête) et coche ce qui est affiché. Seuls les événements partagés des membres qui ont coché « La gazette rédigée par IA peut parler de moi » sont proposés ; les rivaux sont anonymisés, les articles douteux rejetés.</p>
+        <div class="issue-kind">
+          <label><input type="radio" name="issue-kind" value="regular" checked> Numéro régulier</label>
+          <label><input type="radio" name="issue-kind" value="special"> Hors-série</label>
+          <span id="special-reminders"></span>
+        </div>
+        <div id="special-form" hidden>
+          <p class="hint">Un hors-série paraît à part : numéroté à part en jeu, il ne décale pas le prochain numéro régulier, ses faits restent à raconter pour la gazette, et il n'a pas de cartes d'album. Le thème donne l'angle à l'IA, jamais des faits.</p>
+          <div class="field"><span>Thème</span><select id="special-theme"></select>
+            <span id="special-member-box" hidden>Membre <select id="special-member"></select></span>
+          </div>
+          <div class="field"><span>Titre</span><input type="text" id="special-title" maxlength="60"></div>
+          <div class="field"><span>Du</span><input type="datetime-local" id="special-since">
+            <span>au</span><input type="datetime-local" id="special-until"></div>
+          <div class="field column"><span>Consigne à l'IA</span>
+            <textarea id="special-brief" rows="3" spellcheck="false"></textarea></div>
+        </div>
         <div class="buttons">
           <button id="prepare-gazette">Choisir les faits</button>
         </div>

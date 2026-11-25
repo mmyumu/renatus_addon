@@ -78,6 +78,7 @@ function render(s) {
   }
 
   // Gazette
+  renderSpecials(s);
   renderSelection(s.selection, busy);
   renderDraft(s.draft, busy);
   $("articles-dir").textContent = s.config.articlesDir ?? "non choisi";
@@ -387,7 +388,10 @@ function fillFacts() {
     th.classList.toggle("desc", th.dataset.sort === factSort.key && factSort.dir < 0);
   }
   const recent = selection.candidates.filter((c) => c.recent).length;
-  $("selection-title").textContent = selection.afterIssue
+  const sp = selection.special;
+  $("selection-title").textContent = sp
+    ? `Hors-série « ${sp.title} » : ${selection.candidates.length} fait(s) du ${day(selection.since)} au ${day(selection.until)}`
+    : selection.afterIssue
     ? `Depuis le dernier numéro (écrit le ${day(selection.since)}) : ${recent} fait(s) nouveau(x), plus ${selection.candidates.length - recent} des 30 derniers jours`
     : `30 derniers jours (aucun numéro paru, ou remise à zéro) : ${recent} fait(s)`;
   countFacts();
@@ -419,6 +423,106 @@ function tickShown(on) {
   fillFacts();
 }
 
+// Special issues ("hors-série"): a theme fills the title, the brief and the period, all
+// editable; the holidays coming up are recalled as chips that pick their theme.
+const SPECIAL_GROUPS = [
+  ["Fêtes", (t) => t.kind === "theme" && t.key !== "libre"],
+  ["Rétrospectives", (t) => t.kind === "retro"],
+  ["Autres", (t) => t.kind === "portrait" || t.kind === "event" || t.key === "libre"],
+];
+let specials = [];
+let specialFilled = null;
+
+const isSpecial = () => document.querySelector('input[name="issue-kind"]:checked').value === "special";
+const theme = () => specials.find((t) => t.key === $("special-theme").value);
+
+// Unix seconds <-> the value of an <input type="datetime-local"> (local time).
+function toLocalInput(t) {
+  const d = new Date(t * 1000);
+  const p = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+const fromLocalInput = (v) => (v ? new Date(v).getTime() / 1000 : NaN);
+
+function renderSpecials(s) {
+  specials = s.specials ?? [];
+  const sel = $("special-theme");
+  if (sel.options.length === 0) {
+    for (const [label, keep] of SPECIAL_GROUPS) {
+      const g = document.createElement("optgroup");
+      g.label = label;
+      for (const t of specials.filter(keep)) g.appendChild(new Option(t.title.replace("{member}", "un membre (portrait)"), t.key));
+      sel.appendChild(g);
+    }
+  }
+  // Members who agreed to appear in the AI gazette, for a portrait.
+  const members = (s.status?.monitor?.members ?? [])
+    .filter((m) => m.aiConsent === "yes").map((m) => m.name)
+    .sort((a, b) => a.localeCompare(b, "fr"));
+  const ms = $("special-member");
+  const keep = ms.value;
+  ms.length = 0;
+  for (const n of members) ms.add(new Option(n, n));
+  if (members.includes(keep)) ms.value = keep;
+  if (!specialFilled) fillSpecial();
+
+  const box = $("special-reminders");
+  box.textContent = "";
+  for (const t of specials.filter((t) => t.days != null)) {
+    const b = document.createElement("button");
+    b.className = "small reminder";
+    b.textContent = t.days > 1 ? `${t.title} dans ${t.days} j`
+      : t.days === 1 ? `${t.title} demain`
+      : t.days === 0 ? `${t.title} aujourd'hui` : `${t.title} (hier)`;
+    b.title = "Préparer ce hors-série";
+    b.addEventListener("click", () => {
+      document.querySelector('input[name="issue-kind"][value="special"]').checked = true;
+      $("special-theme").value = t.key;
+      fillSpecial();
+      showIssueKind();
+    });
+    box.appendChild(b);
+  }
+}
+
+// The theme's title, brief and period, the portrait's member filled in.
+function fillSpecial() {
+  const t = theme();
+  if (!t) return;
+  const portrait = t.kind === "portrait";
+  $("special-member-box").hidden = !portrait;
+  const member = portrait ? $("special-member").value : "";
+  const fill = (text) => text.replaceAll("{member}", member || "…");
+  $("special-title").value = fill(t.title);
+  $("special-brief").value = fill(t.brief);
+  $("special-since").value = toLocalInput(t.since);
+  $("special-until").value = toLocalInput(Date.now() / 1000);
+  specialFilled = t.key;
+}
+
+function showIssueKind() {
+  $("special-form").hidden = !isSpecial();
+}
+
+function prepareIssue() {
+  selectionKey = null;
+  if (!isSpecial()) return call("prepare_gazette");
+  const t = theme();
+  const since = fromLocalInput($("special-since").value);
+  const until = fromLocalInput($("special-until").value);
+  if (!t || Number.isNaN(since) || Number.isNaN(until)) return report("Période du hors-série incomplète.");
+  call("prepare_special", {
+    theme: {
+      kind: t.kind,
+      title: $("special-title").value,
+      brief: $("special-brief").value,
+      member: t.kind === "portrait" ? $("special-member").value || null : null,
+    },
+    since,
+    until,
+  });
+}
+
 // Gazette draft: what came back, what the checks rejected, the articles as written.
 function renderDraft(d, busy) {
   $("draft").hidden = !d;
@@ -427,7 +531,7 @@ function renderDraft(d, busy) {
   const layout = d.items.find((i) => i.kind === "EDITION");
   const template = layout ? TEMPLATES[layout.p.template] ?? layout.p.template : "aucune";
   const cards = d.items.filter((i) => i.kind === "CARD_SET").flatMap((i) => i.p.cards);
-  $("draft-title").textContent =
+  $("draft-title").textContent = (layout?.p.special ? `Hors-série « ${layout.p.special} » · ` : "") +
     `Brouillon · rédigé le ${when(d.at)} · ${articles.length} article(s) · maquette : ${template} · ${cards.length} carte(s)`;
   renderCards(cards);
   $("draft-notes").textContent = d.notes.join("\n");
@@ -951,7 +1055,10 @@ $("install-admin").addEventListener("click", () => call("install_admin_addon"));
 $("check-admin").addEventListener("click", () => call("check_admin_addon"));
 $("app-update").addEventListener("click", () => call("update_app"));
 $("refresh-rival").addEventListener("click", () => call("refresh_rival", { rival: $("rival").value }));
-$("prepare-gazette").addEventListener("click", () => { selectionKey = null; call("prepare_gazette"); });
+$("prepare-gazette").addEventListener("click", prepareIssue);
+for (const r of document.querySelectorAll('input[name="issue-kind"]')) r.addEventListener("change", showIssueKind);
+$("special-theme").addEventListener("change", fillSpecial);
+$("special-member").addEventListener("change", fillSpecial);
 $("facts-all").addEventListener("click", () => tickShown(true));
 $("facts-none").addEventListener("click", () => tickShown(false));
 $("facts-shown").addEventListener("change", () => tickShown($("facts-shown").checked));

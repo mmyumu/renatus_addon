@@ -12,6 +12,7 @@ use serde_json::Value;
 
 use crate::chronicle::{num_of, payload, str_of, Chronicle};
 use crate::gazette::{self, Brief};
+use crate::special::{self, Special};
 
 const DAY: f64 = 86400.0;
 /// Without any previous issue (the first one, or after a reset in Renatus_Admin), the new
@@ -44,15 +45,21 @@ impl Use {
     }
 }
 
-/// Event id -> the first article that cites it: published ones, then those waiting in
-/// Press.lua.
+/// Whether an ARTICLE or EDITION (event or Press.lua item) belongs to a special issue.
+pub fn in_special(item: &Value) -> bool {
+    str_of(payload(item), "edition").is_some_and(special::is_special)
+}
+
+/// Event id -> the first article of a regular issue that cites it: published ones, then
+/// those waiting in Press.lua. Special issues do not count: their facts stay new for the
+/// regular gazette.
 pub fn cited(ch: &Chronicle, pending: &[Value]) -> HashMap<String, Use> {
     let mut out: HashMap<String, Use> = HashMap::new();
-    let mut published: Vec<&Value> = ch.of_kind("ARTICLE").collect();
+    let mut published: Vec<&Value> = ch.of_kind("ARTICLE").filter(|e| !in_special(e)).collect();
     published.sort_by(|a, b| num_of(a, "t").total_cmp(&num_of(b, "t")));
     let waiting = pending
         .iter()
-        .filter(|i| str_of(i, "kind") == Some("ARTICLE"));
+        .filter(|i| str_of(i, "kind") == Some("ARTICLE") && !in_special(i));
     for (item, is_pending) in published
         .into_iter()
         .map(|e| (e, false))
@@ -77,8 +84,9 @@ pub fn cited(ch: &Chronicle, pending: &[Value]) -> HashMap<String, Use> {
     out
 }
 
-/// End of the period covered by the latest issue, published or waiting in Press.lua:
-/// its EDITION's `till` (when it was written), else the EDITION's or the articles' time.
+/// End of the period covered by the latest regular issue, published or waiting in
+/// Press.lua: its EDITION's `till` (when it was written), else the EDITION's or the
+/// articles' time. Special issues are left out.
 pub fn last_issue_end(ch: &Chronicle, pending: &[Value]) -> Option<f64> {
     let editions = ch
         .of_kind("EDITION")
@@ -87,6 +95,7 @@ pub fn last_issue_end(ch: &Chronicle, pending: &[Value]) -> Option<f64> {
                 .iter()
                 .filter(|i| str_of(i, "kind") == Some("EDITION")),
         )
+        .filter(|e| !in_special(e))
         .map(|e| {
             let till = num_of(payload(e), "till");
             if till > 0.0 {
@@ -97,7 +106,7 @@ pub fn last_issue_end(ch: &Chronicle, pending: &[Value]) -> Option<f64> {
         });
     let articles = ch
         .of_kind("ARTICLE")
-        .filter(|e| str_of(payload(e), "edition").is_some())
+        .filter(|e| str_of(payload(e), "edition").is_some() && !in_special(e))
         .map(|e| num_of(e, "t"));
     editions
         .chain(articles)
@@ -141,6 +150,8 @@ pub struct Selection {
     /// Card sets waiting in Press.lua: their cards are not proposed again (cards.rs).
     #[serde(skip)]
     pub pending_cards: Vec<Value>,
+    /// A special issue (special.rs), else None.
+    pub special: Option<Special>,
 }
 
 impl Selection {
@@ -149,6 +160,7 @@ impl Selection {
     pub fn brief_for(&self, keys: &[String]) -> Brief {
         let mut b = self.brief.select(keys);
         b.since = b.facts.iter().map(|f| f.when).fold(self.since, f64::min);
+        b.special = self.special.clone();
         b
     }
 
@@ -203,6 +215,7 @@ pub fn prepare(ch: &Chronicle, pending: &[Value], now: f64) -> Selection {
             .filter(|i| crate::chronicle::str_of(i, "kind") == Some("CARD_SET"))
             .cloned()
             .collect(),
+        special: None,
     }
 }
 
@@ -288,5 +301,81 @@ mod tests {
         let s = prepare(&ch, &[], now);
         assert!(!s.after_issue);
         assert_eq!(s.since, now - FIRST_DAYS * DAY);
+    }
+
+    #[test]
+    fn special_issues_do_not_move_the_regular_gazette() {
+        let now = 100.0 * DAY;
+        let mut art = ev(
+            "A:9",
+            "ARTICLE",
+            now - 2.0 * DAY,
+            json!({"title": "Spécial", "edition": "hs:x"}),
+        );
+        art["refs"] = json!(["A:2"]);
+        let mut layout = ev(
+            "A:10",
+            "EDITION",
+            now - 2.0 * DAY,
+            json!({"edition": "hs:x"}),
+        );
+        layout["p"]["till"] = json!(now - 2.0 * DAY);
+        let ch = chronicle(vec![
+            ev("A:1", "AI_CONSENT", 0.0, json!({"ok": true})),
+            ev("A:2", "LEVEL_UP", now - 3.0 * DAY, json!({"lvl": 10})),
+            art,
+            layout,
+        ]);
+        assert_eq!(
+            last_issue_end(&ch, &[]),
+            None,
+            "a special issue is not the last issue"
+        );
+        let s = prepare(&ch, &[], now);
+        assert!(!s.after_issue);
+        let lvl = s
+            .candidates
+            .iter()
+            .find(|c| c.text.contains("niveau 10"))
+            .unwrap();
+        assert!(
+            lvl.checked && lvl.used.is_none(),
+            "told in a special issue: still new"
+        );
+
+        let theme = Special {
+            kind: special::Kind::Portrait,
+            title: "Spécial {member}".into(),
+            brief: "tout sur {member}".into(),
+            member: Some("Alice".into()),
+        };
+        let hs = special::prepare(&ch, &[], &theme, now - 10.0 * DAY, now, now).unwrap();
+        assert!(special::is_special(&hs.edition));
+        assert!(
+            hs.candidates.iter().any(|c| c.checked),
+            "Alice's facts ticked"
+        );
+        let b = hs.brief_for(&hs.checked_keys());
+        let prompt = gazette::prompt(&b, 5);
+        assert!(prompt.contains("HORS-SÉRIE « Spécial Alice »"), "{prompt}");
+        assert!(prompt.contains("tout sur Alice"));
+        // a custom prompt without {special} still gets the theme
+        let custom = gazette::prompt_in("Mon prompt.\n{facts}", &b, 5);
+        assert!(custom.starts_with("NUMÉRO HORS-SÉRIE"), "{custom}");
+        assert!(
+            special::prepare(
+                &ch,
+                &[],
+                &Special {
+                    member: None,
+                    ..theme.clone()
+                },
+                0.0,
+                now,
+                now
+            )
+            .is_err(),
+            "a portrait needs its member"
+        );
     }
 }

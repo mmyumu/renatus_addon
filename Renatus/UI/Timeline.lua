@@ -76,7 +76,7 @@ local function rowTooltip(row)
     end
     local issue = cited[ev.id]
     if issue then
-        table.insert(lines, { "Paru dans la gazette n° " .. issue.number .. " (" .. string.lower(issue.label) .. ")", 0.83, 0.63, 0.09 })
+        table.insert(lines, { "Paru dans la gazette " .. ns.Views.EditionName(issue) .. " (" .. string.lower(issue.label) .. ")", 0.83, 0.63, 0.09 })
     end
     if ev.vis == "P" then table.insert(lines, { "Privé : visible uniquement par toi.", 0.6, 0.6, 0.6 }) end
     local hint = {}
@@ -130,7 +130,7 @@ local function updateRow(row, item)
     if ev.k == "ANECDOTE" and ev.p.cat then table.insert(bits, ev.p.cat) end
     if causes[ev.id] then table.insert(bits, "|cff73b3ff" .. tostring(causes[ev.id].p.cause) .. "|r")
     elseif hasMissing(ev, "killer") and not (ev.p and ev.p.cause) then table.insert(bits, "cause inconnue") end
-    if cited[ev.id] then table.insert(bits, "|cffd4a017Paru dans le n° " .. cited[ev.id].number .. "|r") end
+    if cited[ev.id] then table.insert(bits, "|cffd4a017Paru dans le " .. ns.Views.EditionName(cited[ev.id]) .. "|r") end
     row.line2:SetText(table.concat(bits, "  ·  "))
     local prov = Types.PROVENANCE[ev.prov] or Types.PROVENANCE.OBS
     row.badge:SetText(prov.label .. (ev.vis == "P" and "  |cff999999(privé)|r" or ""))

@@ -3,7 +3,9 @@
 --     articles not read yet and a gold pip with the number of boosters left to open;
 --     left click opens the gazette, right click the album, drag moves it;
 --   * the same pips on the navigation entries of the main window.
--- An article counts as read once the gazette tab has been shown after it arrived.
+-- An article counts as read once the gazette tab has been shown after it arrived. A
+-- special issue ("hors-série") counts apart: it stays new until its own front page has
+-- been shown, so that a regular issue published after it does not hide it.
 local _, ns = ...
 local UI = ns.UI
 
@@ -14,20 +16,56 @@ N.ICON = UI.MEDIA .. "gazette"   -- a tilted front page (tools/make_media.py)
 local SIZE = 40
 local BOOSTER_COLOR = { 0.85, 0.6, 0.08 }
 
--- Current notices: { gazette = number of unread articles, boosters = number to open }.
--- Own articles (the officer who published them) are never "new". The demo dataset has
--- no reading history: only its boosters count.
+-- Special issues are "new" for this long after they came out (a character created
+-- later is not greeted by every past one).
+N.SPECIAL_NEW_DAYS = 30
+
+-- Special issues not read yet, most recent first: published by someone else, recent,
+-- and whose front page was never shown on this character. `list`: Views.Editions(ds).
+function N.UnreadSpecials(ds, list)
+    ds = ds or ns.Store.Dataset()
+    if ds.isDemo or ds.preview then return {} end
+    list = list or ns.Views.Editions(ds)
+    local read = ns.char.ui.specialsRead or {}
+    local recent = ns.Views.Now() - N.SPECIAL_NEW_DAYS * 86400
+    local out = {}
+    for _, e in ipairs(list) do
+        local mine = e.layout and e.layout.a == ds.me
+        if e.special and not read[e.key] and not mine and (e.t or 0) >= recent then out[#out + 1] = e end
+    end
+    return out
+end
+
+function N.MarkSpecialRead(edition, ds)
+    ds = ds or ns.Store.Dataset()
+    if ds.isDemo or ds.preview or not (edition and edition.special) then return end
+    local read = ns.char.ui.specialsRead or {}
+    ns.char.ui.specialsRead = read
+    if not read[edition.key] then
+        read[edition.key] = true
+        N:Schedule()
+    end
+end
+
+-- Current notices: { gazette = number of unread articles of regular issues, specials =
+-- special issues not read yet, boosters = number to open }. Own articles (the officer
+-- who published them) are never "new". The demo dataset has no reading history: only
+-- its boosters count.
 function N.Notices(ds)
     ds = ds or ns.Store.Dataset()
     local unread = 0
+    local specials = {}
     if not ds.isDemo then
         local seen = ns.char.ui.gazetteSeen or 0
         for _, a in ipairs(ds.articles or {}) do
-            if (a.t or 0) > seen and not (a.ev and a.ev.a == ds.me) then unread = unread + 1 end
+            if (a.t or 0) > seen and not (a.ev and a.ev.a == ds.me) and not ns.Views.IsSpecialKey(a.edition) then
+                unread = unread + 1
+            end
         end
+        specials = N.UnreadSpecials(ds)
     end
     local trades = (not ds.isDemo and ns.Trade) and #ns.Trade.Incoming(ds) or 0
-    return { gazette = unread, boosters = ds.boosters or 0, trades = trades }
+    return { gazette = unread, specials = specials, boosters = ds.boosters or 0, trades = trades }
 end
 
 -- Everything published so far counts as read.
@@ -79,12 +117,15 @@ local function onClick(_, button)
 end
 
 local function tooltip()
-    local n = N.last or { gazette = 0, boosters = 0, trades = 0 }
+    local n = N.last or { gazette = 0, specials = {}, boosters = 0, trades = 0 }
     local lines = {}
+    for _, e in ipairs(n.specials or {}) do
+        lines[#lines + 1] = { "Hors-série paru : « " .. e.special .. " » !", 1, 0.45, 0.35 }
+    end
     if n.gazette > 0 then
         lines[#lines + 1] = { n.gazette > 1 and (n.gazette .. " nouveaux articles dans la gazette !")
             or "Un nouvel article dans la gazette !", 1, 0.45, 0.35 }
-    else
+    elseif #(n.specials or {}) == 0 then
         lines[#lines + 1] = "Rien de neuf dans la gazette."
     end
     if n.boosters > 0 then
@@ -162,7 +203,7 @@ function N:Refresh(ds)
     ds = ds or ns.Store.Dataset()
     local n = N.Notices(ds)
     N.last = n
-    local gazettePip = n.gazette > 0 and "!" or nil
+    local gazettePip = (n.gazette > 0 or #n.specials > 0) and "!" or nil
     -- the gold pip: boosters to open and trade offers to answer, both in the album
     local boosterPip = pipText(n.boosters + (n.trades or 0))
     UI.SetNavBadge("gazette", not windowOn("gazette") and gazettePip or nil)

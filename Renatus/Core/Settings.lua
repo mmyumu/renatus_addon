@@ -68,6 +68,7 @@ local CHAR_DEFAULTS = {
         -- widgetPoint = nil     -- its position
         -- gazetteSeen = nil     -- time of the latest article read
         -- lettersRead = nil     -- [letter event id] = true: readers' letters already read
+        -- specialsRead = nil    -- [special issue key] = true: special issues already opened
         demo = false,
     },
 }

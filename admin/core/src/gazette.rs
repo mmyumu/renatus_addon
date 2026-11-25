@@ -158,6 +158,8 @@ pub struct Brief {
     pub past: Vec<PastIssue>,
     pub since: f64,
     pub until: f64,
+    /// A special issue's theme (special.rs), else None: a regular issue.
+    pub special: Option<crate::special::Special>,
 }
 
 // ---------------------------------------------------------------------------
@@ -765,7 +767,7 @@ fn counters_fact(
     (Some((to, text, ids)), dropped)
 }
 
-const RECORDS: &str = "Records & jalons";
+pub const RECORDS: &str = "Records & jalons";
 const OTHER: &str = "Divers";
 
 /// Family of a fact, from the kind of its first source event.
@@ -1347,6 +1349,7 @@ pub fn build_split(ch: &Chronicle, since: f64, until: f64, split: f64) -> Brief 
         past: past_issues(ch, until, &member_re),
         since,
         until,
+        special: None,
     }
 }
 
@@ -1417,7 +1420,7 @@ pub const PROMPT: &str = "Tu es la rédaction de « La Gazette », le journal hu
 Écris entre 2 et {max_articles} articles en français pour l'édition du {start} au {end}, à partir
 UNIQUEMENT des faits numérotés ci-dessous.
 
-Règles impératives :
+{special}Règles impératives :
 1. N'invente rien : aucun événement, nom, chiffre, lieu, boss, objet ou dialogue rapporté qui ne
    figure pas dans les faits. Tu peux commenter, exagérer le ton, faire des hypothèses présentées
    comme telles à propos d'un fait réel, mais jamais créer un fait.
@@ -1482,6 +1485,7 @@ Réponds par un unique objet JSON, sans texte autour :
 /// Placeholders a prompt template may use; `{facts}` is required (see `check_template`).
 pub const PLACEHOLDERS: &[&str] = &[
     "{facts}",
+    "{special}",
     "{start}",
     "{end}",
     "{max_articles}",
@@ -1580,7 +1584,19 @@ pub fn prompt_with(
         .iter()
         .map(|(n, d)| format!("« {n} » ({d})"))
         .collect();
+    // A special issue's theme; a custom prompt without {special} gets it at the top.
+    let special = brief
+        .special
+        .as_ref()
+        .map(|s| s.prompt_block())
+        .unwrap_or_default();
+    let template = if template.contains("{special}") || special.is_empty() {
+        template.to_string()
+    } else {
+        format!("{special}{template}")
+    };
     template
+        .replace("{special}", &special)
         .replace("{max_articles}", &max_articles.to_string())
         .replace("{tone_count}", &tones.len().to_string())
         .replace("{rubric}", rubric)

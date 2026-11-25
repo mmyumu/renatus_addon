@@ -6,6 +6,9 @@
 -- articles in a side column.
 -- Clicking an article opens it in full. The admin addon can show an unpublished
 -- edition here as a preview (UI.GazettePreview).
+-- Special issues ("hors-série") are numbered apart and listed first in the archives;
+-- the tab opens on the latest regular issue, and a glowing "Hors-série" button under the
+-- page leads to a special issue not read yet (or out this week).
 local _, ns = ...
 local UI = ns.UI
 local Types = ns.Types
@@ -31,6 +34,16 @@ local function rule(parent, x, y, w, h, alpha)
 end
 
 local byline = NP.Byline
+
+-- "Édition n° 12  ·  Paru le …" or "Hors-série n° 2  ·  Spécial Noël  ·  Paru le …".
+local function editionLine(e)
+    if not e then return "" end
+    if e.special then return "Hors-série n° " .. e.number .. "  ·  " .. e.special .. "  ·  " .. e.label end
+    return "Édition n° " .. e.number .. "  ·  " .. e.label
+end
+
+-- A special issue keeps its button under the page this long after it came out.
+local SPECIAL_SHOWN_DAYS = 7
 
 local PLACEHOLDER = {
     placeholder = true, kind = "Avis à la population", title = "Les rotatives sont à l'arrêt",
@@ -107,8 +120,10 @@ local function refreshFront(c, ds, edition)
     if c.page > #pages then c.page = #pages end
     if c.page < 1 then c.page = 1 end
     local pg = pages[c.page]
-    local number = edition and ("ÉDITION N° " .. edition.number) or "ÉDITION N° 0"
+    local number = edition and ((edition.special and "HORS-SÉRIE N° " or "ÉDITION N° ") .. edition.number) or "ÉDITION N° 0"
     if c.preview then number = "APERÇU, NON PUBLIÉ" end
+    local special = edition and edition.special and not c.preview
+    if special then label = "« " .. edition.special .. " »   ·   " .. label end
 
     f.topLeft:SetText(guild and ("Le journal de <" .. guild .. ">") or "Le journal de la guilde")
     f.topRight:SetText(number)
@@ -131,6 +146,7 @@ local function refreshFront(c, ds, edition)
     f.headline = f.canvas.headline
     f.storyHit = f.canvas.storyHit
     f.letterLink = f.canvas.letterLink
+    if special then UI.Notifier.MarkSpecialRead(edition, ds) end
 end
 
 ------------------------------------------------------------------------
@@ -177,7 +193,7 @@ end
 local function refreshMail(c, edition)
     local r = c.reader
     local letters = edition.letters or {}
-    r.edition:SetText("Édition n° " .. edition.number .. "  ·  " .. edition.label)
+    r.edition:SetText(editionLine(edition))
     r.kind:SetText("COURRIER DES LECTEURS")
     r.title:SetText(#letters > 0 and "Vos lettres à la rédaction" or "Pas encore de courrier")
     r.meta:SetText(#letters .. " lettre" .. (#letters > 1 and "s" or "") .. "  ·  publiées telles quelles, signées de leur auteur")
@@ -194,7 +210,7 @@ end
 
 local function refreshReader(c, ds, edition, a)
     local r = c.reader
-    r.edition:SetText(edition and ("Édition n° " .. edition.number .. "  ·  " .. edition.label) or "")
+    r.edition:SetText(editionLine(edition))
     r.kind:SetText(NP.Upper(a.kind or "Article"))
     r.title:SetText(a.title or "")
     r.meta:SetText(byline(a) .. "  ·  style : " .. (a.style or "?") .. "  ·  " .. #(a.refs or {}) .. " source(s)")
@@ -238,7 +254,7 @@ local function buildArchive(c, page)
     local sub = ink(UI.Text(r, 9), INK_DIM)
     sub:SetPoint("TOP", 0, -42)
     sub:SetJustifyH("CENTER")
-    sub:SetText("ARCHIVES  ·  TOUS LES NUMÉROS PARUS")
+    sub:SetText("ARCHIVES  ·  LES HORS-SÉRIES, PUIS TOUS LES NUMÉROS PARUS")
     rule(r, X0 - 4, 56, PAGE_W - 2 * X0 + 8, 2)
     rule(r, X0 - 4, 60, PAGE_W - 2 * X0 + 8, 1)
     r.list = UI.List(r, ARCHIVE_W + 14, BODY_BOTTOM - 76, ROW_H, function(row)
@@ -258,10 +274,10 @@ local function buildArchive(c, page)
         end)
     end, function(row, item)
         local e = item.edition
-        local color = item.index == c.edition and RED or INK
-        row.number:SetText("N° " .. e.number)
+        local color = item.index == c.shown and RED or INK
+        row.number:SetText((e.special and "HS n° " or "N° ") .. e.number)
         row.number:SetTextColor(color[1], color[2], color[3])
-        row.date:SetText(e.label)
+        row.date:SetText(e.special and (e.special .. "  ·  " .. e.label) or e.label)
         local letters = e.letters and #e.letters or 0
         row.count:SetText(plural(#e.articles, "article") .. (letters > 0 and ("  ·  " .. plural(letters, "lettre")) or ""))
         local first = e.articles[1]
@@ -273,8 +289,13 @@ local function buildArchive(c, page)
 end
 
 local function refreshArchive(c)
+    -- Special issues first (most recent first): they are not lost among the dailies.
     local items = {}
-    for i, e in ipairs(c.editions or {}) do items[i] = { index = i, edition = e } end
+    for _, special in ipairs({ true, false }) do
+        for i, e in ipairs(c.editions or {}) do
+            if (e.special ~= nil) == special then items[#items + 1] = { index = i, edition = e } end
+        end
+    end
     c.archive.list:SetItems(items, "Aucun numéro paru pour l'instant.")
 end
 
@@ -310,7 +331,7 @@ local function build(c)
 
     -- Readers' letters: the issue's mail page, and from there, writing one.
     page.letter = UI.Button(c, "Courrier des lecteurs", 190, 22, function()
-        local e = c.editions and c.editions[c.edition]
+        local e = c.editions and c.editions[c.shown]
         if c.mail or not e then
             UI.Dialogs.Letter(e and e.key)
         else
@@ -334,6 +355,26 @@ local function build(c)
         clock = clock + elapsed
         halo:SetAlpha(0.5 + 0.35 * math.sin(clock * 3))
     end)
+    -- A special issue not read yet (or out this week): a glowing shortcut to it.
+    page.special = UI.Button(c, "Hors-série", 240, 22, function()
+        if page.special.index then UI.Click(); c:OpenEdition(page.special.index) end
+    end)
+    local shalo = page.special:CreateTexture(nil, "BACKGROUND", nil, -8)
+    shalo:SetPoint("TOPLEFT", -12, 10)
+    shalo:SetPoint("BOTTOMRIGHT", 12, -10)
+    shalo:SetTexture(UI.MEDIA .. "glow")
+    shalo:SetBlendMode("ADD")
+    shalo:SetVertexColor(1, 0.45, 0.35)
+    shalo:Hide()
+    page.special.halo = shalo
+    page.special.unread = UI.Badge(page.special, 16)
+    page.special.unread:SetPoint("CENTER", page.special, "TOPRIGHT", -2, -2)
+    local sclock = 0
+    page.special:HookScript("OnUpdate", function(_, elapsed)
+        if not shalo:IsShown() then return end
+        sclock = sclock + elapsed
+        shalo:SetAlpha(0.5 + 0.35 * math.sin(sclock * 3))
+    end)
     page.sources = UI.Button(c, "Sources", 90, 22, function()
         if not c.current then return end
         c.showSources = not c.showSources
@@ -341,8 +382,10 @@ local function build(c)
         c:Refresh()
     end)
 
-    c.edition, c.page = 1, 1
-    c:HookScript("OnHide", function() c.preview = nil end)
+    -- c.edition: the issue picked in the archives (index in c.editions), nil = the latest
+    -- regular one; c.shown: the one on display.
+    c.edition, c.page = nil, 1
+    c:HookScript("OnHide", function() c.preview = nil; c.edition = nil end)
     function c:Read(a)
         if not a or a.placeholder then return end
         self.reading = a.id
@@ -375,7 +418,7 @@ local function build(c)
     -- Preview of an unpublished edition: { articles = {...}, layout = EDITION payload }, or nil.
     function c:SetPreview(p)
         self.preview = p
-        self.edition, self.page, self.reading, self.showSources, self.mail, self.browsing = 1, 1, nil, false, false, false
+        self.edition, self.page, self.reading, self.showSources, self.mail, self.browsing = nil, 1, nil, false, false, false
         self:Refresh()
     end
 
@@ -405,7 +448,7 @@ local function build(c)
         local ds = self:Dataset()
         -- right-aligned buttons, from the right
         local right
-        for _, b in ipairs({ page.letter, page.sources }) do
+        for _, b in ipairs({ page.letter, page.sources, page.special }) do
             b:ClearAllPoints()
             if right then b:SetPoint("RIGHT", right, "LEFT", -6, 0) else b:SetPoint("TOPRIGHT", 0, -(PAGE_H + 8)) end
             right = b
@@ -413,9 +456,15 @@ local function build(c)
 
         local list = ns.Views.Editions(ds)
         self.editions = list
-        if self.edition > #list then self.edition = math.max(1, #list) end
-        if self.edition < 1 then self.edition = 1 end
-        local edition = list[self.edition]
+        if self.edition and (self.edition > #list or self.edition < 1) then self.edition = nil end
+        local shown = self.edition
+        if not shown then
+            for i, e in ipairs(list) do
+                if not e.special then shown = i break end
+            end
+        end
+        self.shown = shown or 1
+        local edition = list[self.shown]
 
         -- Article being read, if any (it may belong to any edition).
         local reading
@@ -459,6 +508,33 @@ local function build(c)
         page.letter.halo:SetShown(unread > 0)
         page.letter.unread:Set(unread > 0 and (unread > 9 and "9+" or tostring(unread)) or nil)
         page.sources:SetShown(not mail and not archive)
+        -- shortcut to a special issue: the first unread one, else one out this week
+        local target, unreadSpecial
+        if not self.preview and not archive and not mail and not reading then
+            target = UI.Notifier.UnreadSpecials(ds, list)[1]
+            unreadSpecial = target ~= nil
+            if not target then
+                for _, e in ipairs(list) do
+                    if e.special and (e.t or 0) >= ns.Views.Now() - SPECIAL_SHOWN_DAYS * DAY then target = e break end
+                end
+            end
+            if target == edition then target, unreadSpecial = nil, false end
+        end
+        page.special.index = nil
+        if target then
+            for i, e in ipairs(list) do if e == target then page.special.index = i end end
+            local title = target.special
+            if #title > 26 then
+                -- cut before byte 25, on a UTF-8 character boundary
+                local cut = 25
+                while cut > 1 and (title:byte(cut) or 0) >= 0x80 and title:byte(cut) < 0xC0 do cut = cut - 1 end
+                title = title:sub(1, cut - 1) .. "…"
+            end
+            page.special:SetLabel("Hors-série : " .. title)
+        end
+        page.special:SetShown(page.special.index ~= nil)
+        page.special.halo:SetShown(unreadSpecial and true or false)
+        page.special.unread:Set(unreadSpecial and "!" or nil)
         local pages = self.pages and #self.pages or 1
         local paging = not reading and not mail and not archive and pages > 1
         self.pagePrev:SetShown(paging)
