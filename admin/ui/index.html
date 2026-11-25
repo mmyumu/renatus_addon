@@ -200,7 +200,10 @@
             <button id="write-gazette">Rédiger</button>
           </div>
           <pre id="preview-summary"></pre>
-          <pre id="preview-prompt" class="prompt" hidden></pre>
+          <div id="preview-box" hidden>
+            <p id="preview-hint" class="hint"></p>
+            <textarea id="preview-prompt" rows="18" spellcheck="false"></textarea>
+          </div>
         </div>
       </div>
       <div class="card" id="draft" hidden>
@@ -309,6 +312,14 @@
           </select>
         </div>
         <div class="field"><span>Articles de l'IA par édition (au plus, de 2 à 10)</span><input id="max-articles" type="number" min="2" max="10"></div>
+        <div class="field column">
+          <span>Prompt de la gazette <em id="prompt-state"></em></span>
+          <textarea id="gazette-prompt" rows="14" spellcheck="false"></textarea>
+          <small>Repères remplacés à chaque numéro : {facts} (obligatoire), {start}, {end},
+            {max_articles}, {tones}, {tone_count}, {rubric}, {rubric_desc}, {templates},
+            {guild_line}, {sex_line}, {past}. Garder la réponse JSON demandée à la fin.</small>
+          <div class="buttons"><button id="default-prompt">Rétablir le prompt par défaut</button></div>
+        </div>
       </div>
       <div class="card">
         <label><input type="checkbox" id="auto"> Automatique : après chaque /reload, analyser les journaux de combat et relever l'armurerie une fois par jour</label>

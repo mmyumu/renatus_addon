@@ -16,6 +16,11 @@ pub struct GazetteOptions<'a> {
     pub timeout: std::time::Duration,
     pub template: &'a str,
     pub max_articles: usize,
+    /// Gazette prompt template (gazette::PROMPT unless the settings replace it).
+    pub prompt: &'a str,
+    /// The exact request to send instead of building it from `prompt` (edited by hand
+    /// in the window's preview).
+    pub request: Option<&'a str>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -38,6 +43,9 @@ pub struct Config {
     pub gazette_template: String,
     /// Most articles the AI may write for one edition (bounded: see `gazette_options`).
     pub max_articles: usize,
+    /// Custom gazette prompt template; empty: the built-in gazette::PROMPT (which then
+    /// follows the app's updates).
+    pub gazette_prompt: String,
     /// After each /reload: combat-log deaths, then the armory once a day.
     pub auto: bool,
     /// Last armory refresh (Unix seconds).
@@ -58,6 +66,7 @@ impl Default for Config {
             auto_gazette: false,
             gazette_template: "auto".into(),
             max_articles: crate::gazette::MAX_ARTICLES,
+            gazette_prompt: String::new(),
             auto: true,
             last_armory: None,
             test_channel: false,
@@ -93,6 +102,20 @@ impl Config {
             timeout: std::time::Duration::from_secs(self.llm_timeout_secs),
             template: &self.gazette_template,
             max_articles: self.max_articles.clamp(ARTICLES_RANGE.0, ARTICLES_RANGE.1),
+            prompt: self.gazette_prompt(),
+            request: None,
+        }
+    }
+
+    /// The gazette prompt template in use. A custom one without `{facts}` (edited by hand
+    /// in the file) falls back to the built-in one.
+    pub fn gazette_prompt(&self) -> &str {
+        if self.gazette_prompt.trim().is_empty()
+            || crate::gazette::check_template(&self.gazette_prompt).is_err()
+        {
+            crate::gazette::PROMPT
+        } else {
+            &self.gazette_prompt
         }
     }
 
@@ -121,5 +144,15 @@ mod tests {
         // An older settings file without the new field keeps the default.
         let old: Config = serde_json::from_str(r#"{"rival": "X"}"#).unwrap();
         assert_eq!(old.max_articles, crate::gazette::MAX_ARTICLES);
+    }
+
+    #[test]
+    fn custom_gazette_prompt_needs_the_facts() {
+        let mut c = Config::default();
+        assert_eq!(c.gazette_options().prompt, crate::gazette::PROMPT);
+        c.gazette_prompt = "Numéro spécial Noël.\n{facts}".into();
+        assert_eq!(c.gazette_options().prompt, c.gazette_prompt);
+        c.gazette_prompt = "Sans les faits".into();
+        assert_eq!(c.gazette_options().prompt, crate::gazette::PROMPT);
     }
 }

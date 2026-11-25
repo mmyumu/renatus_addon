@@ -256,10 +256,21 @@ pub fn gazette(
         answer: None,
     };
     out.notes.insert(0, format!("Gazette {edition}"));
+    if opts.request.is_some() {
+        out.notes
+            .insert(1, "Demande relue et envoyée telle quelle.".into());
+    } else if opts.prompt != gazette::PROMPT {
+        out.notes
+            .insert(1, "Prompt personnalisé (Réglages).".into());
+    }
     let mut items = Vec::new();
     let mut wanted = (template != "auto").then(|| template.to_string());
     if !b.facts.is_empty() {
-        match llm::run(&gazette::prompt(&b, opts.max_articles), command, timeout) {
+        let request = match opts.request {
+            Some(text) => text.to_string(),
+            None => gazette::prompt_in(opts.prompt, &b, opts.max_articles),
+        };
+        match llm::run(&request, command, timeout) {
             Err(e) => out.notes.push(format!("IA indisponible : {e}")),
             Ok(answer) => {
                 let (ai, notes) = gazette::check(&b, &answer, edition, opts.max_articles);

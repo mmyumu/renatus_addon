@@ -1411,7 +1411,9 @@ pub fn draw_rubric(seed: u64) -> (&'static str, &'static str) {
     draw(RUBRICS, 1, !seed)[0]
 }
 
-const PROMPT: &str = "Tu es la rédaction de « La Gazette », le journal humoristique d'une guilde de World of Warcraft.
+/// The built-in prompt. The settings can replace it (`Config::gazette_prompt`): the
+/// `{placeholders}` below are filled in the same way, and `{facts}` is the one it needs.
+pub const PROMPT: &str = "Tu es la rédaction de « La Gazette », le journal humoristique d'une guilde de World of Warcraft.
 Écris entre 2 et {max_articles} articles en français pour l'édition du {start} au {end}, à partir
 UNIQUEMENT des faits numérotés ci-dessous.
 
@@ -1477,15 +1479,52 @@ Réponds par un unique objet JSON, sans texte autour :
 {facts}
 ";
 
+/// Placeholders a prompt template may use; `{facts}` is required (see `check_template`).
+pub const PLACEHOLDERS: &[&str] = &[
+    "{facts}",
+    "{start}",
+    "{end}",
+    "{max_articles}",
+    "{tones}",
+    "{tone_count}",
+    "{rubric}",
+    "{rubric_desc}",
+    "{templates}",
+    "{guild_line}",
+    "{sex_line}",
+    "{past}",
+];
+
+/// A prompt without the facts would let the AI write about nothing real.
+pub fn check_template(template: &str) -> Result<(), String> {
+    if template.contains("{facts}") {
+        Ok(())
+    } else {
+        Err("Le prompt doit contenir {facts} (la liste des faits numérotés).".into())
+    }
+}
+
 pub fn prompt(brief: &Brief, max_articles: usize) -> String {
+    prompt_in(PROMPT, brief, max_articles)
+}
+
+/// `prompt` from another template (the settings' custom prompt).
+pub fn prompt_in(template: &str, brief: &Brief, max_articles: usize) -> String {
     let seed = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_nanos() as u64)
         .unwrap_or(1);
-    prompt_with(brief, max_articles, &draw_tones(seed), draw_rubric(seed))
+    prompt_with(
+        template,
+        brief,
+        max_articles,
+        &draw_tones(seed),
+        draw_rubric(seed),
+    )
 }
 
 pub fn prompt_with(
+    template: &str,
     brief: &Brief,
     max_articles: usize,
     tones: &[(&str, &str)],
@@ -1541,7 +1580,7 @@ pub fn prompt_with(
         .iter()
         .map(|(n, d)| format!("« {n} » ({d})"))
         .collect();
-    PROMPT
+    template
         .replace("{max_articles}", &max_articles.to_string())
         .replace("{tone_count}", &tones.len().to_string())
         .replace("{rubric}", rubric)
@@ -1804,7 +1843,7 @@ mod tests {
         let brief = build(&chronicle(), 0.0, 2000.0);
         let rubrics: BTreeSet<_> = (0..200u64).map(|s| draw_rubric(s).0).collect();
         assert_eq!(rubrics.len(), RUBRICS.len(), "every rubric can come up");
-        let p = prompt_with(&brief, MAX_ARTICLES, &draw_tones(7), draw_rubric(7));
+        let p = prompt_with(PROMPT, &brief, MAX_ARTICLES, &draw_tones(7), draw_rubric(7));
         for (n, d) in draw_tones(7) {
             assert!(p.contains(&format!("« {n} » : {d}")), "{p}");
         }

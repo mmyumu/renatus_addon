@@ -10,7 +10,7 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 use std::time::{Duration, SystemTime};
 
-use renatus_admin_core::config::{self, Config};
+use renatus_admin_core::config::{self, Config, GazetteOptions};
 use renatus_admin_core::ops::{self, Proposal, Status};
 use renatus_admin_core::paths::{WowPaths, ADMIN_ADDON};
 use renatus_admin_core::{addon, armory, chronicle::Chronicle, edition, gazette, issues, revise};
@@ -98,6 +98,8 @@ struct View {
     selection: Option<issues::Selection>,
     app_version: String,
     app_update: Option<String>,
+    /// The built-in gazette prompt, shown when the settings have no custom one.
+    default_prompt: &'static str,
 }
 
 fn view(app: &AppHandle) -> View {
@@ -146,6 +148,7 @@ fn view(app: &AppHandle) -> View {
         selection: s.selection.clone(),
         app_version: app.package_info().version.to_string(),
         app_update: s.app_update.clone(),
+        default_prompt: gazette::PROMPT,
     }
 }
 
@@ -311,7 +314,13 @@ async fn refresh_rival(app: AppHandle, rival: String) -> Result<View, String> {
 /// Writes the AI gazette as a draft shown in the Gazette tab: nothing goes to Press.lua
 /// before "Proposer en jeu" (propose_gazette). `keys`: the facts ticked in the selection.
 #[tauri::command]
-async fn write_gazette(app: AppHandle, keys: Vec<String>) -> Result<View, String> {
+async fn write_gazette(
+    app: AppHandle,
+    keys: Vec<String>,
+    request: Option<String>,
+) -> Result<View, String> {
+    // The request shown (and maybe edited) in the window, sent as is.
+    let request = request.filter(|r| !r.trim().is_empty());
     let sel = app
         .state::<Shared>()
         .state
@@ -326,7 +335,10 @@ async fn write_gazette(app: AppHandle, keys: Vec<String>) -> Result<View, String
             &sel,
             &keys,
             cfg.articles_dir.as_deref(),
-            &cfg.gazette_options(),
+            &GazetteOptions {
+                request: request.as_deref(),
+                ..cfg.gazette_options()
+            },
         ))
     })
     .await;
@@ -529,9 +541,14 @@ async fn preview_gazette(app: AppHandle, keys: Vec<String>) -> Result<Preview, S
         let paths = game_paths(&cfg)?;
         let (_, ch) = ops::load(&paths)?;
         let b = sel.brief_for(&keys);
+        let opts = cfg.gazette_options();
+        let mut summary = ops::brief_summary(&b, ch.members().len());
+        if opts.prompt != gazette::PROMPT {
+            summary.insert(0, "Prompt personnalisé (Réglages).".into());
+        }
         Ok(Preview {
-            summary: ops::brief_summary(&b, ch.members().len()),
-            prompt: gazette::prompt(&b, cfg.gazette_options().max_articles),
+            summary,
+            prompt: gazette::prompt_in(opts.prompt, &b, opts.max_articles),
         })
     })
     .await
@@ -546,6 +563,7 @@ struct Settings {
     llm_timeout_secs: u64,
     gazette_template: String,
     max_articles: usize,
+    gazette_prompt: String,
     auto: bool,
     auto_gazette: bool,
     test_channel: bool,
@@ -559,6 +577,14 @@ fn save_settings(app: AppHandle, settings: Settings) -> Result<View, String> {
     if command.is_empty() {
         return Err("Commande de l'IA vide.".into());
     }
+    // The built-in text (or nothing) is stored as "": it then follows the app's updates.
+    let custom = settings.gazette_prompt.trim();
+    let gazette_prompt = if custom.is_empty() || custom == gazette::PROMPT.trim() {
+        String::new()
+    } else {
+        gazette::check_template(custom)?;
+        settings.gazette_prompt.clone()
+    };
     save_config(&app, |c| {
         c.account = settings.account.filter(|a| !a.is_empty());
         c.llm_command = command;
@@ -570,6 +596,7 @@ fn save_settings(app: AppHandle, settings: Settings) -> Result<View, String> {
         };
         let (lo, hi) = config::ARTICLES_RANGE;
         c.max_articles = settings.max_articles.clamp(lo, hi);
+        c.gazette_prompt = gazette_prompt;
         c.auto = settings.auto;
         c.auto_gazette = settings.auto_gazette;
         c.test_channel = settings.test_channel;

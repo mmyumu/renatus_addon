@@ -349,10 +349,10 @@ fn run() -> Result<(), String> {
                 }
                 let b = sel.brief_for(&keys);
                 print_notes(&ops::brief_summary(&b, ch.members().len()));
-                println!(
-                    "\n----- demande qui serait envoyée à l'IA -----\n{}",
-                    gazette::prompt(&b, cfg.gazette_options().max_articles)
-                );
+                println!("\n----- demande qui serait envoyée à l'IA -----\n{}", {
+                    let opts = cfg.gazette_options();
+                    gazette::prompt_in(opts.prompt, &b, opts.max_articles)
+                });
                 return Ok(());
             }
             println!("Rédaction en cours (une ou deux minutes)…");

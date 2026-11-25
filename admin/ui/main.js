@@ -11,6 +11,10 @@ const CLASSES = {
 };
 let state = null;
 let settingsShown = false;
+let defaultPrompt = "";
+// Ticked facts when the request was last shown: the shown (maybe edited) request is
+// sent by « Rédiger » only while they are still the ticked ones.
+let previewKeys = null;
 
 function when(t) {
   if (!t) return "—";
@@ -79,6 +83,9 @@ function render(s) {
   $("articles-dir").textContent = s.config.articlesDir ?? "non choisi";
   $("open-articles").disabled = !s.config.articlesDir;
 
+  defaultPrompt = s.defaultPrompt;
+  $("prompt-state").textContent = s.config.gazettePrompt ? "(personnalisé)" : "(par défaut)";
+
   // Settings (filled once, so typing is never overwritten)
   $("wow").textContent = s.config.wowPath ?? "introuvable : clique sur « Changer »";
   $("version").textContent = s.appVersion;
@@ -92,6 +99,7 @@ function render(s) {
     $("llm-timeout").value = s.config.llmTimeoutSecs;
     $("gazette-template").value = s.config.gazetteTemplate || "auto";
     $("max-articles").value = s.config.maxArticles;
+    $("gazette-prompt").value = s.config.gazettePrompt || s.defaultPrompt;
     $("auto").checked = s.config.auto;
     $("auto-gazette").checked = s.config.autoGazette;
     $("test-channel").checked = s.config.testChannel;
@@ -327,6 +335,24 @@ function countFacts() {
   $("facts-shown").checked = shown.length > 0 && on === shown.length;
   $("facts-shown").indeterminate = on > 0 && on < shown.length;
   $("preview").disabled = n === 0;
+  previewHint();
+}
+
+const tickedKeys = () => [...ticked].sort().join(",");
+
+// The request shown under the facts is the one sent, unless the ticks changed since.
+function previewHint() {
+  const hint = $("preview-hint");
+  if (previewKeys === null) return;
+  const fresh = previewKeys === tickedKeys();
+  hint.textContent = fresh
+    ? "Modifiable : c'est ce texte qui part à l'IA avec « Rédiger »."
+    : "Les faits cochés ont changé : cette demande ne partira pas. « Voir la demande » pour la refaire.";
+  hint.className = fresh ? "hint" : "hint error";
+}
+
+function shownRequest() {
+  return previewKeys !== null && previewKeys === tickedKeys() ? $("preview-prompt").value : null;
 }
 
 function fillOptions(id, all, values) {
@@ -380,7 +406,8 @@ function renderSelection(sel, busy) {
     fillOptions("facts-cat", "Toutes catégories", uniq(sel.candidates.map((c) => c.cat)));
     fillOptions("facts-who", "Tous les membres", uniq(sel.candidates.flatMap((c) => c.who)));
     $("preview-summary").textContent = "";
-    $("preview-prompt").hidden = true;
+    $("preview-box").hidden = true;
+    previewKeys = null;
     fillFacts();
   }
   $("write-gazette").disabled = busy;
@@ -943,7 +970,7 @@ for (const th of document.querySelectorAll(".facts-table th[data-sort]")) {
     fillFacts();
   });
 }
-$("write-gazette").addEventListener("click", () => call("write_gazette", { keys: [...ticked] }));
+$("write-gazette").addEventListener("click", () => call("write_gazette", { keys: [...ticked], request: shownRequest() }));
 $("propose-gazette").addEventListener("click", () => call("propose_gazette"));
 $("discard-gazette").addEventListener("click", () => call("discard_gazette"));
 $("pick-articles").addEventListener("click", () => call("pick_articles_dir"));
@@ -954,11 +981,19 @@ $("preview").addEventListener("click", async () => {
   try {
     const p = await invoke("preview_gazette", { keys: [...ticked] });
     $("preview-summary").textContent = p.summary.join("\n");
-    $("preview-prompt").textContent = p.prompt;
-    $("preview-prompt").hidden = false;
+    $("preview-prompt").value = p.prompt;
+    $("preview-box").hidden = false;
+    previewKeys = tickedKeys();
+    previewHint();
   } catch (e) {
     report(e);
   }
+});
+$("default-prompt").addEventListener("click", () => {
+  $("gazette-prompt").value = defaultPrompt;
+  const msg = $("settings-message");
+  msg.textContent = "Prompt par défaut remis : « Enregistrer » pour l'appliquer.";
+  msg.className = "";
 });
 $("save-settings").addEventListener("click", async () => {
   const msg = $("settings-message");
@@ -970,6 +1005,7 @@ $("save-settings").addEventListener("click", async () => {
         llmTimeoutSecs: Number($("llm-timeout").value) || 600,
         gazetteTemplate: $("gazette-template").value,
         maxArticles: Number($("max-articles").value) || 5,
+        gazettePrompt: $("gazette-prompt").value,
         auto: $("auto").checked,
         autoGazette: $("auto-gazette").checked,
         testChannel: $("test-channel").checked,
