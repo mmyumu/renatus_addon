@@ -1392,6 +1392,11 @@ Règles impératives :
     retour (« la semaine dernière, X jurait… »). Mais ne reprends ni leurs titres, ni leurs
     tournures, ni leurs angles, et ne t'en sers jamais comme source : seuls les faits
     numérotés font foi, et les refs ne citent que des faits numérotés.
+14. Équilibre le numéro entre les membres : celui qui a le plus joué peut avoir un peu plus
+    de place, mais au plus 40 % des articles (2 sur 5, 4 sur 10) tournent autour d'un même
+    personnage. Ses autres exploits peuvent se regrouper dans une brève ou un article
+    collectif ; préfère mettre en avant d'autres membres présents dans les faits, même pour
+    un fait plus modeste.
 {guild_line}{sex_line}
 Réponds par un unique objet JSON, sans texte autour :
 {\"maquette\": \"...\", \"articles\": [{\"title\": \"...\", \"format\": \"...\", \"style\": \"...\", \"body\": \"...\", \"refs\": [\"F1\", \"F4\"], \"exergue\": \"...\", \"portrait\": \"...\"}]}
@@ -1712,6 +1717,7 @@ mod tests {
         );
         let p = prompt(&brief, MAX_ARTICLES);
         assert!(p.contains("F2. ") && p.contains("« Les Crocs »") && p.contains("Gorbash"));
+        assert!(p.contains("Équilibre le numéro entre les membres"));
     }
 
     #[test]
