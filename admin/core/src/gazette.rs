@@ -1177,9 +1177,10 @@ pub fn build_split(ch: &Chronicle, since: f64, until: f64, split: f64) -> Brief 
         };
         if prov == "MAN" && !["ANECDOTE", "WANTED", "WANTED_CLOSE", "ENEMY_NOTE"].contains(&k) {
             text = format!("selon {who} (déclaré, non vérifié) : {text}");
-        } else if prov == "DED" {
-            text += " (déduit, non observé)";
         }
+        // "DED" (only PvP victories) is not marked: the game counted the victory, only the
+        // victim's name is deduced (seen dead nearby), and that is nearly always the case,
+        // so the AI kept writing "déduit, non observé" after every single victory.
         // A non-consenting member in the text -> fact dropped.
         if member_re.find(&text).is_some() {
             exclude("nomme un membre sans consentement", 1);
@@ -1349,26 +1350,95 @@ pub fn build_split(ch: &Chronicle, since: f64, until: f64, split: f64) -> Brief 
     }
 }
 
-const PROMPT: &str = "Tu es la rédaction de « La Gazette », le journal satirique d'une guilde de World of Warcraft.
+/// The columnists an issue's articles can be written by: (name shown as the article's
+/// style, how they write). Each generation draws `TONES_PER_ISSUE` of them, so that
+/// every issue gets its own voices. A tone is a voice: it fits any kind of article.
+pub const TONES: &[(&str, &str)] = &[
+    ("éditorialiste pince-sans-rire", "ironie de rédaction, commentaires faussement sérieux, chute sèche"),
+    ("journaliste people", "façon magazine people (Paris Match, Voici) : potins, EXCLU en majuscules, sous-entendus et questions qui insinuent, émotions surjouées, le moindre détail en scandale"),
+    ("grand reporter de magazine", "reportage feutré et révérencieux, destins et grands moments, le moindre fait traité comme un moment d'Histoire"),
+    ("narrateur animalier", "voix grave et fascinée de documentaire, qui observe les membres comme une espèce sauvage dans son habitat"),
+    ("commentateur sportif", "direct, envolées, ralentis, statistiques brandies, consultant qui perd sa voix"),
+    ("barde épique", "le souffle des chansons de geste, réservé aux exploits les plus dérisoires"),
+    ("détective de polar", "narrateur désabusé, phrases courtes, chaque fait est un indice"),
+    ("chroniqueur absurde", "presse parodique : titres d'actualité sérieux pour des faits dérisoires, logique décalée assumée jusqu'au bout"),
+    ("conteur", "« il était une fois », ton doux et naïf de conte pour enfants, morale finale"),
+    ("critique d'art", "chaque exploit ou déboire lu comme une performance d'art contemporain, vocabulaire prétentieux"),
+    ("correspondant de guerre", "lettre du front, solennelle et émue, bien plus que les faits ne le méritent"),
+];
+
+pub const TONES_PER_ISSUE: usize = 3;
+
+/// Offbeat sections, unlike tones a form of article: (section, what it holds). Each
+/// generation draws one, for one article of the issue.
+pub const RUBRICS: &[(&str, &str)] = &[
+    ("L'avis des lieux", "un boss, un donjon ou une contrée note ses visiteurs en étoiles, furieux ou dithyrambique"),
+    ("Météo", "bulletin météo et trafic où les membres sont le temps qu'il fait : prévisions, alertes, éclaircies"),
+    ("Chronique judiciaire", "le procès d'un membre pour un délit imaginaire tiré des faits : pièces à conviction, plaidoirie, condamnation ou relaxe"),
+    ("Étude scientifique", "un comportement de joueur analysé : résumé, méthodologie, échantillon, conclusions prudentes"),
+    ("Guide touristique", "les lieux visités notés et recommandés (ou déconseillés) d'après ce que les membres y ont vécu"),
+    ("Mode d'emploi", "comment reproduire un exploit ou un déboire des faits, en étapes numérotées, avec avertissements"),
+];
+
+/// Draws `n` distinct entries of `list` from `seed` (a small xorshift: no need for more).
+fn draw(
+    list: &[(&'static str, &'static str)],
+    n: usize,
+    seed: u64,
+) -> Vec<(&'static str, &'static str)> {
+    // splitmix64 first, so that close seeds (consecutive nanoseconds) still draw apart.
+    let mut x = seed.wrapping_add(0x9E37_79B9_7F4A_7C15);
+    x = (x ^ (x >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    x = (x ^ (x >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+    x = (x ^ (x >> 31)) | 1;
+    let mut pool = list.to_vec();
+    let mut out = Vec::new();
+    while out.len() < n && !pool.is_empty() {
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        out.push(pool.remove((x % pool.len() as u64) as usize));
+    }
+    out
+}
+
+pub fn draw_tones(seed: u64) -> Vec<(&'static str, &'static str)> {
+    draw(TONES, TONES_PER_ISSUE, seed)
+}
+
+pub fn draw_rubric(seed: u64) -> (&'static str, &'static str) {
+    draw(RUBRICS, 1, !seed)[0]
+}
+
+const PROMPT: &str = "Tu es la rédaction de « La Gazette », le journal humoristique d'une guilde de World of Warcraft.
 Écris entre 2 et {max_articles} articles en français pour l'édition du {start} au {end}, à partir
 UNIQUEMENT des faits numérotés ci-dessous.
 
 Règles impératives :
 1. N'invente rien : aucun événement, nom, chiffre, lieu, boss, objet ou dialogue rapporté qui ne
    figure pas dans les faits. Tu peux commenter, exagérer le ton, faire des hypothèses présentées
-   comme telles (« on murmure que… » à propos d'un fait réel), mais jamais créer un fait.
+   comme telles à propos d'un fait réel, mais jamais créer un fait.
 2. Ne nomme que les personnages présents dans les faits. Les joueurs ennemis (guilde rivale ou
    autres) sont nommés par leur nom de personnage : tu peux t'en moquer comme des nôtres.
 3. Respecte la provenance : un fait « déclaré, non vérifié » s'écrit « selon X » ; un fait
-   « supposé » ou « déduit » reste au conditionnel ; les rivaux aperçus avant une mort ne sont pas
+   « supposé » reste au conditionnel ; les rivaux aperçus avant une mort ne sont pas
    les tueurs.
 4. Humour bienveillant : on taquine les personnages et leurs exploits ou déboires en jeu, jamais
    les joueurs réels (physique, vie privée, origine, etc.). Pas d'insulte ni de contenu choquant.
 5. Chaque article cite dans « refs » les numéros des faits qu'il utilise (au moins un).
 6. Titre : 80 caractères au plus. Corps : 1200 caractères au plus, texte brut sans Markdown,
    sauf des intertitres : une ligne qui commence par « ## ».
-7. Varie les formats (Une, Brève, Nécrologie, Chronique PvP, Carnet mondain…) et les styles
-   (journaliste sarcastique, chroniqueur épique, rédacteur de faits divers…).
+7. Varie les formats (Une, Brève, Nécrologie, Chronique PvP, Carnet mondain…). Ce numéro a
+   {tone_count} chroniqueurs, chacun avec son ton :
+{tones}
+   Confie chaque article au chroniqueur qui lui va le mieux, chacun au moins une fois, et
+   écris son nom dans « style » (il s'affiche comme signature ; le format, lui, est la
+   rubrique). Tiens le ton d'un bout à l'autre de l'article, naturellement, sans forcer : ce
+   sont des voix, pas des parodies appuyées. Un même chroniqueur ne répète pas ses tournures
+   d'un article à l'autre (ouverture, formule, chute).
+   Ce numéro a aussi une rubrique décalée, « {rubric} » : {rubric_desc}. Écris-y un seul
+   article, si les faits s'y prêtent : son format est « {rubric} », un des chroniqueurs le
+   signe.
 8. L'ordre des articles compte : le premier fait la une. Un fait « AFFRONTEMENT MAJEUR » mérite
    un article à lui seul (la une, sauf événement plus marquant) ; une « Escarmouche », une brève.
    Un « champ de bataille » est un match organisé par le jeu (équipes et adversaires tirés au
@@ -1387,11 +1457,11 @@ Règles impératives :
     comme des records absolus.
     Un fait qui regroupe plusieurs événements (quêtes, rivaux croisés, créatures abattues)
     porte la date du dernier ; « entre … et … » donne sa durée réelle : jamais « d'un coup ».
-13. Varie d'un numéro à l'autre. Si des numéros précédents figurent plus bas, ils servent de
-    mémoire de la rédaction : fais suivre un feuilleton, rappelle un gag récurrent, note un
-    retour (« la semaine dernière, X jurait… »). Mais ne reprends ni leurs titres, ni leurs
-    tournures, ni leurs angles, et ne t'en sers jamais comme source : seuls les faits
-    numérotés font foi, et les refs ne citent que des faits numérotés.
+13. Varie d'un numéro à l'autre. Si les titres des numéros précédents figurent plus bas, ils
+    servent de mémoire de la rédaction : fais suivre un feuilleton, rappelle un gag récurrent,
+    note un retour. Mais ne reprends pas leurs titres ni leurs angles, et ne t'en sers jamais
+    comme source : seuls les faits numérotés font foi, et les refs ne citent que des faits
+    numérotés.
 14. Équilibre le numéro entre les membres : celui qui a le plus joué peut avoir un peu plus
     de place, mais au plus 40 % des articles (2 sur 5, 4 sur 10) tournent autour d'un même
     personnage. Ses autres exploits peuvent se regrouper dans une brève ou un article
@@ -1406,6 +1476,19 @@ Réponds par un unique objet JSON, sans texte autour :
 ";
 
 pub fn prompt(brief: &Brief, max_articles: usize) -> String {
+    let seed = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos() as u64)
+        .unwrap_or(1);
+    prompt_with(brief, max_articles, &draw_tones(seed), draw_rubric(seed))
+}
+
+pub fn prompt_with(
+    brief: &Brief,
+    max_articles: usize,
+    tones: &[(&str, &str)],
+    (rubric, rubric_desc): (&str, &str),
+) -> String {
     let date = |t: f64| local(t).format("%d/%m/%Y").to_string();
     let guild_line = brief
         .rival_guild
@@ -1440,16 +1523,17 @@ pub fn prompt(brief: &Brief, max_articles: usize) -> String {
     let past = if brief.past.is_empty() {
         String::new()
     } else {
+        // Titles only: whole articles made the AI copy their voice, issue after issue.
         let mut text = String::from(
-            "Numéros précédents (déjà publiés, pour mémoire seulement — pas des sources) :\n",
+            "Titres des numéros précédents (déjà publiés, pour mémoire seulement — pas des sources) :\n",
         );
         for issue in &brief.past {
-            text += &format!("\n=== Numéro du {} ===\n", date(issue.when));
-            for (title, body) in &issue.articles {
-                text += &format!("\n# {title}\n{body}\n");
+            text += &format!("\nNuméro du {} :\n", date(issue.when));
+            for (title, _) in &issue.articles {
+                text += &format!("- {title}\n");
             }
         }
-        text + "\n=== Fin des numéros précédents ===\n\n"
+        text + "\n"
     };
     let templates: Vec<String> = crate::edition::TEMPLATES
         .iter()
@@ -1457,6 +1541,17 @@ pub fn prompt(brief: &Brief, max_articles: usize) -> String {
         .collect();
     PROMPT
         .replace("{max_articles}", &max_articles.to_string())
+        .replace("{tone_count}", &tones.len().to_string())
+        .replace("{rubric}", rubric)
+        .replace("{rubric_desc}", rubric_desc)
+        .replace(
+            "{tones}",
+            &tones
+                .iter()
+                .map(|(n, d)| format!("   - « {n} » : {d}"))
+                .collect::<Vec<_>>()
+                .join("\n"),
+        )
         .replace("{templates}", &templates.join(", "))
         .replace("{start}", &date(brief.since))
         .replace("{end}", &date(brief.until))
@@ -1692,6 +1787,28 @@ mod tests {
             events: events.into_iter().collect(),
             ..Chronicle::default()
         }
+    }
+
+    #[test]
+    fn each_issue_draws_distinct_tones() {
+        for seed in 0..200u64 {
+            let tones = draw_tones(seed);
+            assert_eq!(tones.len(), TONES_PER_ISSUE);
+            let names: BTreeSet<_> = tones.iter().map(|(n, _)| n).collect();
+            assert_eq!(names.len(), TONES_PER_ISSUE, "seed {seed}");
+        }
+        let all: BTreeSet<_> = (0..200u64).flat_map(draw_tones).map(|(n, _)| n).collect();
+        assert_eq!(all.len(), TONES.len(), "every tone can come up");
+        let brief = build(&chronicle(), 0.0, 2000.0);
+        let rubrics: BTreeSet<_> = (0..200u64).map(|s| draw_rubric(s).0).collect();
+        assert_eq!(rubrics.len(), RUBRICS.len(), "every rubric can come up");
+        let p = prompt_with(&brief, MAX_ARTICLES, &draw_tones(7), draw_rubric(7));
+        for (n, d) in draw_tones(7) {
+            assert!(p.contains(&format!("« {n} » : {d}")), "{p}");
+        }
+        let (r, d) = draw_rubric(7);
+        assert!(p.contains(&format!("« {r} » : {d}")), "{p}");
+        assert!(!p.contains("{tones}") && !p.contains("{tone_count}") && !p.contains("{rubric"));
     }
 
     #[test]
@@ -2059,12 +2176,10 @@ mod tests {
             [("Le lac".to_string(), "Alice nage.".to_string())]
         );
         let p = prompt(&brief, MAX_ARTICLES);
-        assert!(
-            p.contains("=== Numéro du ") && p.contains("# Le lac\nAlice nage."),
-            "{p}"
-        );
+        assert!(p.contains("Numéro du ") && p.contains("- Le lac\n"), "{p}");
+        assert!(!p.contains("Alice nage"), "titles only: {p}");
         assert!(!p.contains("Bob nage"));
-        assert!(p.find("Numéros précédents") < p.find("Faits retenus"));
+        assert!(p.find("numéros précédents") < p.find("Faits retenus"));
     }
 
     #[test]
