@@ -190,7 +190,19 @@ local function buildTrades()
         local ds = ns.Store.Dataset()
         local ev, why
         if o.from == ds.me then
-            ev, why = Trade.Cancel(ds, o.id)
+            -- No server: an accept sent before the withdrawal reached the recipient still
+            -- wins (the earlier of the two counts, the same on every client). Say so.
+            local name = ns.Store.DisplayName(o.to, o.toName) or o.toName or "?"
+            UI.Dialogs.Confirm("Retirer l'offre",
+                ("Si %s a déjà accepté sans avoir encore reçu ton retrait, l'échange se fera quand même : "
+                .. "tu le verras à la prochaine synchronisation."):format(name),
+                "Retirer", function()
+                    local ev2, why2 = Trade.Cancel(ns.Store.Dataset(), o.id)
+                    self.error:SetText(ev2 and "" or (why2 or "Impossible."))
+                    UI.Refresh()
+                    self:Refresh()
+                end)
+            return
         elseif button == "a" then
             ev, why = Trade.Reply(ds, o.id, true)
         else
