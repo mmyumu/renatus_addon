@@ -550,6 +550,20 @@ fn names_list(v: &Value) -> Vec<String> {
 
 /// First kills of creature species (MOB_KILL), one fact per member: the rare and elite
 /// ones first, then the highest levels.
+/// When a grouped fact (quests, rivals seen, bestiary) spans several events: " entre lundi
+/// 23/11 22h10 et mardi 24/11 21h47". A fact is dated by its last event, so without this
+/// span the writer reads "69 quests at 21h47" as all turned in at once. Empty for one event.
+fn span(evs: &[&Value]) -> String {
+    let (Some(first), Some(last)) = (evs.first(), evs.last()) else {
+        return String::new();
+    };
+    let (start, end) = (num_of(first, "t"), num_of(last, "t"));
+    if evs.len() < 2 || when(start) == when(end) {
+        return String::new();
+    }
+    format!(" entre {} et {}", when(start), when(end))
+}
+
 fn bestiary_fact(who: &str, evs: &[&Value]) -> (f64, String, Vec<String>) {
     let rank = |cls: &str| match cls {
         "worldboss" => 0,
@@ -581,8 +595,9 @@ fn bestiary_fact(who: &str, evs: &[&Value]) -> (f64, String, Vec<String>) {
         })
         .collect();
     let mut text = format!(
-        "{who} abat pour la première fois {} espèce(s) de créatures",
-        evs.len()
+        "{who} abat pour la première fois {} espèce(s) de créatures{}",
+        evs.len(),
+        span(evs)
     );
     if !names.is_empty() {
         text += &format!(", dont : {}", names.join(", "));
@@ -1194,8 +1209,9 @@ pub fn build_split(ch: &Chronicle, since: f64, until: f64, split: f64) -> Brief 
             .collect();
         let list: Vec<&str> = distinct.iter().take(8).map(String::as_str).collect();
         let text = format!(
-            "{who} a croisé {} fois des membres de la guilde rivale {} : {}",
+            "{who} a croisé {} fois{} des membres de la guilde rivale {} : {}",
             evs.len(),
+            span(evs),
             guilds.into_iter().collect::<Vec<_>>().join("/"),
             list.join(", ")
         );
@@ -1213,9 +1229,9 @@ pub fn build_split(ch: &Chronicle, since: f64, until: f64, split: f64) -> Brief 
             .filter_map(|x| str_of(payload(x), "title"))
             .take(3)
             .collect();
-        let mut text = format!("{who} termine {} quête(s)", evs.len());
+        let mut text = format!("{who} termine {} quête(s){}", evs.len(), span(evs));
         if !titles.is_empty() {
-            text += &format!(" dont « {} »", titles.join(" », « "));
+            text += &format!(", dont « {} »", titles.join(" », « "));
         }
         if member_re.find(&text).is_some() {
             continue;
@@ -1369,6 +1385,8 @@ Règles impératives :
     Renatus (depuis que chacun a installé l'addon), pas sur toute la vie des personnages :
     présente-les comme des records « de la gazette » ou « depuis nos archives », jamais
     comme des records absolus.
+    Un fait qui regroupe plusieurs événements (quêtes, rivaux croisés, créatures abattues)
+    porte la date du dernier ; « entre … et … » donne sa durée réelle : jamais « d'un coup ».
 13. Varie d'un numéro à l'autre. Si des numéros précédents figurent plus bas, ils servent de
     mémoire de la rédaction : fais suivre un feuilleton, rappelle un gag récurrent, note un
     retour (« la semaine dernière, X jurait… »). Mais ne reprends ni leurs titres, ni leurs
