@@ -450,6 +450,50 @@ def glow(size=128):
     return img
 
 
+def holo(size=256):
+    """Shiny cards: rainbow foil, diagonal bands with a faint interference pattern.
+    Seamless in both directions (drawn with REPEAT, its texcoords scrolled)."""
+    y, x = np.mgrid[0:size, 0:size].astype(np.float64) + 0.5
+    hue = ((x + y) / size * 2) % 1.0
+    k = np.arange(3)[None, None, :]
+    rgb = 0.5 + 0.5 * np.cos(2 * np.pi * (hue[..., None] - k / 3))
+    bright = 0.55 + 0.45 * np.sin(2 * np.pi * (x - y) / size * 3) ** 2
+    img = rgba(size, size)
+    img[..., :3] = 255 * rgb * bright[..., None]
+    img[..., 3] = 255
+    return img
+
+
+def sheen(w=256, h=256):
+    """Shiny cards: a soft diagonal band of light, transparent elsewhere (edges included,
+    the texture is drawn clamped and slid across the card)."""
+    y, x = np.mgrid[0:h, 0:w].astype(np.float64) + 0.5
+    d = (x - w / 2) + (y - h / 2) * 0.45
+    core = np.exp(-(d / 9) ** 2)
+    halo = np.exp(-(d / 30) ** 2) * 0.35
+    a = np.clip(core + halo, 0, 1)
+    a[:, :2] = 0
+    a[:, -2:] = 0
+    img = rgba(h, w)
+    img[..., :3] = (255, 250, 235)
+    img[..., 3] = 255 * a
+    return img
+
+
+def sparkle(size=64):
+    """Shiny cards: a four-pointed glint."""
+    y, x = np.mgrid[0:size, 0:size].astype(np.float64) + 0.5
+    c = size / 2
+    dx, dy = np.abs(x - c) / c, np.abs(y - c) / c
+    rays = np.exp(-dx / 0.035) * np.exp(-dy / 0.45) + np.exp(-dy / 0.035) * np.exp(-dx / 0.45)
+    core = np.exp(-(np.hypot(dx, dy) / 0.12) ** 2)
+    a = np.clip(rays + core, 0, 1) * np.clip(1 - np.hypot(dx, dy), 0, 1)
+    img = rgba(size, size)
+    img[..., :3] = 255
+    img[..., 3] = 255 * a
+    return img
+
+
 def _serif(px, bold=True):
     """A serif font for the masthead; None if none is installed (blocks are drawn instead)."""
     from PIL import ImageFont
@@ -771,6 +815,9 @@ TEXTURES = {
     "cardback": card_back,
     "gem": gem,
     "glow": glow,
+    "holo": holo,
+    "sheen": sheen,
+    "sparkle": sparkle,
     "gazette": gazette_icon,
     "booster": booster,
     "cardbg_lieu": cardbg_lieu,

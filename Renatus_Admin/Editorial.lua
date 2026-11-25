@@ -110,7 +110,13 @@ function Press.Label(item)
         local text = "Guilde rivale : " .. (R.GuildConfig.Trim(p.rival) or "aucune")
         if type(p.boosters) == "table" then
             local r = R.Album.Rule(p.boosters)
-            text = text .. (" ; boosters %d/jour, +%d bonus, %d max"):format(r.day, r.bonus, r.cap)
+            if r.src then
+                local on = 0
+                for _, s in pairs(r.src) do if s.n > 0 and s.cap > 0 then on = on + 1 end end
+                text = text .. (" ; boosters %d/jour, %d source(s), %d max"):format(r.day, on, r.cap)
+            else
+                text = text .. (" ; boosters %d/jour, +%d bonus, %d max"):format(r.day, r.bonus, r.cap)
+            end
         end
         return text
     end

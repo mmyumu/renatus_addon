@@ -6,7 +6,7 @@ local _, ns = ...
 local UI = ns.UI
 local Album, Trade = ns.Album, ns.Trade
 
-local PAD = 28
+local PAD = 34
 
 ------------------------------------------------------------------------
 -- Helpers
@@ -20,7 +20,7 @@ end
 
 local function colored(card)
     local r = Album.Rarity(card.rarity).color
-    return "|c" .. UI.ColorHex(r[1], r[2], r[3]) .. tostring(card.name) .. "|r"
+    return (card.shiny and (UI.SHINY_MARK .. " ") or "") .. "|c" .. UI.ColorHex(r[1], r[2], r[3]) .. tostring(card.name) .. "|r"
 end
 
 local function names(byId, ids)

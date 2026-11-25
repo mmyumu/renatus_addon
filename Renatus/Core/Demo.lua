@@ -213,6 +213,7 @@ local function build()
     for _, card in ipairs(ns.Album.Catalogue(dataset)) do
         local h = ns.Album.Hash(card.id)
         if card.rarity ~= "legendary" and h % 3 == 0 then dataset.collection[card.id] = (h % 7 == 0) and 2 or 1 end
+        if h % 13 == 0 then dataset.collection[ns.Album.ShinyId(card.id)] = 1 end   -- a few shiny ones
     end
     return dataset
 end

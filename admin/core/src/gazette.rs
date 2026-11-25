@@ -368,6 +368,25 @@ pub(crate) fn local(t: f64) -> chrono::DateTime<Local> {
         .unwrap_or_else(Local::now)
 }
 
+/// Battlegrounds and arenas: matches set up by the game, not fights met on the front
+/// (same rule as the addon's `Views.InHunt`).
+pub(crate) fn in_battleground(e: &Value) -> bool {
+    e.get("loc")
+        .and_then(|l| str_of(l, "it"))
+        .is_some_and(|it| it == "pvp" || it == "arena")
+}
+
+/// Combat events of a battleground: told as a match, never counted as fights, deaths or
+/// victories of the front (our kills there are not even recorded, so deaths alone would
+/// read as a lopsided score).
+pub(crate) fn bg_combat(e: &Value) -> bool {
+    in_battleground(e)
+        && matches!(
+            str_of(e, "k"),
+            Some("DEATH" | "PVP_KILL" | "ENEMY_SEEN" | "DEATH_CAUSE")
+        )
+}
+
 /// Within this gap, fights with enemy players belong to the same "affrontement".
 const FIGHT_GAP: f64 = 1800.0;
 /// From this many fights, they are told as one affrontement instead of one by one.
@@ -824,6 +843,8 @@ pub fn build_split(ch: &Chronicle, since: f64, until: f64, split: f64) -> Brief 
     let mut quests: BTreeMap<(String, bool), Vec<&Value>> = BTreeMap::new();
     let mut bestiary: BTreeMap<(String, bool), Vec<&Value>> = BTreeMap::new();
     let mut counters: BTreeMap<(String, bool), Vec<&Value>> = BTreeMap::new();
+    // Deaths and kills in a battleground, per (author, battleground, recent?): one match fact.
+    let mut matches: BTreeMap<(String, String, bool), Vec<&Value>> = BTreeMap::new();
     // Events several members recorded (same `occ`: a boss, an expedition, a duel): one fact.
     let mut occurrences: HashMap<String, usize> = HashMap::new();
     // Fights with enemy players: close ones become a single "affrontement" fact.
@@ -850,6 +871,13 @@ pub fn build_split(ch: &Chronicle, since: f64, until: f64, split: f64) -> Brief 
         };
         let prov = str_of(e, "prov").unwrap_or("OBS");
         let recent = num_of(e, "t") >= split;
+        if bg_combat(e) {
+            match k {
+                "DEATH" | "PVP_KILL" => matches.entry((author, zone, recent)).or_default().push(e),
+                _ => exclude("champ de bataille ou arène", 1),
+            }
+            continue;
+        }
         if k == "ENEMY_SEEN" {
             seen_rivals.entry((author, recent)).or_default().push(e);
             continue;
@@ -1200,6 +1228,34 @@ pub fn build_split(ch: &Chronicle, since: f64, until: f64, split: f64) -> Brief 
         raw.push((num_of(evs[evs.len() - 1], "t"), text, tail));
     }
 
+    for ((author, zone, _), evs) in &matches {
+        let who = authors.get(author).cloned().unwrap_or_else(|| "?".into());
+        let count = |k: &str| evs.iter().filter(|x| str_of(x, "k") == Some(k)).count();
+        let mut bits = Vec::new();
+        for (n, lab) in [
+            (count("DEATH"), "mort(s)"),
+            (count("PVP_KILL"), "victoire(s) honorable(s)"),
+        ] {
+            if n > 0 {
+                bits.push(format!("{n} {lab}"));
+            }
+        }
+        let place = if zone.is_empty() {
+            "champ de bataille".to_string()
+        } else {
+            format!("champ de bataille {zone}")
+        };
+        let text = format!(
+            "{place} (match organisé par le jeu, pas un affrontement du front) — bilan de {who} : {}",
+            bits.join(", ")
+        );
+        let ids: Vec<String> = evs
+            .iter()
+            .filter_map(|x| str_of(x, "id").map(str::to_string))
+            .collect();
+        let tail = ids[ids.len().saturating_sub(10)..].to_vec();
+        raw.push((num_of(evs[evs.len() - 1], "t"), text, tail));
+    }
     for ((author, _), evs) in &bestiary {
         let who = authors.get(author).cloned().unwrap_or_else(|| "?".into());
         raw.push(bestiary_fact(&who, evs));
@@ -1228,8 +1284,10 @@ pub fn build_split(ch: &Chronicle, since: f64, until: f64, split: f64) -> Brief 
         })
         .collect();
     let consenting: BTreeSet<String> = allowed_guids.iter().map(|g| (*g).clone()).collect();
+    // Records, milestones and honours ignore battleground deaths and kills, like the fights.
+    let front: Vec<&Value> = shared.iter().filter(|e| !bg_combat(e)).copied().collect();
     for fact in crate::derived::facts(&crate::derived::Input {
-        events: &shared,
+        events: &front,
         consenting: &consenting,
         since,
         until,
@@ -1297,6 +1355,10 @@ Règles impératives :
    (journaliste sarcastique, chroniqueur épique, rédacteur de faits divers…).
 8. L'ordre des articles compte : le premier fait la une. Un fait « AFFRONTEMENT MAJEUR » mérite
    un article à lui seul (la une, sauf événement plus marquant) ; une « Escarmouche », une brève.
+   Un « champ de bataille » est un match organisé par le jeu (équipes et adversaires tirés au
+   sort), pas une bataille du front : raconte-le à part, en chronique sportive (match, équipe,
+   temps de jeu), jamais mêlé aux affrontements ni en récit de guerre contre la faction
+   adverse. Ses morts ne sont pas un score : nos victoires n'y sont pas relevées.
 9. Facultatif, pour la mise en page : « exergue » = une phrase courte (120 caractères au plus)
    recopiée MOT POUR MOT du corps de l'article ; « portrait » = le nom d'UN personnage nommé
    dans l'article, si l'article tourne autour de lui.
@@ -1821,6 +1883,45 @@ mod tests {
         assert!(texts.iter().any(|t| t
             .ends_with("Alice remporte une victoire honorable sur un Orc guerrier de niveau 25")));
         assert!(prompt(&brief, MAX_ARTICLES).contains("AFFRONTEMENT MAJEUR"));
+    }
+
+    #[test]
+    fn battleground_deaths_are_a_match_not_a_fight() {
+        let mut ch = chronicle();
+        let av = json!({"z": "Vallée d'Alterac", "i": "Vallée d'Alterac", "it": "pvp"});
+        let mut add = |id: String, k: &str, t: i64, p: Value| {
+            let (key, mut v) = ev(&id, "A", "Alice", k, t, p);
+            v["loc"] = av.clone();
+            ch.events.insert(key, v);
+        };
+        // ten deaths with enemies around: would be an affrontement and a milestone on the front
+        for i in 0..10 {
+            add(
+                format!("A:{}", 20 + i),
+                "DEATH",
+                5000 + 60 * i,
+                json!({"lvl": 59, "enemies": ["Gorbash"]}),
+            );
+        }
+        add("A:40".into(), "PVP_KILL", 5100, json!({"name": "Gorbash"}));
+        add(
+            "A:41".into(),
+            "ENEMY_SEEN",
+            5200,
+            json!({"name": "Gorbash", "guild": "Les Crocs"}),
+        );
+        let brief = build(&ch, 4000.0, 10000.0);
+        let texts: Vec<&str> = brief.facts.iter().map(|f| f.text.as_str()).collect();
+        assert_eq!(texts.len(), 1, "{texts:#?}");
+        assert!(
+            texts[0].ends_with("champ de bataille Vallée d'Alterac (match organisé par le jeu, pas un affrontement du front) — bilan de Alice : 10 mort(s), 1 victoire(s) honorable(s)"),
+            "{}",
+            texts[0]
+        );
+        assert_eq!(brief.facts[0].refs.len(), 10);
+        let reasons: BTreeMap<_, _> = brief.excluded.iter().cloned().collect();
+        assert_eq!(reasons.get("champ de bataille ou arène"), Some(&1));
+        assert!(prompt(&brief, MAX_ARTICLES).contains("chronique sportive"));
     }
 
     #[test]

@@ -341,6 +341,8 @@ local function statText(v, item) return item and ("+" .. v) or tostring(v) end
 ------------------------------------------------------------------------
 -- Card rendering (shared by the grid, the zoom and booster opening)
 ------------------------------------------------------------------------
+local SHINY_STAR = "Interface\\TargetingFrame\\UI-RaidTargetingIcon_1"
+UI.SHINY_MARK = "|T" .. SHINY_STAR .. ":0|t"   -- inline, in a line of text
 function UI.CreateCard(parent)
     local f = CreateFrame("Button", nil, parent)
     f:SetSize(CARD_W, CARD_H)
@@ -439,6 +441,12 @@ function UI.CreateCard(parent)
     f.count:SetPoint("BOTTOMRIGHT", f.art, "BOTTOMRIGHT", -3, 3)
     f.count:SetJustifyH("RIGHT")
     f.count:SetShadowOffset(1, -1)
+    -- shiny copy owned: a star left of the count
+    f.star = top:CreateTexture(nil, "OVERLAY")
+    f.star:SetSize(13, 13)
+    f.star:SetPoint("RIGHT", f.count, "LEFT", -1, 0)
+    f.star:SetTexture(SHINY_STAR)
+    f.star:Hide()
     f.new = UI.Text(top, 10, { 0.4, 1, 0.4 }, UI.FONT_TITLE)
     f.new:SetPoint("TOP", f.art, "TOP", 0, -4)
     f.new:SetShadowOffset(1, -1)
@@ -492,6 +500,12 @@ function UI.CreateCard(parent)
         local ident = UI.CardNumber(card) .. (card.t and ("  ·  publiée le " .. UI.CardDate(card)) or "")
         if not self.owned then return "Carte inconnue", { "Série : " .. UI.SeriesLabel(card.series), rarity, ident } end
         local lines = { rarity, "Série : " .. UI.SeriesLabel(card.series), ident }
+        local shinyCopies = self.shinyCopies or 0
+        if shinyCopies > 0 and (self.copies or 0) > 0 then
+            lines[#lines + 1] = { ("%s Brillante : %d exemplaire(s) sur %d"):format(UI.SHINY_MARK, shinyCopies, self.copies), 1, 0.85, 0.3 }
+        elseif card.shiny then
+            lines[#lines + 1] = { UI.SHINY_MARK .. " Brillante", 1, 0.85, 0.3 }
+        end
         local fo, en, item = Album.Stats(card)
         if fo then
             lines[#lines + 1] = item and { ("Objet : +%d force, +%d endurance à qui le porte"):format(fo, en), 1, 0.82, 0.3 }
@@ -508,8 +522,113 @@ local function tintFrame(f, c, a)
     for _, t in ipairs(f.frame) do t:SetVertexColor(c[1], c[2], c[3], a or 1) end
 end
 
-function UI.FillCard(f, card, count, faceDown)
+-- Shiny finish, over the whole card (illustration, 3D model and text included), animated
+-- while the card is shown:
+--   * a rainbow foil, in additive blend, drifting slowly and breathing;
+--   * a band of light sweeping across the card every few seconds;
+--   * glints twinkling here and there (same places for a given card);
+--   * the frame and the halo behind the card shot with the colours of the rainbow.
+local SHEEN_PERIOD, SHEEN_SWEEP = 3.4, 0.85
+local SPARKLES = 5
+
+local function rainbow(h)
+    local tau = 2 * math.pi
+    return 0.5 + 0.5 * math.cos(tau * h), 0.5 + 0.5 * math.cos(tau * (h - 1 / 3)), 0.5 + 0.5 * math.cos(tau * (h - 2 / 3))
+end
+UI.Rainbow = rainbow
+
+local function buildHolo(f)
+    local h = CreateFrame("Frame", nil, f)
+    h:SetPoint("TOPLEFT", 3, -3)
+    h:SetPoint("BOTTOMRIGHT", -3, 3)
+    h:SetFrameLevel((f:GetFrameLevel() or 1) + 5)   -- over the model and the text, under the stats
+    h.foil = h:CreateTexture(nil, "ARTWORK", nil, 0)
+    h.foil:SetAllPoints()
+    h.foil:SetTexture(UI.MEDIA .. "holo", "REPEAT", "REPEAT")
+    h.foil:SetBlendMode("ADD")
+    h.sheen = h:CreateTexture(nil, "ARTWORK", nil, 1)
+    h.sheen:SetAllPoints()
+    h.sheen:SetTexture(UI.MEDIA .. "sheen", "CLAMP", "CLAMP")
+    h.sheen:SetBlendMode("ADD")
+    h.sparkles = {}
+    for i = 1, SPARKLES do
+        local sp = h:CreateTexture(nil, "ARTWORK", nil, 2)
+        sp:SetTexture(UI.MEDIA .. "sparkle")
+        sp:SetBlendMode("ADD")
+        h.sparkles[i] = sp
+    end
+
+    -- Glints at places drawn from the card id: a given card always sparkles the same way.
+    function h:Place(seed)
+        local w, ht = CARD_W - 6, CARD_H - 6
+        seed = seed % 2147483646 + 1
+        for _, sp in ipairs(self.sparkles) do
+            seed = (seed * 16807) % 2147483647
+            local x = 12 + seed % (w - 24)
+            seed = (seed * 16807) % 2147483647
+            local y = 12 + seed % (ht - 24)
+            sp:ClearAllPoints()
+            sp:SetPoint("CENTER", self, "TOPLEFT", x, -y)
+            sp.phase = (seed % 1000) / 1000
+        end
+        self.t = (seed % 997) / 100   -- cards side by side do not sweep in step
+    end
+
+    function h:Step()
+        local t = self.t
+        local u = (t * 0.05) % 1
+        self.foil:SetTexCoord(u, u + 0.7, u * 0.5, u * 0.5 + 0.9)
+        self.foil:SetAlpha(0.14 + 0.06 * math.sin(t * 1.6))
+        local p = (t % SHEEN_PERIOD) / SHEEN_SWEEP
+        if p < 1 then
+            local u0 = 0.9 - 1.8 * p
+            self.sheen:SetTexCoord(u0, u0 + 1, 0, 1)
+            self.sheen:SetAlpha(0.75)
+            self.sheen:Show()
+        else
+            self.sheen:Hide()
+        end
+        for _, sp in ipairs(self.sparkles) do
+            local q = (t * 0.42 + sp.phase) % 1
+            local a = q < 0.22 and math.sin(q / 0.22 * math.pi) or 0
+            sp:SetAlpha(a)
+            local size = 4 + 14 * a
+            sp:SetSize(size, size)
+        end
+        local r, g, b = rainbow(t * 0.12)
+        local c = self.rarity
+        if c then tintFrame(f, { c[1] * 0.45 + r * 0.55, c[2] * 0.45 + g * 0.55, c[3] * 0.45 + b * 0.55 }) end
+        f.glow:SetVertexColor(r, g, b, 0.4)
+    end
+
+    h:SetScript("OnUpdate", function(self, elapsed)
+        self.t = self.t + elapsed
+        self:Step()
+    end)
+    h:Hide()
+    return h
+end
+
+-- Shows or hides the shiny finish of a card frame.
+local function setShiny(f, card, on)
+    f.star:SetShown(on)
+    if not on then
+        if f.holo then f.holo:Hide() end
+        return
+    end
+    f.holo = f.holo or buildHolo(f)
+    f.holo.rarity = Album.Rarity(card.rarity).color
+    f.holo:Place(Album.Hash(Album.BaseId(card.id)))
+    f.glow:Show()
+    f.holo:Step()
+    f.holo:Show()
+end
+
+-- count: copies owned; shinyCopies: how many of them are shiny (the card then shows its
+-- shiny finish, as does a shiny copy itself).
+function UI.FillCard(f, card, count, faceDown, shinyCopies)
     f.card, f.owned = card, (count or 0) > 0 and not faceDown
+    f.copies, f.shinyCopies = count or 0, shinyCopies or 0
     f.fillToken = (f.fillToken or 0) + 1
     local r = Album.Rarity(card.rarity)
     f.gem:SetVertexColor(r.color[1], r.color[2], r.color[3])
@@ -552,7 +671,9 @@ function UI.FillCard(f, card, count, faceDown)
         f.glow:SetShown(idx >= 4)
         f.glow:SetVertexColor(r.color[1], r.color[2], r.color[3], idx >= 5 and 0.55 or 0.3)
         f:SetAlpha(card.orphan and 0.85 or 1)
+        setShiny(f, card, card.shiny or f.shinyCopies > 0)
     else
+        setShiny(f, card, false)
         tintFrame(f, { 0.45, 0.4, 0.35 })
         f.series:SetText(UI.SeriesLabel(card.series))
         f.count:SetText("")
@@ -748,11 +869,19 @@ local function showReveal(cards, collection, opts)
             f:SetAlpha(1)
             safely(UI.FillCard, f, card, 1)
             f:Show()
-            f.new:SetText(not opts.preview and self.collection[card.id] == 1 and "NOUVEAU" or "")
+            if card.shiny then
+                f.new:SetText("BRILLANTE !")
+                f.new:SetTextColor(1, 0.85, 0.3)
+            else
+                f.new:SetText(not opts.preview and self.collection[card.id] == 1 and "NOUVEAU" or "")
+                f.new:SetTextColor(0.4, 1, 0.4)
+            end
             UI.Click()
             if self.revealed >= #self.got then self:Done() end
-            -- burst: bigger and longer for the rarest cards
-            local size, dur = CARD_W * (idx >= 4 and 2.6 or 1.8), idx >= 5 and 1.2 or (idx >= 4 and 0.9 or 0.5)
+            -- burst: bigger and longer for the rarest cards; a shiny one bursts in all the
+            -- colours of the rainbow, as big as a legendary
+            local big = idx >= 4 or card.shiny
+            local size, dur = CARD_W * (big and 2.6 or 1.8), (idx >= 5 or card.shiny) and 1.3 or (idx >= 4 and 0.9 or 0.5)
             burst:SetVertexColor(rar.color[1], rar.color[2], rar.color[3])
             burst:ClearAllPoints()
             burst:SetPoint("CENTER", f, "CENTER")
@@ -760,7 +889,8 @@ local function showReveal(cards, collection, opts)
             tween(self, dur, function(p)
                 local s = size * (0.6 + 0.6 * ease(p))
                 burst:SetSize(s, s * 1.3)
-                burst:SetAlpha((1 - p) * (idx >= 4 and 1 or 0.7))
+                burst:SetAlpha((1 - p) * (big and 1 or 0.7))
+                if card.shiny then burst:SetVertexColor(UI.Rainbow(p * 1.5)) end
             end, function() burst:Hide() end)
         end
         if instant then face() return end
@@ -773,7 +903,11 @@ local function showReveal(cards, collection, opts)
         fl:SetSize(CARD_W, CARD_H)
         fl:Show()
         tween(self, 0.14, function(p) fl:SetSize(math.max(1, CARD_W * (1 - p)), CARD_H) end, function()
-            fl:SetColorTexture(rar.color[1] * 0.5, rar.color[2] * 0.5, rar.color[3] * 0.5, 1)
+            if card.shiny then
+                fl:SetColorTexture(1, 0.92, 0.7, 1)   -- a flash of white gold: something is coming
+            else
+                fl:SetColorTexture(rar.color[1] * 0.5, rar.color[2] * 0.5, rar.color[3] * 0.5, 1)
+            end
             tween(self, 0.14, function(p) fl:SetSize(math.max(1, CARD_W * p), CARD_H) end, face)
         end)
     end
@@ -880,7 +1014,7 @@ end
 local zoom
 -- hint: line under the card (default: how to close it). onCard: called when the card
 -- itself is clicked (the zoom closes first); otherwise a click on the card closes it.
-local function showZoom(card, count, hint, onCard)
+local function showZoom(card, count, hint, onCard, shinyCopies)
     if not zoom then
         zoom = CreateFrame("Button", nil, UI.GetWindow())
         zoom:SetFrameStrata("DIALOG")
@@ -902,7 +1036,7 @@ local function showZoom(card, count, hint, onCard)
         zoom.hint:SetPoint("TOP", zoom.card, "BOTTOM", 0, -10)
         zoom:SetScript("OnClick", function() zoom:Hide() end)
     end
-    UI.FillCard(zoom.card, card, count)
+    UI.FillCard(zoom.card, card, count, nil, shinyCopies)
     zoom.onCard = onCard
     zoom.hint:SetText(hint or "Clique pour refermer. Maj-clic : la partager dans le chat.")
     zoom:Show()
@@ -936,6 +1070,8 @@ local OWNED_OPTS = {
     { value = "owned", label = "Mes cartes" },
     { value = "missing", label = "Manquantes" },
     { value = "doubles", label = "Doublons" },
+    { value = "shiny", label = "Brillantes" },
+    { value = "noshiny", label = "Sans brillante" },
 }
 local SORT_OPTS = {
     { value = "series", label = "Tri : série" },
@@ -961,7 +1097,8 @@ local function build(c)
         UI.cardProfiles = ds.profiles or {}
         local cards = Album.Catalogue(ds)
         local n = (ds.boostersOpened or 0) + 1
-        local got = Album.BoosterContents(cards, ds.me .. ":booster:" .. n)
+        local rule = Album.Rule(ds.isDemo and Album.DEFAULT_RULE or ns.GuildConfig.Boosters())
+        local got = Album.BoosterContents(cards, ds.me .. ":booster:" .. n, rule.shiny)
         if ds.isDemo then
             ds.boostersOpened, ds.boosters = n, ds.boosters - 1
             for _, card in ipairs(got) do ds.collection[card.id] = (ds.collection[card.id] or 0) + 1 end
@@ -1056,12 +1193,14 @@ local function build(c)
             if ns.CardLink.ShiftClick(self.card) then return end
             UI.Click()
             if c.viewing then
+                -- ask for a normal copy if they have one (the composer offers the shiny too)
                 local to, id = c.viewing, self.card.id
+                if self.copies <= self.shinyCopies then id = Album.ShinyId(id) end
                 c.zoom = showZoom(self.card, self.copies,
                     "Clique la carte pour la lui demander en échange, à côté pour refermer.",
-                    function() UI.ShowTradeComposer(to, id) end)
+                    function() UI.ShowTradeComposer(to, id) end, self.shinyCopies)
             else
-                c.zoom = showZoom(self.card, self.copies, c:Provenance(self.card.id))
+                c.zoom = showZoom(self.card, self.copies, c:Provenance(self.card.id), nil, self.shinyCopies)
             end
         end)
         c.cards[i] = f
@@ -1109,8 +1248,8 @@ local function build(c)
         for i, f in ipairs(self.cards) do
             local card = self.visible[self.offset * COLS + i]
             if card then
-                f.copies = collection[card.id] or 0
-                UI.FillCard(f, card, f.copies)
+                local normal, shiny = Album.Copies(collection, card.id)
+                UI.FillCard(f, card, normal + shiny, nil, shiny)
                 f:Show()
             else
                 f:Hide()
@@ -1128,13 +1267,19 @@ local function build(c)
             if family then return (card.azeroth and "azeroth" or "guild") == family end
             return card.series == self.series
         end
-        local owned, total, doubles = 0, 0, 0
+        -- copies of a card, normal and shiny together; shiny ones apart
+        local function copies(card)
+            local normal, shiny = Album.Copies(collection, card.id)
+            return normal + shiny, shiny
+        end
+        local owned, total, doubles, shinies = 0, 0, 0, 0
         for _, card in ipairs(self.catalogue or {}) do
             if inSeries(card) then
                 total = total + 1
-                local n = collection[card.id] or 0
+                local n, sh = copies(card)
                 if n > 0 then owned = owned + 1 end
                 if n > 1 then doubles = doubles + n - 1 end
+                if sh > 0 then shinies = shinies + 1 end
             end
         end
 
@@ -1143,11 +1288,12 @@ local function build(c)
         local needle = fold(self.search):match("^%s*(.-)%s*$")
         local visible = {}
         for _, card in ipairs(self.all or {}) do
-            local n = collection[card.id] or 0
+            local n, sh = copies(card)
             local keep = inSeries(card)
                 and (self.rarity == "all" or card.rarity == self.rarity)
                 and (self.owned == "all" or (self.owned == "owned" and n > 0)
-                    or (self.owned == "missing" and n == 0) or (self.owned == "doubles" and n > 1))
+                    or (self.owned == "missing" and n == 0) or (self.owned == "doubles" and n > 1)
+                    or (self.owned == "shiny" and sh > 0) or (self.owned == "noshiny" and sh == 0))
                 and (needle == "" or (n > 0 and fold(card.name):find(needle, 1, true) ~= nil))
             if keep then table.insert(visible, card) end
         end
@@ -1164,7 +1310,7 @@ local function build(c)
         end
         local sort = self.sort
         table.sort(visible, function(a, b)
-            local ca, cb = collection[a.id] or 0, collection[b.id] or 0
+            local ca, cb = copies(a), copies(b)
             if sort == "rarity" then
                 local ra, rb = Album.RARITY_INDEX[a.rarity] or 0, Album.RARITY_INDEX[b.rarity] or 0
                 if ra ~= rb then return ra > rb end
@@ -1183,6 +1329,7 @@ local function build(c)
 
         local filtered = self.rarity ~= "all" or self.owned ~= "all" or needle ~= ""
         self.progress:SetText(("%d / %d cartes · %d doublons"):format(owned, total, doubles)
+            .. (shinies > 0 and (" · %s %d brillante%s"):format(UI.SHINY_MARK, shinies, shinies > 1 and "s" or "") or "")
             .. (filtered and (" · %d affichées"):format(#visible) or ""))
         local maxOff = maxOffset()
         self.offset = math.max(0, math.min(self.offset, maxOff))
@@ -1198,7 +1345,9 @@ local function build(c)
     -- Zoom line of one of my cards: who gave it to me, if it came from a trade.
     function c:Provenance(id)
         local ds = ns.Store.Dataset()
-        local got = ds.trades and ds.trades.received[ds.me] and ds.trades.received[ds.me][id]
+        local mine = ds.trades and ds.trades.received[ds.me] or {}
+        local got, shiny = mine[id], mine[Album.ShinyId(id)]
+        if shiny and (not got or shiny.t > got.t) then got = shiny end
         local close = "Clique pour refermer. Maj-clic : la partager dans le chat."
         if not got then return close end
         local from

@@ -269,6 +269,10 @@ function Store.Dataset()
     local opened, collection = ns.Album.Opened(events, guid)
     ds.trades = ns.Trade.Replay(events)
     ds.collection = ns.Trade.Apply(collection, ds.trades, guid)
+    -- Test copies (/radmin brillantes): this client only, never shared nor tradable.
+    for id, n in pairs(ns.db.testCards and ns.db.testCards[guid] or {}) do
+        ds.collection[id] = (ds.collection[id] or 0) + n
+    end
     ds.boostersOpened = opened
     ds.boosters = math.max(0, ns.Album.Earned(events, guid, ns.db.played[guid],
         ns.GuildConfig.BoosterRules()) - opened)

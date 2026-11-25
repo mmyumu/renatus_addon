@@ -32,6 +32,7 @@ function CardLink.Text(card)
     if not id then return nil end
     local name = tostring(card.name or "Carte"):gsub("[%[%]|]", "")
     if name == "" then name = "Carte" end
+    if card.shiny then name = name .. " (brillante)" end
     return ("[Renatus: %s #%s]"):format(name, id)
 end
 

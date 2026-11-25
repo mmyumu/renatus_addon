@@ -505,7 +505,12 @@ function pendingLabel(i) {
     case "PVP_CLASH": return `${p.member ?? "?"} ${p.result === "win" ? "a vaincu" : "a été vaincu par"} ${p.name ?? "?"}`;
     case "GUILD_CONFIG": {
       const b = p.boosters;
-      return `guilde rivale : ${p.rival || "aucune"}` + (b ? ` ; boosters ${b.day}/jour, +${b.bonus} bonus, ${b.cap} max` : "");
+      if (!b) return `guilde rivale : ${p.rival || "aucune"}`;
+      const extra = b.src
+        ? `${Object.values(b.src).filter((s) => s && s.n > 0 && s.cap > 0).length} source(s)`
+        : `+${b.bonus} bonus`;
+      const shiny = b.shiny === undefined ? "" : b.shiny > 0 ? `, brillantes 1/${b.shiny}` : ", sans brillantes";
+      return `guilde rivale : ${p.rival || "aucune"} ; boosters ${b.day}/jour, ${extra}, ${b.cap} max${shiny}`;
     }
     default: return i.note ?? i.id;
   }

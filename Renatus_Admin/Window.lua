@@ -367,60 +367,84 @@ end
 ------------------------------------------------------------------------
 -- Boosters
 ------------------------------------------------------------------------
-local BOOSTER_FIELDS = {
-    { key = "day", label = "Par jour joué" },
-    { key = "bonus", label = "Bonus par niveau, boss ou sortie" },
-    { key = "cap", label = "Maximum par jour" },
-}
-
+-- Form: "per day played" and the overall daily maximum, then for each source
+-- (R.Album.SOURCES) "1 booster every N" and its own daily maximum. 0 always means 0.
 local function buildBoosters(f, page)
-    local cur = UI.Section(page, "En vigueur dans la guilde", 340)
-    cur:SetPoint("TOPLEFT", 0, 0)
-    page.info = UI.Text(page, 12)
-    page.info:SetPoint("TOPLEFT", 0, -28)
+    local sec = UI.Section(page, "Règle des boosters", 340)
+    sec:SetPoint("TOPLEFT", 0, 0)
+    page.info = UI.Text(page, 11)
+    page.info:SetPoint("TOPLEFT", 0, -26)
     page.info:SetWidth(BODY_W)
-
-    local edit = UI.Section(page, "Nouvelle règle", 340)
-    edit:SetPoint("TOPLEFT", 0, -104)
     local hint = UI.Text(page, 10, UI.C.dim)
-    hint:SetPoint("TOPLEFT", 0, -130)
+    hint:SetPoint("TOPLEFT", 0, -44)
     hint:SetWidth(BODY_W)
-    hint:SetText("La règle vaut pour tous les membres à partir du jour où elle est diffusée. "
-        .. "Les jours passés gardent la règle d'alors : personne ne perd de booster déjà gagné.")
-    page.fields = {}
-    for i, def in ipairs(BOOSTER_FIELDS) do
-        local lim = R.Album.RULE_LIMITS[def.key]
-        local label = UI.Text(page, 12)
-        label:SetPoint("TOPLEFT", 0, -160 - (i - 1) * 32)
-        label:SetText(("%s (%d à %d)"):format(def.label, lim[1], lim[2]))
-        local box = UI.EditBox(page, 60, 24, false, 2)
-        box:SetPoint("TOPLEFT", 280, -154 - (i - 1) * 32)
-        page.fields[def.key] = box
+    hint:SetText("Vaut pour tous les membres à partir du jour où elle est diffusée ; les jours passés gardent la règle d'alors. "
+        .. "« Tous les N » : 1 booster toutes les N fois. 0 = rien (source coupée). Pas de limite haute.")
+
+    page.fields, page.src = {}, {}
+    local function box(key, x, y)
+        local b = UI.EditBox(page, 64, 22, false, 10)
+        b:SetPoint("TOPLEFT", x, y)
+        return b
     end
+    local function label(text, x, y, size, color)
+        local t = UI.Text(page, size or 12, color)
+        t:SetPoint("TOPLEFT", x, y)
+        t:SetText(text)
+        return t
+    end
+    label("Par jour joué", 0, -82)
+    page.fields.day = box("day", 160, -78)
+    label("Maximum par jour (en tout)", 300, -82)
+    page.fields.cap = box("cap", 490, -78)
+
+    -- Sources in two columns: label, every N, daily maximum.
+    local COL_W, ROW_H, TOP = 358, 26, -140
+    local perCol = math.ceil(#R.Album.SOURCES / 2)
+    for c = 0, 1 do
+        label("Source", c * COL_W, TOP + 22, 10, UI.C.dim)
+        label("Tous les", c * COL_W + 190, TOP + 22, 10, UI.C.dim)
+        label("Max/jour", c * COL_W + 266, TOP + 22, 10, UI.C.dim)
+    end
+    for i, s in ipairs(R.Album.SOURCES) do
+        local c, r = math.floor((i - 1) / perCol), (i - 1) % perCol
+        local x, y = c * COL_W, TOP - r * ROW_H
+        label(s.label, x, y - 4)
+        page.src[s.key] = { n = box(s.key .. ".n", x + 186, y), cap = box(s.key .. ".cap", x + 262, y) }
+    end
+
+    local function each(fn)
+        for _, b in pairs(page.fields) do fn(b) end
+        for _, s in pairs(page.src) do fn(s.n); fn(s.cap) end
+    end
+    -- shiny cards: 1 card in N comes out shiny (0 = none), on the publish row
+    local bottom = TOP - perCol * ROW_H - 14
+    label("Brillantes : 1 carte sur", 300, bottom - 4)
+    page.fields.shiny = box("shiny", 490, bottom)
+    label("(toutes raretés, 0 = aucune)", 562, bottom - 5, 10, UI.C.dim)
+
     page.publish = UI.Button(page, "Diffuser", 100, 22, function()
-        local rule = {}
-        for key, box in pairs(page.fields) do rule[key] = tonumber(box:GetText()) end
+        local rule = { day = page.fields.day:GetText(), cap = page.fields.cap:GetText(), shiny = page.fields.shiny:GetText(), src = {} }
+        for key, s in pairs(page.src) do rule.src[key] = { n = s.n:GetText(), cap = s.cap:GetText() } end
         local _, why = GC.Publish({ boosters = rule })
         notify(why)
-        for _, box in pairs(page.fields) do box.edit:ClearFocus() end
+        each(function(b) b.edit:ClearFocus() end)
         f:Refresh()
     end)
-    page.publish:SetPoint("TOPLEFT", 0, -262)
-    UI.Tooltip(page.publish, "Diffuser à la guilde", { "Valeurs hors limites ramenées dans les limites, case vide = règle par défaut.",
-        A.RankHelp() })
+    page.publish:SetPoint("TOPLEFT", 0, bottom)
+    UI.Tooltip(page.publish, "Diffuser à la guilde", { "Case vide ou invalide = 0.", A.RankHelp() })
 
     function page:Refresh()
         local rule, ev = GC.Boosters()
-        local lines = { "|cffd4a017" .. R.Album.DescribeRule(rule) .. "|r" }
         if ev then
-            table.insert(lines, ("Diffusée par %s, %s."):format(tostring(ev.n), UI.Ago(ev.t)))
+            self.info:SetText(("|cffd4a017En vigueur : diffusée par %s, %s.|r"):format(tostring(ev.n), UI.Ago(ev.t)))
         else
-            table.insert(lines, "Règle par défaut (aucune règle diffusée).")
+            self.info:SetText("|cffd4a017En vigueur : règle par défaut (aucune règle diffusée).|r")
         end
-        self.info:SetText(table.concat(lines, "\n"))
-        for key, box in pairs(self.fields) do
-            if not box.edit:HasFocus() then box:SetText(tostring(rule[key])) end
-        end
+        local full = R.Album.Expand(rule)
+        local function set(b, v) if not b.edit:HasFocus() then b:SetText(tostring(v)) end end
+        set(self.fields.day, full.day); set(self.fields.cap, full.cap); set(self.fields.shiny, full.shiny)
+        for key, s in pairs(self.src) do set(s.n, full.src[key].n); set(s.cap, full.src[key].cap) end
         self.publish:SetDisabled(not A.IsOfficer())
     end
 end
@@ -543,5 +567,41 @@ R:RegisterGameEvent("GUILD_ROSTER_UPDATE", function()
     if window and window:IsShown() then window:Refresh() end
 end)
 
+-- /radmin brillantes: a shiny copy of 3 commons the officer already owns, to see the
+-- shiny finish in game. Kept on this client only (ns.db.testCards): never shared, never
+-- tradable, invisible to the others. "/radmin brillantes off" takes them back.
+function A.TestShiny(off)
+    local ds = R.Store.Dataset()
+    if ds.isDemo then R.Print("pas en mode démo (la démo a déjà des brillantes).") return end
+    R.db.testCards = R.db.testCards or {}
+    if off then
+        R.db.testCards[ds.me] = nil
+        R.Print("cartes brillantes de test retirées.")
+    else
+        local picks = {}
+        for _, card in ipairs(R.Album.Catalogue(ds)) do
+            local normal, shiny = R.Album.Copies(ds.collection, card.id)
+            if card.rarity == "common" and normal > 0 and shiny == 0 then picks[#picks + 1] = card end
+        end
+        table.sort(picks, function(a, b) return a.id < b.id end)
+        if #picks == 0 then R.Print("aucune commune sans brillante dans ta collection.") return end
+        local given, names = {}, {}
+        for i = 1, math.min(3, #picks) do
+            given[R.Album.ShinyId(picks[i].id)] = 1
+            names[i] = picks[i].name
+        end
+        R.db.testCards[ds.me] = given
+        R.Print("brillantes de test (sur ce client seulement) : %s. « /radmin brillantes off » pour les retirer.",
+            table.concat(names, ", "))
+    end
+    R.UI.Open("album")
+    local album = R.UI.GetWindow().containers.album
+    if album and album.Refresh then album:Refresh() end
+end
+
 SLASH_RENATUSADMIN1 = "/radmin"
-SlashCmdList.RENATUSADMIN = function() A.Toggle() end
+SlashCmdList.RENATUSADMIN = function(msg)
+    local cmd, rest = (msg or ""):lower():match("^%s*(%S*)%s*(.-)%s*$")
+    if cmd == "brillantes" then return A.TestShiny(rest == "off") end
+    A.Toggle()
+end

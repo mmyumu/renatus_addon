@@ -440,6 +440,54 @@ test("album : booster, la derniere carte est rare ou mieux", function()
     end
 end)
 
+test("album : cartes brillantes (tirage, identifiants, regle, orphelines)", function()
+    local ns, ds = demo()
+    local A = ns.Album
+    local cards = A.Catalogue(ds)
+    -- the rate never changes which cards come out, only their finish
+    local shinies, seen = 0, 0
+    for n = 1, 400 do
+        local plain = A.BoosterContents(cards, "X:booster:" .. n)
+        local none = A.BoosterContents(cards, "X:booster:" .. n, 0)
+        local some = A.BoosterContents(cards, "X:booster:" .. n, 20)
+        local again = A.BoosterContents(cards, "X:booster:" .. n, 20)
+        for i = 1, #plain do
+            assert(not plain[i].shiny and not none[i].shiny, "sans taux : aucune brillante")
+            eq(A.BaseId(some[i].id), plain[i].id, "meme carte")
+            eq(some[i].id, again[i].id, "deterministe")
+            seen = seen + 1
+            if some[i].shiny then
+                shinies = shinies + 1
+                eq(some[i].id, plain[i].id .. "+"); eq(some[i].rarity, plain[i].rarity); eq(some[i].name, plain[i].name)
+                assert(not plain[i].shiny, "la carte du catalogue reste normale")
+            end
+        end
+    end
+    assert(shinies > seen / 40 and shinies < seen / 10, ("environ 1 sur 20 : %d / %d"):format(shinies, seen))
+    for _, card in ipairs(A.BoosterContents(cards, "X:booster:1", 1)) do assert(card.shiny, "1 sur 1 : toutes") end
+    -- ids
+    eq(A.BaseId("B-001+"), "B-001"); eq(select(2, A.BaseId("B-001+")), true); eq(select(2, A.BaseId("B-001")), false)
+    eq(select(1, A.Copies({ ["B-001"] = 2, ["B-001+"] = 1 }, "B-001+")), 2)
+    eq(select(2, A.Copies({ ["B-001"] = 2, ["B-001+"] = 1 }, "B-001")), 1)
+    -- a shiny id is known wherever its card is
+    local id = cards[1].id
+    local shiny = A.Find(ds, id .. "+")
+    assert(shiny and shiny.shiny, "trouvee"); eq(shiny.name, cards[1].name); eq(shiny.baseId, id)
+    assert(not A.Find(ds, "inconnue+"), "carte inconnue")
+    assert(not A.Find(ds, id).shiny, "la normale reste normale")
+    -- a shiny copy is never an orphan of its own; an orphan shows once with its shiny copy
+    eq(#A.Orphans(ds, cards, { [id .. "+"] = 1 }), 0)
+    local orphans = A.Orphans(ds, cards, { ["Z:gone"] = 1, ["Z:gone+"] = 2 })
+    eq(#orphans, 1); eq(orphans[1].id, "Z:gone")
+    -- rule: default 1 in 20, 0 = none, kept by both forms, described
+    eq(A.Rule(nil).shiny, 20); eq(A.Rule({ day = 1, bonus = 1, cap = 5 }).shiny, 20, "regle d'avant les brillantes")
+    eq(A.Rule({ day = 1, cap = 5, src = {}, shiny = 0 }).shiny, 0, "0 = 0")
+    eq(A.Rule({ day = 1, cap = 5, src = {}, shiny = 500 }).shiny, 500, "pas de limite haute")
+    eq(A.Expand({ day = 1, bonus = 1, cap = 5, shiny = 7 }).shiny, 7)
+    assert(A.DescribeRule({ day = 1, cap = 5, src = {}, shiny = 7 }):find("1 carte sur 7"))
+    assert(A.DescribeRule({ day = 1, cap = 5, src = {}, shiny = 0 }):find("Pas de carte brillante"))
+end)
+
 test("recherche dans le journal", function()
     local ns, ds = demo()
     eq(#ns.Views.Filter(ds.events, { search = "vancleef" }), 3)
@@ -2575,6 +2623,48 @@ test("album : regle des boosters par jour, une nouvelle regle ne reprend rien", 
     eq(r.day, 0); eq(r.bonus, 1); eq(r.cap, 20)
 end)
 
+test("album : regle des boosters par source (tous les N, plafond par source, 0 = 0)", function()
+    local ns = boot({ specIndex = 1 })
+    local A = ns.Album
+    local D = 86400
+    local t0 = 1800000000
+    local me = "Player-1-ME"
+    local function ev(k, t, extra)
+        local e = { a = me, n = "Moi", k = k, t = t, p = {} }
+        for key, v in pairs(extra or {}) do e[key] = v end
+        return e
+    end
+    local events = {}
+    for i = 1, 60 do events[#events + 1] = ev("PVP_KILL", t0 + i) end              -- Alterac evening
+    events[#events + 1] = ev("BOSS_KILL", t0, { p = { enc = 2747 } })             -- VanCleef
+    events[#events + 1] = ev("BOSS_KILL", t0, { p = { enc = 2741 } })             -- Rhahk'Zor
+    events[#events + 1] = ev("BOSS_KILL", t0, { p = { enc = 672 }, loc = { it = "raid" } }) -- Ragnaros
+    events[#events + 1] = ev("DUEL", t0, { p = { winner = "Moi", loser = "Toto" } })
+    events[#events + 1] = ev("DUEL", t0, { p = { winner = "Toto", loser = "Moi" } })
+    local rule = A.Rule({ day = 1, cap = 99999, src = {
+        honor = { n = 25, cap = 2 }, dungeonEnd = { n = 1, cap = 5 }, dungeonBoss = { n = 2, cap = 9 },
+        raidBoss = { n = 1, cap = 0 }, duel = { n = 1, cap = 3 }, level = { n = 0, cap = 9 } } })
+    eq(rule.cap, 99999, "pas de limite haute"); eq(rule.src.quest.n, 0, "source absente = 0")
+    local rules = { { from = A.DayKey(t0), rule = rule } }
+    -- 1 day + 2 (60 HK / 25) + 1 final boss + 1 (2 dungeon bosses / 2) + 0 raid (cap 0) + 1 duel won
+    eq(A.Earned(events, me, {}, rules), 1 + 2 + 1 + 1 + 0 + 1)
+    -- overall daily maximum, 0 included
+    rules[1].rule = A.Rule({ day = 1, cap = 3, src = rule.src })
+    eq(A.Earned(events, me, {}, rules), 3)
+    rules[1].rule = A.Rule({ day = 5, cap = 0, src = {} })
+    eq(A.Earned(events, me, {}, rules), 0, "0 = 0")
+    -- the legacy rule still counts the days it was in force
+    eq(A.Earned({ ev("LEVEL_UP", t0) }, me, {}, { { from = A.DayKey(t0), rule = A.Rule({ day = 1, bonus = 2, cap = 9 }) } }), 3)
+    -- per-source rules are stable (Publish normalises them again) and describe themselves
+    local again = A.Rule(rule)
+    eq(again.src.honor.n, 25); eq(again.cap, 99999)
+    assert(A.DescribeRule(rule):find("1 toutes les 25 victoires honorables %(2 par jour au plus%)"), A.DescribeRule(rule))
+    assert(not A.DescribeRule(rule):find("raid"), "source a plafond 0 non decrite")
+    -- the default (legacy) rule expands to the per-source form for the admin form
+    local full = A.Expand(A.DEFAULT_RULE)
+    eq(full.src.level.n, 1); eq(full.src.raidBoss.cap, 5); eq(full.src.honor.n, 0); eq(full.day, 1)
+end)
+
 test("album : regle des boosters diffusee par un officier depuis Renatus_Admin", function()
     local ns, Adm = bootAdmin({ specIndex = 1, rank = 1, roster = OFFICERS })
     Stub.fire("PLAYER_LEVEL_UP", 21)
@@ -2584,9 +2674,16 @@ test("album : regle des boosters diffusee par un officier depuis Renatus_Admin",
     local page = Adm.window.pages.boosters
     eq(page.fields.cap:GetText(), "5")
     assert(page.info:GetText():find("par défaut"), page.info:GetText())
-    page.fields.day:SetText("2"); page.fields.bonus:SetText("3"); page.fields.cap:SetText("4")
+    eq(page.src.level.n:GetText(), "1", "regle par defaut montree par source")
+    eq(page.src.honor.n:GetText(), "0")
+    eq(page.fields.shiny:GetText(), "20", "brillantes : 1 sur 20 par defaut")
+    page.fields.shiny:SetText("0")
+    page.fields.day:SetText("2"); page.fields.cap:SetText("4")
+    page.src.level.n:SetText("1"); page.src.level.cap:SetText("3")
     page.publish:Click()
-    eq(ns.Store.Dataset().boosters, 4, "2 + 3, plafond 4")
+    eq(ns.Store.Dataset().boosters, 3, "2 + 1 niveau")
+    eq(ns.GuildConfig.Boosters().src.honor.n, 0, "case laissee a 0")
+    eq(ns.GuildConfig.Boosters().shiny, 0, "brillantes coupees")
     eq(ns.GuildConfig.Rival(), "Les Crocs", "guilde rivale gardee")
     assert(page.info:GetText():find("Testeur"), page.info:GetText())
     -- changing the rival keeps the booster rule
@@ -2598,6 +2695,20 @@ test("album : regle des boosters diffusee par un officier depuis Renatus_Admin",
         g = ns2.Context.GuildKey(), vis = "G", prov = "MAN", p = { boosters = { day = 9, bonus = 9, cap = 20 } } }
     assert(ns2.Store.Insert(ev))
     eq(ns2.GuildConfig.Boosters().cap, 5)
+end)
+
+test("album : /radmin brillantes, copies de test locales", function()
+    local ns = bootAdmin({ specIndex = 1, rank = 1, roster = OFFICERS })
+    local ds = ns.Store.Dataset()
+    local common
+    for _, card in ipairs(ns.Album.Catalogue(ds)) do if card.rarity == "common" and not common then common = card end end
+    ns.Store.Add("BOOSTER_OPEN", { n = 1, cards = { common.id }, cv = 1 }, { keep = true, noExp = true, loc = {} })
+    SlashCmdList.RENATUSADMIN("brillantes")
+    local shinyId = ns.Album.ShinyId(common.id)
+    eq(ns.Store.Dataset().collection[shinyId], 1, "brillante de test")
+    eq(ns.Trade.Tradable(ns.Store.Dataset())[shinyId], nil, "jamais echangeable")
+    SlashCmdList.RENATUSADMIN("brillantes off")
+    eq(ns.Store.Dataset().collection[shinyId], nil, "retiree")
 end)
 
 test("album : icone de carte = premiere presente sur le client, sinon la generique", function()
@@ -2634,6 +2745,8 @@ test("album : filtres rarete / possession / recherche, tri, defilement par range
     ns.UI.Open("album")
     local c = RenatusMainFrame.containers.album
     local col = ns.Store.Dataset().collection
+    -- a card's copies: normal and shiny together (one slot per card)
+    local function total(card) local n, sh = ns.Album.Copies(col, card.id); return n + sh end
     -- the whole catalogue in a 2-row grid: one frame set, scrolled a row at a time
     eq(#c.cards, 10, "cadres recycles")
     assert(#c.visible > 10, "plus d'une rangee a defiler")
@@ -2650,16 +2763,23 @@ test("album : filtres rarete / possession / recherche, tri, defilement par range
     for _, card in ipairs(c.visible) do eq(card.rarity, "epic") end
     -- possession
     c.rarity = "all"; c.owned = "missing"; c:Apply()
-    for _, card in ipairs(c.visible) do eq(col[card.id] or 0, 0) end
+    for _, card in ipairs(c.visible) do eq(total(card), 0) end
     c.owned = "doubles"; c:Apply()
     assert(#c.visible > 0, "la demo a des doublons")
-    for _, card in ipairs(c.visible) do assert((col[card.id] or 0) > 1) end
+    for _, card in ipairs(c.visible) do assert(total(card) > 1) end
+    -- shiny: owned in shiny, or not
+    c.owned = "shiny"; c:Apply()
+    assert(#c.visible > 0, "la demo a des brillantes")
+    for _, card in ipairs(c.visible) do assert((col[ns.Album.ShinyId(card.id)] or 0) > 0) end
+    assert(c.progress:GetText():find("brillante"), c.progress:GetText())
+    c.owned = "noshiny"; c:Apply()
+    for _, card in ipairs(c.visible) do eq(col[ns.Album.ShinyId(card.id)] or 0, 0) end
     -- search: accents folded, owned cards only (an unknown card keeps its name secret)
     c.owned = "all"
     local ownedCard, missingCard
     for _, card in ipairs(c.all) do
-        if (col[card.id] or 0) > 0 and not ownedCard then ownedCard = card end
-        if (col[card.id] or 0) == 0 and not missingCard then missingCard = card end
+        if total(card) > 0 and not ownedCard then ownedCard = card end
+        if total(card) == 0 and not missingCard then missingCard = card end
     end
     c.searchBox:SetText(ownedCard.name:upper())
     local found = false
@@ -2672,10 +2792,36 @@ test("album : filtres rarete / possession / recherche, tri, defilement par range
     c.sort = "name"; c:Apply()
     local seenMissing = false
     for _, card in ipairs(c.visible) do
-        if (col[card.id] or 0) == 0 then seenMissing = true else assert(not seenMissing, "possedees d'abord") end
+        if total(card) == 0 then seenMissing = true else assert(not seenMissing, "possedees d'abord") end
     end
     c.sort = "copies"; c:Apply()
-    assert((col[c.visible[1].id] or 0) >= (col[c.visible[#c.visible].id] or 0))
+    assert(total(c.visible[1]) >= total(c.visible[#c.visible]))
+end)
+
+test("album : une carte brillante brille (grille, apercu de booster, echange)", function()
+    local ns = boot({ specIndex = 1 })
+    SlashCmdList.RENATUS("demo")
+    ns.UI.Open("album")
+    local c = RenatusMainFrame.containers.album
+    c.owned = "shiny"; c:Apply()
+    local f = c.cards[1]
+    assert(f:IsShown() and f.shinyCopies > 0)
+    assert(f.holo and f.holo:IsShown(), "effet brillant")
+    assert(f.star:IsShown(), "etoile")
+    Stub.advance(4)   -- the animation runs (sweep, glints, frame colours) without error
+    c.owned = "noshiny"; c:Apply()
+    local g = c.cards[1]
+    assert(not (g.holo and g.holo:IsShown()), "carte normale : pas d'effet")
+    assert(not g.star:IsShown())
+    -- a shiny card turned in a booster
+    local card = ns.Album.Shiny(ns.Album.Catalogue(ns.Store.Dataset())[1])
+    local r = ns.UI.ShowBoosterReveal({ card }, {}, { preview = true })
+    eq(r.cards[1].new:GetText(), "BRILLANTE !")
+    assert(r.cards[1].holo:IsShown())
+    Stub.advance(2)
+    r:Hide()
+    -- shared in the chat: its id travels with the "+", its name says it
+    assert(ns.CardLink.Text(card):find("%(brillante%) #.-%+%]"), ns.CardLink.Text(card))
 end)
 
 local function foreign(ns, author, name, s, kind, p, t)

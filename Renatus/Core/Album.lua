@@ -40,23 +40,149 @@ for _, s in ipairs(ns.Cards.SERIES) do
     table.insert(Album.SERIES, { key = s.key, label = s.label, family = "azeroth" })
 end
 
--- Boosters (docs/ARCHITECTURE.md §9.2): `day` per day played, + `bonus` per level
--- gained, boss defeated, outing with a guild member; at most `cap` a day. The numbers
--- are a guild setting (GUILD_CONFIG.p.boosters, published by an officer); this is the
--- rule before any such setting ("generous" rule).
-Album.DEFAULT_RULE = { day = 1, bonus = 1, cap = 5 }
-Album.RULE_LIMITS = { day = { 0, 10 }, bonus = { 0, 10 }, cap = { 1, 20 } }
+-- Boosters (docs/ARCHITECTURE.md §9.2): a guild setting (GUILD_CONFIG.p.boosters,
+-- published by an officer). Two forms:
+--   - per source (current): { day, cap, src = { [source] = { n, cap } } }: `day` per
+--     day played, + 1 booster every `n` occurrences of each source, at most `cap` a
+--     day from that source; at most `cap` a day in all. 0 always means 0 (n = 0: the
+--     source gives nothing). No upper limit (only a sanity bound).
+--   - legacy { day, bonus, cap }: `day` per day played, + `bonus` per level gained,
+--     boss defeated, outing with a guild member; at most `cap` a day. Still read for the
+--     days it was in force, and DEFAULT_RULE (before any setting) keeps that form so no
+--     one loses boosters already earned.
+Album.DEFAULT_RULE = { day = 1, bonus = 1, cap = 5, shiny = 20 }
+Album.RULE_LIMITS = { day = { 0, 10 }, bonus = { 0, 10 }, cap = { 1, 20 } } -- legacy form only
+Album.RULE_MAX = 1000000000
 Album.BONUS = { LEVEL_UP = true, BOSS_KILL = true }
 
--- A valid rule from untrusted input (missing or bad fields take the default).
+-- Last encounter of each Classic dungeon (DungeonEncounter ids; one per wing for
+-- Scarlet Monastery, Dire Maul, Blackrock Spire and Stratholme; Season of Discovery
+-- variants included).
+Album.FINAL_ENCOUNTERS = {
+    [2735] = true, -- Ragefire Chasm: Bazzalan
+    [592] = true,  -- Wailing Caverns: Mutanus the Devourer
+    [2747] = true, -- Deadmines: Edwin VanCleef
+    [2755] = true, -- Shadowfang Keep: Archmage Arugal
+    [2910] = true, [2767] = true, [2891] = true, -- Blackfathom Deeps: Aku'mai
+    [2760] = true, -- Stormwind Stockade: Bazil Thredd
+    [2772] = true, [2940] = true, -- Gnomeregan: Mekgineer Thermaplugg
+    [2778] = true, -- Razorfen Kraul: Charlga Razorflank
+    [2779] = true, -- Scarlet Monastery, Graveyard: Bloodmage Thalnos
+    [447] = true,  -- Scarlet Monastery, Library: Arcanist Doan
+    [448] = true,  -- Scarlet Monastery, Armory: Herod
+    [450] = true,  -- Scarlet Monastery, Cathedral: High Inquisitor Whitemane
+    [2785] = true, -- Razorfen Downs: Amnennar the Coldbringer
+    [554] = true,  -- Uldaman: Archaedas
+    [600] = true,  -- Zul'Farrak: Chief Ukorz Sandscalp
+    [429] = true,  -- Maraudon: Princess Theradras
+    [493] = true, [2959] = true, -- Sunken Temple: Shade of Eranikus
+    [2790] = true, -- Blackrock Depths: Emperor Dagran Thaurissan
+    [275] = true,  -- Lower Blackrock Spire: Overlord Wyrmthalak
+    [3069] = true, -- Upper Blackrock Spire: General Drakkisath
+    [346] = true,  -- Dire Maul East: Alzzin the Wildshaper
+    [361] = true,  -- Dire Maul West: Prince Tortheldrin
+    [368] = true,  -- Dire Maul North: King Gordok
+    [478] = true,  -- Stratholme, living side: Balnazzar
+    [484] = true,  -- Stratholme, undead side: Baron Rivendare
+    [2801] = true, -- Scholomance: Darkmaster Gandling
+    [3080] = true, -- Demon Fall Canyon: Azgaloth
+}
+
+local function isRaid(ev) return type(ev.loc) == "table" and ev.loc.it == "raid" end
+
+-- Booster sources, in display order. `one`/`many`: wording for DescribeRule
+-- ("1 par <one>", "1 tous les N <many>"); `fem` picks "toutes les".
+Album.SOURCES = {
+    { key = "level", label = "Niveau gagné", one = "niveau gagné", many = "niveaux gagnés",
+        match = function(ev) return ev.k == "LEVEL_UP" end },
+    { key = "dungeonEnd", label = "Boss de fin de donjon", one = "boss de fin de donjon", many = "boss de fin de donjon",
+        match = function(ev)
+            return ev.k == "BOSS_KILL" and not isRaid(ev) and Album.FINAL_ENCOUNTERS[tonumber(ev.p and ev.p.enc) or 0] == true
+        end },
+    { key = "dungeonBoss", label = "Boss de donjon (tous)", one = "boss de donjon", many = "boss de donjon",
+        match = function(ev) return ev.k == "BOSS_KILL" and not isRaid(ev) end },
+    { key = "raidBoss", label = "Boss de raid", one = "boss de raid", many = "boss de raid",
+        match = function(ev) return ev.k == "BOSS_KILL" and isRaid(ev) end },
+    { key = "outing", label = "Sortie avec la guilde", one = "sortie avec la guilde", many = "sorties avec la guilde", fem = true,
+        match = function(ev) return ev.k == "EXPEDITION" and type(ev.pt) == "table" and #ev.pt > 0 end },
+    { key = "honor", label = "Victoire honorable", one = "victoire honorable", many = "victoires honorables", fem = true,
+        match = function(ev) return ev.k == "PVP_KILL" end },
+    { key = "quest", label = "Quête rendue", one = "quête rendue", many = "quêtes rendues", fem = true,
+        match = function(ev) return ev.k == "QUEST_DONE" end },
+    { key = "zone", label = "Nouvelle zone", one = "nouvelle zone découverte", many = "nouvelles zones découvertes", fem = true,
+        match = function(ev) return ev.k == "ZONE_FIRST_VISIT" end },
+    { key = "rareItem", label = "Objet rare ou mieux", one = "objet rare ou mieux obtenu", many = "objets rares ou mieux obtenus",
+        match = function(ev) return ev.k == "RARE_ITEM" end },
+    { key = "reputation", label = "Rang de réputation", one = "rang de réputation atteint", many = "rangs de réputation atteints",
+        match = function(ev) return ev.k == "REPUTATION" end },
+    { key = "mount", label = "Monture obtenue", one = "monture obtenue", many = "montures obtenues", fem = true,
+        match = function(ev) return ev.k == "MOUNT" end },
+    { key = "duel", label = "Duel gagné", one = "duel gagné", many = "duels gagnés",
+        match = function(ev) return ev.k == "DUEL" and type(ev.p) == "table" and ev.p.winner ~= nil and ev.p.winner == ev.n end },
+}
+
+-- A whole number from 0 to RULE_MAX (anything else: 0).
+local function count(v)
+    v = tonumber(v)
+    if not v or v ~= v then return 0 end
+    return math.max(0, math.min(Album.RULE_MAX, math.floor(v)))
+end
+
+-- Shiny cards: 1 card in `shiny` comes out of a booster shiny (0 = never). A rule
+-- published before shiny cards existed has no such field: the default applies.
+local function shinyRate(r)
+    if type(r) == "table" and r.shiny ~= nil then return count(r.shiny) end
+    return Album.DEFAULT_RULE.shiny
+end
+
+-- A valid rule from untrusted input. Per-source form: missing or bad values are 0.
+-- Legacy form: missing or bad fields take the default, values kept within RULE_LIMITS.
 function Album.Rule(r)
     local out = {}
+    if type(r) == "table" and type(r.src) == "table" then
+        out.day, out.cap, out.src = count(r.day), count(r.cap), {}
+        local legacyBonus = 0
+        for _, s in ipairs(Album.SOURCES) do
+            local v = type(r.src[s.key]) == "table" and r.src[s.key] or {}
+            out.src[s.key] = { n = count(v.n), cap = count(v.cap) }
+            if out.src[s.key].n > 0 and (s.key == "level" or s.key == "dungeonBoss" or s.key == "outing") then legacyBonus = 1 end
+        end
+        out.bonus = legacyBonus -- read only by clients older than the per-source form
+        out.shiny = shinyRate(r)
+        return out
+    end
     for k, lim in pairs(Album.RULE_LIMITS) do
         local v = type(r) == "table" and tonumber(r[k])
         v = v and math.floor(v) or Album.DEFAULT_RULE[k]
         out[k] = math.max(lim[1], math.min(lim[2], v))
     end
+    out.shiny = shinyRate(r)
     return out
+end
+
+-- The per-source equivalent of any rule (legacy rules: 1 per level, boss or outing),
+-- to fill the admin form.
+function Album.Expand(r)
+    r = Album.Rule(r)
+    if r.src then return r end
+    local src = {}
+    for _, s in ipairs(Album.SOURCES) do
+        local on = r.bonus > 0 and (s.key == "level" or s.key == "dungeonBoss" or s.key == "raidBoss" or s.key == "outing")
+        src[s.key] = { n = on and 1 or 0, cap = on and r.cap or 0 }
+    end
+    return Album.Rule({ day = r.day, cap = r.cap, src = src, shiny = r.shiny })
+end
+
+-- Boosters earned on one day under `rule`. `hits` = { [source key] = occurrences }
+-- (per-source rule) and `bonus` = legacy bonus events that day.
+function Album.DayTotal(rule, hits, bonus)
+    if not rule.src then return math.min(rule.cap, rule.day + rule.bonus * (bonus or 0)) end
+    local total = rule.day
+    for key, s in pairs(rule.src) do
+        local n = hits and hits[key] or 0
+        if s.n > 0 and n > 0 then total = total + math.min(s.cap, math.floor(n / s.n)) end
+    end
+    return math.min(rule.cap, total)
 end
 
 -- Rule in force on a day ("YYYY-MM-DD"): the last one published on or before that
@@ -71,11 +197,57 @@ end
 
 function Album.DescribeRule(r)
     r = Album.Rule(r)
-    return ("On en gagne %d par jour joué, +%d par niveau, boss vaincu ou sortie avec un membre de la guilde (%d par jour au plus).")
-        :format(r.day, r.bonus, r.cap)
+    local shiny = r.shiny > 0 and ("Brillantes : 1 carte sur %d."):format(r.shiny) or "Pas de carte brillante."
+    if not r.src then
+        return ("On en gagne %d par jour joué, +%d par niveau, boss vaincu ou sortie avec un membre de la guilde (%d par jour au plus).\n%s")
+            :format(r.day, r.bonus, r.cap, shiny)
+    end
+    local lines = { ("On en gagne %d par jour joué, %d par jour au plus en tout."):format(r.day, r.cap) }
+    for _, s in ipairs(Album.SOURCES) do
+        local v = r.src[s.key]
+        if v.n > 0 and v.cap > 0 then
+            local every = v.n == 1 and ("1 par " .. s.one)
+                or ("1 %s les %d %s"):format(s.fem and "toutes" or "tous", v.n, s.many)
+            table.insert(lines, ("+ %s (%d par jour au plus)"):format(every, v.cap))
+        end
+    end
+    table.insert(lines, shiny)
+    return table.concat(lines, "\n")
 end
 
 Album.BOOSTER_SIZE = 5
+
+------------------------------------------------------------------------
+-- Shiny cards: a finish, not a rarity (as foils in a TCG). Any card can come out of a
+-- booster shiny; same number, text and stats, only its look changes. A shiny copy is the
+-- card id followed by "+": openings, trades and collections count it as a card of its own,
+-- with no other change to their format.
+------------------------------------------------------------------------
+Album.SHINY_SUFFIX = "+"
+
+function Album.ShinyId(id) return id .. Album.SHINY_SUFFIX end
+
+-- Base id of a card id, and whether it is a shiny copy.
+function Album.BaseId(id)
+    if type(id) == "string" and #id > 1 and id:sub(-1) == Album.SHINY_SUFFIX then return id:sub(1, -2), true end
+    return id, false
+end
+
+-- The shiny copy of a card (a new table; the card itself is left as is).
+function Album.Shiny(card)
+    if card.shiny then return card end
+    local c = {}
+    for k, v in pairs(card) do c[k] = v end
+    c.id, c.baseId, c.shiny = Album.ShinyId(card.id), card.id, true
+    return c
+end
+
+-- Copies of a card in a collection: normal, shiny.
+function Album.Copies(collection, id)
+    id = Album.BaseId(id)
+    collection = collection or {}
+    return collection[id] or 0, collection[Album.ShinyId(id)] or 0
+end
 
 -- 32-bit djb2 hash, without bitwise operators (portable Lua 5.1).
 function Album.Hash(str)
@@ -389,7 +561,8 @@ function Album.Catalogue(ds)
 end
 
 -- Every card this client can describe, by id: published (live or withdrawn), the base set
--- (corrected, withdrawn included), then the guild cards computed locally.
+-- (corrected, withdrawn included), then the guild cards computed locally. A shiny id
+-- ("<id>+") gives the shiny copy of the card, made on first use.
 function Album.Known(ds)
     local byId = {}
     local live, gone, fixes = Album.Published(ds)
@@ -399,7 +572,14 @@ function Album.Known(ds)
     for _, c in ipairs(baseLive) do byId[c.id] = c end
     for id, c in pairs(baseGone) do byId[id] = c end
     for _, c in ipairs(Album.Legacy(ds)) do byId[c.id] = byId[c.id] or c end
-    return byId
+    return setmetatable(byId, { __index = function(t, id)
+        local base, shiny = Album.BaseId(id)
+        local c = shiny and rawget(t, base)
+        if not c then return nil end
+        c = Album.Shiny(c)
+        rawset(t, id, c)
+        return c
+    end })
 end
 
 -- A card by its id (a card shared in the chat), nil if this client does not know it: a card
@@ -411,12 +591,17 @@ end
 
 -- Owned cards missing from the catalogue (an older edition, an opted-out member): still
 -- shown in the album, never drawn. Looked up in the published sets, then the local cards.
+-- One entry per card, normal and shiny copies together (base id).
 function Album.Orphans(ds, cards, collection)
     local known = {}
     for _, c in ipairs(cards) do known[c.id] = true end
     local missing = {}
     for id, n in pairs(collection or {}) do
-        if n > 0 and not known[id] then missing[#missing + 1] = id end
+        id = Album.BaseId(id)
+        if n > 0 and not known[id] then
+            known[id] = true
+            missing[#missing + 1] = id
+        end
     end
     if #missing == 0 then return {} end
     table.sort(missing)
@@ -443,27 +628,29 @@ Album.DayKey = dayKey
 -- is counted with the rule in force that day (`rules`, see Album.RuleOn), so changing
 -- the rule never takes back boosters already earned.
 function Album.Earned(events, me, playedDays, rules)
-    local days = {} -- [dayKey] = bonus events that day
+    local days = {} -- [dayKey] = { bonus = legacy bonus events, hits = { [source] = n } }
     local function day(key)
-        days[key] = days[key] or 0
-        return key
+        days[key] = days[key] or { bonus = 0, hits = {} }
+        return days[key]
     end
     for key in pairs(playedDays or {}) do day(key) end
     for _, ev in ipairs(events) do
         if ev.a == me and not ev.del then
             local def = ns.Types.Get(ev.k)
             if not def.hidden then
-                local key = day(dayKey(ev.t))
+                local d = day(dayKey(ev.t))
                 if Album.BONUS[ev.k] or (ev.k == "EXPEDITION" and ev.pt and #ev.pt > 0) then
-                    days[key] = days[key] + 1
+                    d.bonus = d.bonus + 1
+                end
+                for _, s in ipairs(Album.SOURCES) do
+                    if s.match(ev) then d.hits[s.key] = (d.hits[s.key] or 0) + 1 end
                 end
             end
         end
     end
     local total = 0
-    for key, n in pairs(days) do
-        local r = Album.RuleOn(rules, key)
-        total = total + math.min(r.cap, r.day + r.bonus * n)
+    for key, d in pairs(days) do
+        total = total + Album.DayTotal(Album.RuleOn(rules, key), d.hits, d.bonus)
     end
     return total
 end
@@ -486,7 +673,9 @@ Album.GUARANTEED_RARITY = "rare"
 
 -- Booster contents: derived only from its id and the catalogue version. Opened boosters
 -- store their card ids (BOOSTER_OPEN), so changing the draw never alters past boosters.
-function Album.BoosterContents(cards, boosterId)
+-- `shiny`: 1 card in `shiny` is a shiny copy (0 or nil: none). Drawn from a sequence of
+-- its own, so the cards themselves are the same whatever the rate.
+function Album.BoosterContents(cards, boosterId, shiny)
     if #cards == 0 then return {} end
     local byRarity = {}
     for _, c in ipairs(cards) do
@@ -495,6 +684,8 @@ function Album.BoosterContents(cards, boosterId)
         table.insert(byRarity[i], c)
     end
     local nextValue = rng(Album.Hash(boosterId .. "#" .. tostring(cards.version)))
+    local shinyRoll = rng(Album.Hash(boosterId .. "#shiny"))
+    shiny = tonumber(shiny) or 0
     local guaranteed = RARITY_INDEX[Album.GUARANTEED_RARITY]
     local result = {}
     for slot = 1, Album.BOOSTER_SIZE do
@@ -513,7 +704,9 @@ function Album.BoosterContents(cards, boosterId)
         while idx > 1 and not byRarity[idx] do idx = idx - 1 end
         while not byRarity[idx] do idx = idx + 1 end
         local pool = byRarity[idx]
-        table.insert(result, pool[(nextValue() % #pool) + 1])
+        local card = pool[(nextValue() % #pool) + 1]
+        if shiny >= 1 and shinyRoll() % math.floor(shiny) == 0 then card = Album.Shiny(card) end
+        table.insert(result, card)
     end
     return result
 end
@@ -523,7 +716,8 @@ function Album.Progress(cards, collection, series)
     for _, c in ipairs(cards) do
         if not series or c.series == series then
             total = total + 1
-            local n = collection[c.id] or 0
+            local normal, shiny = Album.Copies(collection, c.id)
+            local n = normal + shiny
             if n > 0 then owned = owned + 1 end
             if n > 1 then doubles = doubles + n - 1 end
         end
