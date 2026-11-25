@@ -21,6 +21,7 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
+use crate::cards;
 use crate::chronicle::{num_of, payload, str_of, Chronicle};
 use crate::gazette::{MAX_BODY, MAX_QUOTE, MAX_TITLE};
 
@@ -69,6 +70,9 @@ pub struct PublishedCard {
     pub t: f64,
     /// Latest correction.
     pub revised: Option<f64>,
+    /// An officer corrected it by hand (not only the rarity rules, `rerate_items`): it keeps
+    /// what they chose.
+    pub by_hand: bool,
     /// Out of the catalogue (owners keep it).
     pub withdrawn: bool,
     /// A correction of it waits in Press.lua.
@@ -105,6 +109,7 @@ pub fn catalogue(ch: &Chronicle, pending: &[Value]) -> Vec<PublishedCard> {
             card: c,
             t: date,
             revised: None,
+            by_hand: false,
             withdrawn: false,
             pending: false,
             base: true,
@@ -112,6 +117,7 @@ pub fn catalogue(ch: &Chronicle, pending: &[Value]) -> Vec<PublishedCard> {
     }
     for e in by_time(ch.of_kind("CARD_SET")) {
         let t = num_of(e, "t");
+        let ruled = str_of(payload(e), "set").is_some_and(|s| s.starts_with(RULE_SET));
         for c in payload(e)
             .get("cards")
             .and_then(Value::as_array)
@@ -136,6 +142,7 @@ pub fn catalogue(ch: &Chronicle, pending: &[Value]) -> Vec<PublishedCard> {
                     card["no"] = list[i].card["no"].clone();
                     list[i].card = card;
                     list[i].revised = Some(t);
+                    list[i].by_hand |= !ruled;
                     list[i].withdrawn = false;
                 }
                 None => {
@@ -144,6 +151,7 @@ pub fn catalogue(ch: &Chronicle, pending: &[Value]) -> Vec<PublishedCard> {
                         card: c.clone(),
                         t,
                         revised: None,
+                        by_hand: false,
                         withdrawn: false,
                         pending: false,
                         base: false,
@@ -188,6 +196,64 @@ fn find_card(ch: &Chronicle, id: &str) -> Result<PublishedCard, String> {
         .into_iter()
         .find(|c| str_of(&c.card, "id") == Some(id))
         .ok_or_else(|| format!("Carte {id} absente du catalogue publié."))
+}
+
+/// Set name prefix of the corrections the rarity rules make (`rerate_items`).
+pub const RULE_SET: &str = "rule:";
+
+/// Force and endurance of a card whose rarity changes: the new budget, split as before.
+fn restat(fo: i64, en: i64, rarity: &str) -> (i64, i64) {
+    let budget = cards::stat_budget(rarity);
+    let total = fo + en;
+    let force = if total > 0 {
+        ((fo * budget) as f64 / total as f64).round() as i64
+    } else {
+        budget / 2
+    };
+    let force = force.clamp(0, STAT_MAX.min(budget));
+    (force, (budget - force).clamp(0, STAT_MAX))
+}
+
+/// Corrections of the published guild cards whose rarity the rules now give otherwise:
+/// a rule changed, or what the card tells grew (an enemy who killed again). Cards an
+/// officer corrected by hand, withdrawn ones and the base set stay as they are, as do the
+/// cards whose correction already waits in Press.lua. Published with the issue `edition`.
+pub fn rerate_items(ch: &Chronicle, pending: &[Value], edition: &str) -> Vec<Value> {
+    let rules: HashMap<String, &'static str> = cards::candidates(ch, &Default::default())
+        .into_iter()
+        .map(|c| (c.id, c.rarity))
+        .collect();
+    let waiting: std::collections::HashSet<&str> = pending
+        .iter()
+        .filter(|i| str_of(i, "kind") == Some("CARD_SET"))
+        .flat_map(|i| payload(i).get("cards").and_then(Value::as_array).into_iter().flatten())
+        .filter_map(|c| str_of(c, "id"))
+        .collect();
+    let mut changed = Vec::new();
+    for pc in catalogue(ch, pending) {
+        if pc.base || pc.withdrawn || pc.by_hand || pc.pending {
+            continue;
+        }
+        let Some(id) = str_of(&pc.card, "id") else { continue };
+        let Some(&rarity) = rules.get(id) else { continue };
+        if waiting.contains(id) || str_of(&pc.card, "r") == Some(rarity) {
+            continue;
+        }
+        let mut card = pc.card.clone();
+        card["r"] = json!(rarity);
+        if let (Some(fo), Some(en)) = (
+            card.get("fo").and_then(Value::as_i64),
+            card.get("en").and_then(Value::as_i64),
+        ) {
+            let (fo, en) = restat(fo, en, rarity);
+            card["fo"] = json!(fo);
+            card["en"] = json!(en);
+        }
+        changed.push(card);
+    }
+    cards::pack(changed, &format!("{RULE_SET}{edition}"), "rarity", |n| {
+        format!("{n} carte(s) de l'album changent de rareté")
+    })
 }
 
 /// A correction of a published card (also brings a withdrawn one back).
@@ -478,6 +544,51 @@ mod tests {
             press_done: Map::new(),
             ..Chronicle::default()
         }
+    }
+
+    #[test]
+    fn rules_rerate_published_cards_but_not_hand_corrections() {
+        let death = |id: &str, t: f64| {
+            ev(id, "DEATH", t, json!({"killer": {"n": "Ladou", "pl": true}}))
+        };
+        let set = |id: &str, t: f64, name: &str, cards: Value| {
+            ev(id, "CARD_SET", t, json!({"set": name, "cards": cards}))
+        };
+        let published = vec![
+            death("A:1", 1.0),
+            death("A:2", 2.0),
+            set("A:3", 3.0, "2026-01", json!([
+                {"id": "D:A:1", "no": 1, "s": "faits", "r": "rare", "n": "Off, tué par Ladou", "f": "x"},
+                {"id": "D:A:2", "no": 2, "s": "faits", "r": "rare", "n": "Encore", "f": "x"},
+                {"id": "E:ladou", "no": 3, "s": "sworn", "r": "uncommon", "n": "Ladou", "f": "x", "fo": 2, "en": 4},
+            ])),
+            // An officer made the second death rare on purpose.
+            set("A:4", 4.0, "fix:4", json!([
+                {"id": "D:A:2", "no": 2, "s": "faits", "r": "rare", "n": "Encore", "f": "y"},
+            ])),
+        ];
+        let ch = chronicle(published.clone());
+        let items = rerate_items(&ch, &[], "2026-02");
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0]["p"]["set"], "rule:2026-02");
+        let cards = items[0]["p"]["cards"].as_array().unwrap();
+        let ids: Vec<&str> = cards.iter().filter_map(|c| c["id"].as_str()).collect();
+        assert_eq!(ids, ["D:A:1", "E:ladou"], "the hand correction stays");
+        assert_eq!(cards[0]["r"], "uncommon", "killed by a player once: uncommon");
+        assert_eq!(cards[0]["no"], 1);
+        assert_eq!(cards[1]["r"], "rare", "two victims: rare");
+        // budget 9 split as 2/4 before
+        assert_eq!((cards[1]["fo"].as_i64(), cards[1]["en"].as_i64()), (Some(3), Some(6)));
+        // waiting in Press.lua: not proposed again
+        assert!(rerate_items(&ch, &items, "2026-02").is_empty());
+        // once published, the rules agree and the card still follows them later
+        let mut events = published;
+        events.push(set("A:5", 5.0, "rule:2026-02", json!(cards)));
+        let ch = chronicle(events);
+        assert!(rerate_items(&ch, &[], "2026-03").is_empty());
+        let pc = catalogue(&ch, &[]);
+        let e = pc.iter().find(|c| c.card["id"] == "E:ladou").unwrap();
+        assert!(e.revised.is_some() && !e.by_hand);
     }
 
     fn card(id: &str, no: i64, name: &str) -> Value {

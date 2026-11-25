@@ -313,6 +313,28 @@ pub fn album_cards(
     edition: &str,
     opts: &GazetteOptions,
 ) -> (Vec<Value>, Vec<String>) {
+    let (mut items, mut notes) = new_cards(ch, pending, edition, opts);
+    let rerated = revise::rerate_items(ch, pending, edition);
+    let count: usize = rerated
+        .iter()
+        .map(|i| i["p"]["cards"].as_array().map_or(0, Vec::len))
+        .sum();
+    if count > 0 {
+        notes.push(format!(
+            "{count} carte(s) déjà publiée(s) changent de rareté (règles de l'album)."
+        ));
+    }
+    items.extend(rerated);
+    (items, notes)
+}
+
+/// The new cards of an issue (album_cards).
+fn new_cards(
+    ch: &Chronicle,
+    pending: &[Value],
+    edition: &str,
+    opts: &GazetteOptions,
+) -> (Vec<Value>, Vec<String>) {
     let (command, timeout) = (opts.command, opts.timeout);
     let (done, last) = cards::published(ch, pending);
     let mut list = cards::candidates(ch, &done);

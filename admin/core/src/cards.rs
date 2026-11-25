@@ -223,6 +223,16 @@ fn mob_rarity(cls: &str, terror: bool) -> &'static str {
     }]
 }
 
+/// Rarity of an enemy's card: most of them killed one of us once, a common enough fate
+/// to stay uncommon; rare from the second victim, epic when sworn.
+fn enemy_rarity(sworn: bool, kills: i64) -> &'static str {
+    match (sworn, kills) {
+        (true, _) => "epic",
+        (false, 2..) => "rare",
+        _ => "uncommon",
+    }
+}
+
 fn kind_fr(cls: &str) -> &'static str {
     match cls {
         "worldboss" => "boss du monde",
@@ -650,7 +660,7 @@ pub fn candidates(ch: &Chronicle, already: &HashSet<String>) -> Vec<Candidate> {
                 fact(
                     format!("D:{id}"),
                     "faits",
-                    if player { "rare" } else { "common" },
+                    if player { "uncommon" } else { "common" },
                     format!(
                         "{n}{}{killer}",
                         if env { ", victime de " } else { ", tué par " }
@@ -773,13 +783,7 @@ pub fn candidates(ch: &Chronicle, already: &HashSet<String>) -> Vec<Candidate> {
         push(Candidate {
             id: format!("E:{key}"),
             series: "sworn",
-            rarity: if is_sworn {
-                "epic"
-            } else if kills > 0 {
-                "rare"
-            } else {
-                "uncommon"
-            },
+            rarity: enemy_rarity(is_sworn, kills as i64),
             name: name.clone(),
             text: text.clone(),
             class,
@@ -945,7 +949,7 @@ pub fn apply(
 
 /// Numbers the cards after `last` and packs them into CARD_SET items for `edition`.
 pub fn items(cards: &[Candidate], edition: &str, last: i64) -> Vec<Value> {
-    let mut sets: Vec<Vec<Value>> = vec![Vec::new()];
+    let mut list = Vec::new();
     for (i, c) in cards.iter().enumerate() {
         let mut v = json!({
             "id": c.id, "no": last + 1 + i as i64, "s": c.series, "r": c.rarity, "n": c.name, "f": c.text,
@@ -969,9 +973,19 @@ pub fn items(cards: &[Candidate], edition: &str, last: i64) -> Vec<Value> {
         if let Some(item) = c.art.item {
             v["itm"] = json!(item);
         }
+        list.push(v);
+    }
+    pack(list, edition, "cards", |n| format!("{n} carte(s) de l'album"))
+}
+
+/// Packs cards into CARD_SET items of set `set` (each under MAX_SET_BYTES, the size a
+/// guild message carries), with ids `{kind}:{set}:{k}`.
+pub fn pack(cards: Vec<Value>, set: &str, kind: &str, note: impl Fn(usize) -> String) -> Vec<Value> {
+    let mut sets: Vec<Vec<Value>> = vec![Vec::new()];
+    for v in cards {
         let current = sets.last_mut().unwrap();
         current.push(v);
-        let size = crate::lua::dumps_value(&json!({"set": edition, "cards": current}), 0).len();
+        let size = crate::lua::dumps_value(&json!({"set": set, "cards": current}), 0).len();
         if size > MAX_SET_BYTES && current.len() > 1 {
             let moved = current.pop().unwrap();
             sets.push(vec![moved]);
@@ -982,10 +996,10 @@ pub fn items(cards: &[Candidate], edition: &str, last: i64) -> Vec<Value> {
         .enumerate()
         .map(|(k, cards)| {
             json!({
-                "id": format!("cards:{edition}:{}", k + 1),
+                "id": format!("{kind}:{set}:{}", k + 1),
                 "kind": "CARD_SET",
-                "note": format!("{} carte(s) de l'album", cards.len()),
-                "p": {"set": edition, "cards": cards},
+                "note": note(cards.len()),
+                "p": {"set": set, "cards": cards},
             })
         })
         .collect()
@@ -1207,6 +1221,9 @@ mod tests {
             !ids.iter().any(|i| i.contains("P-C")),
             "opted out of the album"
         );
+        let rarity = |id: &str| cards.iter().find(|c| c.id == id).unwrap().rarity;
+        assert_eq!(rarity("D:P-B:2"), "uncommon", "killed by a player");
+        assert_eq!(rarity("E:ladou"), "uncommon", "one victim");
         let boss = cards.iter().find(|c| c.id == "X:ENC:1").unwrap();
         assert_eq!(boss.rarity, "epic", "two members");
         assert_eq!(boss.text, "Vaincu par Bob, Dakey.");

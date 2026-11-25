@@ -351,12 +351,13 @@ function Album.Legacy(ds)
         end
     end
 
-    -- Wanted: sworn enemies (epic) and enemies met often or who killed one of us.
+    -- Wanted: sworn enemies (epic) and enemies met often or who killed one of us; rare
+    -- from the second victim (same rules as admin/core/src/cards.rs).
     for _, e in ipairs(ns.Views.Enemies(ds)) do
         local losses = 0
         for _ in pairs(e.killedMembers or {}) do losses = losses + 1 end
         if e.sworn or losses > 0 or #e.encounters >= 3 then
-            add({ id = "E:" .. e.key, series = "sworn", rarity = e.sworn and "epic" or (losses > 0 and "rare" or "uncommon"),
+            add({ id = "E:" .. e.key, series = "sworn", rarity = e.sworn and "epic" or (losses >= 2 and "rare" or "uncommon"),
                 name = e.name, class = e.class, icon = not e.class and "Interface\\Icons\\Ability_DualWield" or nil,
                 flavor = e.nickname and ("« " .. e.nickname .. " »")
                     or (losses > 0 and ("A envoyé " .. losses .. " des nôtres au cimetière."))
@@ -387,7 +388,7 @@ function Album.Legacy(ds)
                 icon = "Interface\\Icons\\INV_Scroll_03", flavor = p.desc or "" })
         elseif ev.k == "DEATH" and type(p.killer) == "table" and p.killer.n then
             local k = p.killer
-            add({ id = "D:" .. ev.id, series = "faits", rarity = k.pl and "rare" or "common",
+            add({ id = "D:" .. ev.id, series = "faits", rarity = k.pl and "uncommon" or "common",
                 name = (ev.n or "?") .. (k.env and ", victime de " or ", tué par ") .. tostring(k.n),
                 class = ev.c, icon = "Interface\\Icons\\Ability_Rogue_FeignDeath",
                 flavor = k.sp and ("D'un coup de « " .. tostring(k.sp) .. " ». La guilde se souvient.")
