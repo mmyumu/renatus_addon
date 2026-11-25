@@ -1372,12 +1372,12 @@ pub const TONES_PER_ISSUE: usize = 3;
 /// Offbeat sections, unlike tones a form of article: (section, what it holds). Each
 /// generation draws one, for one article of the issue.
 pub const RUBRICS: &[(&str, &str)] = &[
-    ("L'avis des lieux", "un boss, un donjon ou une contrée note ses visiteurs en étoiles, furieux ou dithyrambique"),
-    ("Météo", "bulletin météo et trafic où les membres sont le temps qu'il fait : prévisions, alertes, éclaircies"),
-    ("Chronique judiciaire", "le procès d'un membre pour un délit imaginaire tiré des faits : pièces à conviction, plaidoirie, condamnation ou relaxe"),
-    ("Étude scientifique", "un comportement de joueur analysé : résumé, méthodologie, échantillon, conclusions prudentes"),
-    ("Guide touristique", "les lieux visités notés et recommandés (ou déconseillés) d'après ce que les membres y ont vécu"),
-    ("Mode d'emploi", "comment reproduire un exploit ou un déboire des faits, en étapes numérotées, avec avertissements"),
+    ("Météo", "le bulletin météo du journal, où les membres sont le temps qu'il fait : prévisions, alertes, éclaircies"),
+    ("Chronique judiciaire", "compte rendu d'audience : le procès d'un membre pour un délit imaginaire tiré des faits, pièces à conviction, plaidoirie, condamnation ou relaxe"),
+    ("Sciences", "la page Sciences, vulgarisée comme dans un magazine : « selon une étude de la rédaction », chiffres des faits, hypothèses des chercheurs, conclusion amusée"),
+    ("La critique", "le critique de la gazette note un donjon ou une contrée comme un restaurant, en étoiles, d'après la visite des membres : accueil, service, addition"),
+    ("Bourse", "les cours de la période : or gagné et dépensé, sauts, morts, quêtes traités comme des valeurs qui montent ou plongent, avec l'analyse des marchés"),
+    ("Petites annonces", "quelques petites annonces courtes tirées des faits (à vendre, cherche, perdu, déménagement), rédigées par la rédaction, chacune finie par « s'adresser à » le membre concerné"),
 ];
 
 /// Draws `n` distinct entries of `list` from `seed` (a small xorshift: no need for more).
@@ -1437,8 +1437,9 @@ Règles impératives :
    sont des voix, pas des parodies appuyées. Un même chroniqueur ne répète pas ses tournures
    d'un article à l'autre (ouverture, formule, chute).
    Ce numéro a aussi une rubrique décalée, « {rubric} » : {rubric_desc}. Écris-y un seul
-   article, si les faits s'y prêtent : son format est « {rubric} », un des chroniqueurs le
-   signe.
+   article, si les faits s'y prêtent : son format est « {rubric} », et son « style » est un
+   nom de métier adapté à la rubrique (« notre critique », « notre analyste »…), pas un
+   des chroniqueurs.
 8. L'ordre des articles compte : le premier fait la une. Un fait « AFFRONTEMENT MAJEUR » mérite
    un article à lui seul (la une, sauf événement plus marquant) ; une « Escarmouche », une brève.
    Un « champ de bataille » est un match organisé par le jeu (équipes et adversaires tirés au
