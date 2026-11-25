@@ -1378,6 +1378,7 @@ pub const RUBRICS: &[(&str, &str)] = &[
     ("La critique", "le critique de la gazette note un donjon ou une contrée comme un restaurant, en étoiles, d'après la visite des membres : accueil, service, addition"),
     ("Bourse", "les cours de la période : or gagné et dépensé, sauts, morts, quêtes traités comme des valeurs qui montent ou plongent, avec l'analyse des marchés"),
     ("Petites annonces", "quelques petites annonces courtes tirées des faits (à vendre, cherche, perdu, déménagement), rédigées par la rédaction, chacune finie par « s'adresser à » le membre concerné"),
+    ("Horoscope", "quelques membres, chacun avec un signe ou un ascendant fantaisiste : le constat part d'un fait réel de la période, seuls les prédictions et conseils des astres sont inventés, manifestement absurdes, jamais un fait passé"),
 ];
 
 /// Draws `n` distinct entries of `list` from `seed` (a small xorshift: no need for more).
