@@ -41,7 +41,7 @@
 ### Avancement v0.11.0 (19/11/2026)
 
 - **Album** : boosters réels (par défaut 1 par jour joué, +1 par niveau, boss ou sortie avec un membre de la guilde, 5 par jour au plus ; ces trois nombres sont un réglage de guilde `GUILD_CONFIG.p.boosters`, onglet **Boosters** de `Renatus_Admin`, appliqué à partir du jour de sa diffusion : les jours passés gardent la règle d'alors ; ouvertures enregistrées en événements `BOOSTER_OPEN` cachés, collection rejouée depuis eux). Série fixe **Azeroth** (`Core/Cards.lua`, 123 cartes en 7 séries) et cartes de guilde enrichies (paliers de niveau, avis de recherche, boss, sorties, morts mémorables, unes).
-- **Visuel des cartes** : cadre teinté selon la rareté, dos de carte, gemme, halo pour épique et légendaire ; image = icône recadrée, la première candidate présente sur le client (`UI.CardArt`, `GetFileIDFromPath`). Booster distribué face cachée puis retourné carte par carte. Filtre Guilde / Azeroth.
+- **Visuel des cartes** : cadre teinté selon la rareté, dos de carte, gemme, halo pour épique et légendaire ; image = icône recadrée, la première candidate présente sur le client (`UI.CardArt`, `GetFileIDFromPath`). Booster distribué face cachée (2 rangées de 5) puis retourné carte par carte ou d'un coup. Filtre Guilde / Azeroth.
 - Reste : échanges de cartes entre membres.
 
 ### Avancement v0.12.0 (19/11/2026)
@@ -474,7 +474,7 @@ Les enrichissements `LOG` (causes de mort, coups fataux PvP) passent par le mêm
 ### 9.3 Mécanique vérifiable
 
 - **Obtention** : un événement `BOOSTER_GRANT` de l'auteur, qui référence l'événement justificatif. Les autres clients vérifient le plafond hebdomadaire à partir du journal public.
-- **Contenu** : il est **dérivé de façon déterministe** d'un hash de l'identifiant du booster et de la version du catalogue. Impossible de relancer le tirage, et tout le monde peut recalculer le contenu. La dernière carte est tirée parmi rare, épique et légendaire uniquement : au moins une rare par booster.
+- **Contenu** : il est **dérivé de façon déterministe** d'un hash de l'identifiant du booster et de la version du catalogue. Impossible de relancer le tirage, et tout le monde peut recalculer le contenu. **10 cartes par emplacements** (`Album.BOOSTER_SLOTS`, comme dans un TCG) : 7 « commune ou mieux », 2 « peu commune ou mieux », 1 « rare ou mieux ». Chaque emplacement a sa rareté minimum et une chance de tomber plus haut (pour mille : commune 850/110/30/8/2, peu commune 850/120/25/5, rare 800/170/30) ; puis une carte au hasard dans la rareté tirée. En moyenne par booster : 6 communes, 2,5 peu communes, 1,25 rare, 0,3 épique, 0,05 légendaire ; près d'un booster sur deux a au moins deux rares. Une rareté sans carte au catalogue retombe sur la plus proche en dessous.
 - **Échanges** : `TRADE_OFFER` (A propose X contre Y à B) puis `TRADE_ACCEPT` (B, en référençant l'offre). La propriété des cartes est obtenue en **rejouant** les journaux. Si A offre la même carte à deux personnes, la première acceptation (horodatage serveur) gagne et l'autre échoue de façon visible.
 - Ce système n'est pas infalsifiable : un client modifié pourrait forger des événements. C'est acceptable entre amis.
 

@@ -1,7 +1,7 @@
 -- UI/TabAlbum.lua: guild card album (collection, sets, boosters).
 -- A card: illustrated window (backdrop of its series, then a 3D model of the creature or of
 -- the member, else a crisp icon in a medallion), name banner, text, number and date.
--- Opening a booster: the pack shakes and tears open, five cards are dealt face down and
+-- Opening a booster: the pack shakes and tears open, ten cards are dealt face down and
 -- turned one by one (click) or all at once.
 local _, ns = ...
 local UI = ns.UI
@@ -734,19 +734,21 @@ end
 local function ease(p) return 1 - (1 - p) * (1 - p) end
 
 ------------------------------------------------------------------------
--- Booster opening: the pack shakes and tears, the five cards are dealt face down, then
--- turned one by one (click) or all at once.
+-- Booster opening: the pack shakes and tears, the cards are dealt face down in rows of
+-- five, then turned one by one (click) or all at once.
 ------------------------------------------------------------------------
 local reveal
 local GAP = 12
-local function slotX(i) return 26 + (i - 1) * (CARD_W + GAP) end
-local SLOT_Y = -78
+local PER_ROW = 5
+local ROWS = math.ceil(Album.BOOSTER_SIZE / PER_ROW)
+local function slotX(i) return 26 + ((i - 1) % PER_ROW) * (CARD_W + GAP) end
+local function slotY(i) return -78 - math.floor((i - 1) / PER_ROW) * (CARD_H + GAP) end
 local PACK_W, PACK_H = 110, 220
 
 local function buildReveal()
     local r = CreateFrame("Frame", nil, UI.GetWindow())
     r:SetFrameStrata("DIALOG")
-    r:SetSize(5 * (CARD_W + GAP) + 40, CARD_H + 170)
+    r:SetSize(PER_ROW * (CARD_W + GAP) + 40, ROWS * CARD_H + (ROWS - 1) * GAP + 170)
     r:SetPoint("CENTER")
     r:EnableMouse(true)
     UI.Skin(r, "window")
@@ -812,7 +814,7 @@ local function buildReveal()
     r.all:SetPoint("BOTTOM", 0, 20)
     r.ok = UI.Button(r, "Ranger dans l'album", 170, 24, function() r:Hide() end)
     r.ok:SetPoint("BOTTOM", 0, 20)   -- takes the place of "Tout retourner" once all are turned
-    -- preview of more than five cards: the next ones (opts.onNext)
+    -- preview of more cards than a booster holds: the next ones (opts.onNext)
     r.more = UI.Button(r, "Cartes suivantes", 150, 24, function()
         local onNext = r.onNext
         r.onClose = nil
@@ -847,6 +849,7 @@ local function showReveal(cards, collection, opts)
     r.preview = opts.preview   -- unpublished cards: not shared in the chat
     r.more:SetShown(opts.onNext ~= nil)
     local centerX = (r:GetWidth() - CARD_W) / 2
+    local centerY = (slotY(1) + slotY(Album.BOOSTER_SIZE)) / 2   -- the pack, between the rows
 
     function r:Done()
         self.stage = "done"
@@ -943,7 +946,7 @@ local function showReveal(cards, collection, opts)
             if card then
                 tween(self, 0.4, function(p)
                     local e = ease(p)
-                    place(f, centerX + (slotX(i) - centerX) * e, SLOT_Y - 20 * (1 - e))
+                    place(f, centerX + (slotX(i) - centerX) * e, centerY + (slotY(i) - centerY) * e - 20 * (1 - e))
                     f:SetAlpha(e)
                 end, function()
                     if i == #self.got then
@@ -965,7 +968,7 @@ local function showReveal(cards, collection, opts)
         local card = cards[i]
         if card then
             UI.FillCard(f, card, 1, true)
-            place(f, centerX, SLOT_Y)
+            place(f, centerX, centerY)
             f:SetAlpha(0)
             f:Show()
         else
@@ -980,7 +983,7 @@ local function showReveal(cards, collection, opts)
         r.pack:Hide()
         r.stage = "deal"
         for i, f in ipairs(r.cards) do
-            if cards[i] then place(f, slotX(i), SLOT_Y); f:SetAlpha(1); r:Flip(i, true) end
+            if cards[i] then place(f, slotX(i), slotY(i)); f:SetAlpha(1); r:Flip(i, true) end
         end
         return r
     end
@@ -1140,7 +1143,7 @@ local function build(c)
     c.progress:SetWordWrap(false)
     UI.Tooltip(c.who, "Collection", { "Regarde la collection d'un autre membre : clique une de ses cartes pour la lui demander en échange." })
     UI.Tooltip(c.booster, function()
-        return "Booster", { "5 cartes, dont au moins une rare. Le contenu est déterminé par l'identifiant du booster : impossible de relancer le tirage.",
+        return "Booster", { "10 cartes : 7 communes, 2 peu communes et 1 rare au minimum, et chacune peut tomber plus haut (plusieurs rares, une épique, une légendaire…). Le contenu est déterminé par l'identifiant du booster : impossible de relancer le tirage.",
             Album.DescribeRule(ns.Store.Dataset().isDemo and Album.DEFAULT_RULE or ns.GuildConfig.Boosters()) }
     end)
 

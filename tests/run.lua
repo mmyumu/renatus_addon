@@ -413,15 +413,15 @@ test("aventures partagees", function()
     eq(shared.expeditions, 1)
 end)
 
-test("album : booster deterministe, 5 cartes", function()
+test("album : booster deterministe, 10 cartes", function()
     local ns, ds = demo()
     local cards = ns.Album.Catalogue(ds)
     local a = ns.Album.BoosterContents(cards, "X:booster:1")
     local b = ns.Album.BoosterContents(cards, "X:booster:1")
     local c = ns.Album.BoosterContents(cards, "X:booster:2")
-    eq(#a, 5)
+    eq(#a, 10)
     local same, differs = true, false
-    for i = 1, 5 do
+    for i = 1, 10 do
         if a[i].id ~= b[i].id then same = false end
         if a[i].id ~= c[i].id then differs = true end
     end
@@ -429,15 +429,34 @@ test("album : booster deterministe, 5 cartes", function()
     assert(differs, "identifiants differents -> contenus differents")
 end)
 
-test("album : booster, la derniere carte est rare ou mieux", function()
+test("album : booster, une rarete minimum par emplacement, parfois plus haut", function()
     local ns, ds = demo()
-    local cards = ns.Album.Catalogue(ds)
-    local rare = ns.Album.RARITY_INDEX.rare
-    for n = 1, 200 do
-        local got = ns.Album.BoosterContents(cards, "X:booster:" .. n)
-        local last = got[#got]
-        assert(ns.Album.RARITY_INDEX[last.rarity] >= rare, "booster " .. n .. " : " .. last.rarity)
+    local A = ns.Album
+    local cards = A.Catalogue(ds)
+    local R = A.RARITY_INDEX
+    local min = { 1, 1, 1, 1, 1, 1, 1, R.uncommon, R.uncommon, R.rare }
+    local got, lucky, upgraded = { 0, 0, 0, 0, 0 }, 0, 0
+    local n = 2000
+    for b = 1, n do
+        local rares = 0
+        for i, c in ipairs(A.BoosterContents(cards, "X:booster:" .. b)) do
+            local idx = R[c.rarity]
+            assert(idx >= min[i], ("booster %d, carte %d : %s"):format(b, i, c.rarity))
+            got[idx] = got[idx] + 1
+            if idx >= R.rare then rares = rares + 1 end
+            if i <= 7 and idx >= R.rare then upgraded = upgraded + 1 end
+        end
+        if rares >= 2 then lucky = lucky + 1 end
     end
+    -- per booster: ~6 commons, ~2.5 uncommons, ~1.25 rare, ~0.3 epic, ~0.05 legendary
+    local per = function(i) return got[i] / n end
+    assert(per(1) > 5.6 and per(1) < 6.3, "communes " .. per(1))
+    assert(per(2) > 2.2 and per(2) < 2.8, "peu communes " .. per(2))
+    assert(per(3) > 1.1 and per(3) < 1.45, "rares " .. per(3))
+    assert(per(4) > 0.22 and per(4) < 0.37, "epiques " .. per(4))
+    assert(per(5) > 0.03 and per(5) < 0.09, "legendaires " .. per(5))
+    assert(lucky > n * 0.38 and lucky < n * 0.55, "environ 46 % avec deux rares ou mieux : " .. lucky)
+    assert(upgraded > 0, "une rare peut sortir a la place d'une commune")
 end)
 
 test("album : cartes brillantes (tirage, identifiants, regle, orphelines)", function()
@@ -2596,12 +2615,12 @@ test("album : boosters gagnes (jour joue, niveau), ouverture enregistree, serie 
     ns.UI.Open("album")
     RenatusMainFrame.containers.album.booster:Click()
     local open = eventsOf(ns, "BOOSTER_OPEN")[1]
-    eq(#open.p.cards, 5)
+    eq(#open.p.cards, 10)
     ds = ns.Store.Dataset()
     eq(ds.boosters, 1); eq(ds.boostersOpened, 1)
     local total = 0
     for _, n in pairs(ds.collection) do total = total + n end
-    eq(total, 5)
+    eq(total, 10)
 end)
 
 test("album : regle des boosters par jour, une nouvelle regle ne reprend rien", function()
@@ -3058,7 +3077,7 @@ test("booster : le paquet s'ouvre, cartes face cachee, une retournee au clic, pu
     assert(not r.ok:IsShown(), "pas encore fini")
     r.all:Click()
     Stub.advance(2)
-    eq(r.revealed, 5); eq(r.stage, "done")
+    eq(r.revealed, 10); eq(r.stage, "done")
     assert(r.ok:IsShown() and not r.all:IsShown())
     -- zoom on an owned card of the grid
     c.owned = "owned"; c:Refresh()
@@ -3144,18 +3163,18 @@ test("renatus_admin : corrections de l'app (carte, article) publiees en jeu, vue
     RenatusPress = nil
 end)
 
-test("renatus_admin : apercu de plus de cinq cartes, cinq par cinq (cartes suivantes)", function()
+test("renatus_admin : apercu de plus de dix cartes, dix par dix (cartes suivantes)", function()
     local ns, A = bootAdmin(OFFICER)
     local cards = {}
-    for i = 1, 7 do cards[i] = { id = "Z:" .. i, no = i, s = "faits", r = "common", n = "Carte " .. i } end
+    for i = 1, 12 do cards[i] = { id = "Z:" .. i, no = i, s = "faits", r = "common", n = "Carte " .. i } end
     withPress({ { id = "cards:E9:1", kind = "CARD_SET", p = { set = "E9", cards = cards } } })
     local item = A.Press.Pending(function(i) return i.kind == "CARD_SET" end)[1]
     local r = A.Press.Preview(item)
-    eq(#r.got, 5); eq(r.got[1].name, "Carte 1")
+    eq(#r.got, 10); eq(r.got[1].name, "Carte 1")
     eq(r.more:IsShown(), true, "bouton cartes suivantes")
     eq(r.ok.label:GetText(), "Fermer")
     r.more:GetScript("OnClick")(r.more)
-    eq(#r.got, 2, "les deux dernieres"); eq(r.got[1].name, "Carte 6")
+    eq(#r.got, 2, "les deux dernieres"); eq(r.got[1].name, "Carte 11")
     eq(r.more:IsShown(), true, "puis retour aux premieres")
     r.more:GetScript("OnClick")(r.more)
     eq(r.got[1].name, "Carte 1")

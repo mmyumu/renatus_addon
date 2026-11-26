@@ -162,8 +162,8 @@ function Press.Preview(item)
     end
 end
 
--- Shows the cards of a set face up, as members will see them, five at a time ("page"; the
--- preview's "Cartes suivantes" button goes on to the next five).
+-- Shows the cards of a set face up, as members will see them, a booster at a time ("page"; the
+-- preview's "Cartes suivantes" button goes on to the next ones).
 function Press.PreviewCards(item, page)
     local cards = {}
     local fake = { t = (GetServerTime and GetServerTime()) or time(), p = item.p }
@@ -175,7 +175,7 @@ function Press.PreviewCards(item, page)
     local from = (page - 1) * R.Album.BOOSTER_SIZE
     local shown = {}
     for i = from + 1, math.min(#cards, from + R.Album.BOOSTER_SIZE) do shown[#shown + 1] = cards[i] end
-    -- more than five cards: "Cartes suivantes", back to the first ones after the last
+    -- more cards than a booster: "Cartes suivantes", back to the first ones after the last
     local onNext
     if #cards > R.Album.BOOSTER_SIZE then
         local nextPage = (from + R.Album.BOOSTER_SIZE < #cards) and page + 1 or 1

@@ -11,11 +11,11 @@ local Album = {}
 ns.Album = Album
 
 Album.RARITIES = {
-    { key = "common", label = "Commune", color = { 0.82, 0.82, 0.82 }, weight = 60 },
-    { key = "uncommon", label = "Peu commune", color = { 0.12, 1, 0 }, weight = 25 },
-    { key = "rare", label = "Rare", color = { 0, 0.44, 0.87 }, weight = 10 },
-    { key = "epic", label = "Épique", color = { 0.64, 0.21, 0.93 }, weight = 4 },
-    { key = "legendary", label = "Légendaire", color = { 1, 0.5, 0 }, weight = 1 },
+    { key = "common", label = "Commune", color = { 0.82, 0.82, 0.82 } },
+    { key = "uncommon", label = "Peu commune", color = { 0.12, 1, 0 } },
+    { key = "rare", label = "Rare", color = { 0, 0.44, 0.87 } },
+    { key = "epic", label = "Épique", color = { 0.64, 0.21, 0.93 } },
+    { key = "legendary", label = "Légendaire", color = { 1, 0.5, 0 } },
 }
 local RARITY_INDEX = {}
 for i, r in ipairs(Album.RARITIES) do RARITY_INDEX[r.key] = i end
@@ -216,7 +216,6 @@ function Album.DescribeRule(r)
     return table.concat(lines, "\n")
 end
 
-Album.BOOSTER_SIZE = 5
 
 ------------------------------------------------------------------------
 -- Shiny cards: a finish, not a rarity (as foils in a TCG). Any card can come out of a
@@ -669,9 +668,17 @@ function Album.Opened(events, me)
     return opened, collection
 end
 
--- The last card of a booster is drawn among rare and better only (as in a TCG): a booster
--- of commons only is no fun. Rare, epic and legendary keep their relative weights.
-Album.GUARANTEED_RARITY = "rare"
+-- Booster slots (as in a TCG): each slot has a minimum rarity and a chance to come out
+-- higher, so a booster always holds 7 commons or better, 2 uncommons or better and 1 rare
+-- or better, and a lucky one can hold several rares, or an epic among the commons.
+-- Odds per 1000, in the order of Album.RARITIES.
+Album.BOOSTER_SLOTS = {
+    { count = 7, odds = { 850, 110, 30, 8, 2 } },    -- common or better
+    { count = 2, odds = { 0, 850, 120, 25, 5 } },    -- uncommon or better
+    { count = 1, odds = { 0, 0, 800, 170, 30 } },    -- rare or better
+}
+Album.BOOSTER_SIZE = 0
+for _, s in ipairs(Album.BOOSTER_SLOTS) do Album.BOOSTER_SIZE = Album.BOOSTER_SIZE + s.count end
 
 -- Booster contents: derived only from its id and the catalogue version. Opened boosters
 -- store their card ids (BOOSTER_OPEN), so changing the draw never alters past boosters.
@@ -688,27 +695,29 @@ function Album.BoosterContents(cards, boosterId, shiny)
     local nextValue = rng(Album.Hash(boosterId .. "#" .. tostring(cards.version)))
     local shinyRoll = rng(Album.Hash(boosterId .. "#shiny"))
     shiny = tonumber(shiny) or 0
-    local guaranteed = RARITY_INDEX[Album.GUARANTEED_RARITY]
     local result = {}
-    for slot = 1, Album.BOOSTER_SIZE do
-        local minIdx = slot == Album.BOOSTER_SIZE and guaranteed or 1
+    for _, slot in ipairs(Album.BOOSTER_SLOTS) do
         local total = 0
-        for i = minIdx, #Album.RARITIES do total = total + Album.RARITIES[i].weight end
-        local roll = nextValue() % total
-        local idx = minIdx
-        for i = minIdx, #Album.RARITIES do
-            local w = Album.RARITIES[i].weight
-            if roll < w then idx = i break end
-            roll = roll - w
+        for i = 1, #Album.RARITIES do total = total + (slot.odds[i] or 0) end
+        local floor = 1
+        while (slot.odds[floor] or 0) == 0 and floor < #Album.RARITIES do floor = floor + 1 end
+        for _ = 1, slot.count do
+            local roll = nextValue() % total
+            local idx = floor
+            for i = 1, #Album.RARITIES do
+                local w = slot.odds[i] or 0
+                if roll < w then idx = i break end
+                roll = roll - w
+            end
+            -- A rarity with no card in the catalogue falls back to the next lower one that
+            -- has some (below the slot's minimum only if nothing at or above it exists).
+            while idx > 1 and not byRarity[idx] do idx = idx - 1 end
+            while not byRarity[idx] do idx = idx + 1 end
+            local pool = byRarity[idx]
+            local card = pool[(nextValue() % #pool) + 1]
+            if shiny >= 1 and shinyRoll() % math.floor(shiny) == 0 then card = Album.Shiny(card) end
+            table.insert(result, card)
         end
-        -- A rarity with no card in the catalogue falls back to the next lower one that has
-        -- some (below the guarantee only if the catalogue has no rare or better at all).
-        while idx > 1 and not byRarity[idx] do idx = idx - 1 end
-        while not byRarity[idx] do idx = idx + 1 end
-        local pool = byRarity[idx]
-        local card = pool[(nextValue() % #pool) + 1]
-        if shiny >= 1 and shinyRoll() % math.floor(shiny) == 0 then card = Album.Shiny(card) end
-        table.insert(result, card)
     end
     return result
 end
