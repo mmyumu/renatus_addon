@@ -2648,6 +2648,13 @@ test("album : regle des boosters par source (tous les N, plafond par source, 0 =
     local rules = { { from = A.DayKey(t0), rule = rule } }
     -- 1 day + 2 (60 HK / 25) + 1 final boss + 1 (2 dungeon bosses / 2) + 0 raid (cap 0) + 1 duel won
     eq(A.Earned(events, me, {}, rules), 1 + 2 + 1 + 1 + 0 + 1)
+    eq(rule.src.honor.qty, 1, "regle d'avant la quantite : 1 booster")
+    -- N boosters every X occurrences, still within the source maximum
+    local many = A.Rule({ day = 0, cap = 99999, src = { honor = { qty = 5, n = 25, cap = 99 }, duel = { qty = 4, n = 1, cap = 3 },
+        dungeonEnd = { qty = 0, n = 1, cap = 9 } } })
+    eq(A.Earned(events, me, {}, { { from = A.DayKey(t0), rule = many } }), 5 * 2 + 3 + 0, "5 par 25 HK, duel plafonne, qty 0 = 0")
+    assert(A.DescribeRule(many):find("5 toutes les 25 victoires honorables"), A.DescribeRule(many))
+    assert(not A.DescribeRule(many):find("boss de fin"), "quantite 0 non decrite")
     -- overall daily maximum, 0 included
     rules[1].rule = A.Rule({ day = 1, cap = 3, src = rule.src })
     eq(A.Earned(events, me, {}, rules), 3)
@@ -2663,6 +2670,7 @@ test("album : regle des boosters par source (tous les N, plafond par source, 0 =
     -- the default (legacy) rule expands to the per-source form for the admin form
     local full = A.Expand(A.DEFAULT_RULE)
     eq(full.src.level.n, 1); eq(full.src.raidBoss.cap, 5); eq(full.src.honor.n, 0); eq(full.day, 1)
+    eq(full.src.level.qty, 1); eq(A.Expand({ day = 1, bonus = 5, cap = 9 }).src.level.qty, 5, "ancien bonus par niveau garde")
 end)
 
 test("album : regle des boosters diffusee par un officier depuis Renatus_Admin", function()
@@ -2679,9 +2687,11 @@ test("album : regle des boosters diffusee par un officier depuis Renatus_Admin",
     eq(page.fields.shiny:GetText(), "20", "brillantes : 1 sur 20 par defaut")
     page.fields.shiny:SetText("0")
     page.fields.day:SetText("2"); page.fields.cap:SetText("4")
-    page.src.level.n:SetText("1"); page.src.level.cap:SetText("3")
+    eq(page.src.level.qty:GetText(), "1")
+    page.src.level.qty:SetText("5"); page.src.level.n:SetText("1"); page.src.level.cap:SetText("3")
     page.publish:Click()
-    eq(ns.Store.Dataset().boosters, 3, "2 + 1 niveau")
+    eq(ns.Store.Dataset().boosters, 4, "2 + 3 (5 par niveau, plafond 3 de la source), plafond 4 en tout")
+    eq(ns.GuildConfig.Boosters().src.level.qty, 5)
     eq(ns.GuildConfig.Boosters().src.honor.n, 0, "case laissee a 0")
     eq(ns.GuildConfig.Boosters().shiny, 0, "brillantes coupees")
     eq(ns.GuildConfig.Rival(), "Les Crocs", "guilde rivale gardee")

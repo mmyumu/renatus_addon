@@ -42,10 +42,11 @@ end
 
 -- Boosters (docs/ARCHITECTURE.md §9.2): a guild setting (GUILD_CONFIG.p.boosters,
 -- published by an officer). Two forms:
---   - per source (current): { day, cap, src = { [source] = { n, cap } } }: `day` per
---     day played, + 1 booster every `n` occurrences of each source, at most `cap` a
---     day from that source; at most `cap` a day in all. 0 always means 0 (n = 0: the
---     source gives nothing). No upper limit (only a sanity bound).
+--   - per source (current): { day, cap, src = { [source] = { qty, n, cap } } }: `day`
+--     per day played, + `qty` boosters every `n` occurrences of each source, at most
+--     `cap` a day from that source; at most `cap` a day in all. 0 always means 0 (n = 0
+--     or qty = 0: the source gives nothing). `qty` absent (rules published before it
+--     existed) = 1. No upper limit (only a sanity bound).
 --   - legacy { day, bonus, cap }: `day` per day played, + `bonus` per level gained,
 --     boss defeated, outing with a guild member; at most `cap` a day. Still read for the
 --     days it was in force, and DEFAULT_RULE (before any setting) keeps that form so no
@@ -144,8 +145,8 @@ function Album.Rule(r)
         local legacyBonus = 0
         for _, s in ipairs(Album.SOURCES) do
             local v = type(r.src[s.key]) == "table" and r.src[s.key] or {}
-            out.src[s.key] = { n = count(v.n), cap = count(v.cap) }
-            if out.src[s.key].n > 0 and (s.key == "level" or s.key == "dungeonBoss" or s.key == "outing") then legacyBonus = 1 end
+            out.src[s.key] = { qty = v.qty == nil and 1 or count(v.qty), n = count(v.n), cap = count(v.cap) }
+            if out.src[s.key].n > 0 and out.src[s.key].qty > 0 and (s.key == "level" or s.key == "dungeonBoss" or s.key == "outing") then legacyBonus = 1 end
         end
         out.bonus = legacyBonus -- read only by clients older than the per-source form
         out.shiny = shinyRate(r)
@@ -160,15 +161,15 @@ function Album.Rule(r)
     return out
 end
 
--- The per-source equivalent of any rule (legacy rules: 1 per level, boss or outing),
--- to fill the admin form.
+-- The per-source equivalent of any rule (legacy rules: `bonus` per level, boss or
+-- outing), to fill the admin form.
 function Album.Expand(r)
     r = Album.Rule(r)
     if r.src then return r end
     local src = {}
     for _, s in ipairs(Album.SOURCES) do
         local on = r.bonus > 0 and (s.key == "level" or s.key == "dungeonBoss" or s.key == "raidBoss" or s.key == "outing")
-        src[s.key] = { n = on and 1 or 0, cap = on and r.cap or 0 }
+        src[s.key] = { qty = on and r.bonus or 0, n = on and 1 or 0, cap = on and r.cap or 0 }
     end
     return Album.Rule({ day = r.day, cap = r.cap, src = src, shiny = r.shiny })
 end
@@ -180,7 +181,7 @@ function Album.DayTotal(rule, hits, bonus)
     local total = rule.day
     for key, s in pairs(rule.src) do
         local n = hits and hits[key] or 0
-        if s.n > 0 and n > 0 then total = total + math.min(s.cap, math.floor(n / s.n)) end
+        if s.n > 0 and n > 0 then total = total + math.min(s.cap, math.floor(n / s.n) * s.qty) end
     end
     return math.min(rule.cap, total)
 end
@@ -205,9 +206,9 @@ function Album.DescribeRule(r)
     local lines = { ("On en gagne %d par jour joué, %d par jour au plus en tout."):format(r.day, r.cap) }
     for _, s in ipairs(Album.SOURCES) do
         local v = r.src[s.key]
-        if v.n > 0 and v.cap > 0 then
-            local every = v.n == 1 and ("1 par " .. s.one)
-                or ("1 %s les %d %s"):format(s.fem and "toutes" or "tous", v.n, s.many)
+        if v.n > 0 and v.qty > 0 and v.cap > 0 then
+            local every = v.n == 1 and ("%d par %s"):format(v.qty, s.one)
+                or ("%d %s les %d %s"):format(v.qty, s.fem and "toutes" or "tous", v.n, s.many)
             table.insert(lines, ("+ %s (%d par jour au plus)"):format(every, v.cap))
         end
     end

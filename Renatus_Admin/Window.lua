@@ -368,7 +368,7 @@ end
 -- Boosters
 ------------------------------------------------------------------------
 -- Form: "per day played" and the overall daily maximum, then for each source
--- (R.Album.SOURCES) "1 booster every N" and its own daily maximum. 0 always means 0.
+-- (R.Album.SOURCES) "Q boosters every N" and its own daily maximum. 0 always means 0.
 local function buildBoosters(f, page)
     local sec = UI.Section(page, "Règle des boosters", 340)
     sec:SetPoint("TOPLEFT", 0, 0)
@@ -379,11 +379,11 @@ local function buildBoosters(f, page)
     hint:SetPoint("TOPLEFT", 0, -44)
     hint:SetWidth(BODY_W)
     hint:SetText("Vaut pour tous les membres à partir du jour où elle est diffusée ; les jours passés gardent la règle d'alors. "
-        .. "« Tous les N » : 1 booster toutes les N fois. 0 = rien (source coupée). Pas de limite haute.")
+        .. "« Boosters » / « Tous les N » : tant de boosters toutes les N fois. 0 = rien (source coupée). Pas de limite haute.")
 
     page.fields, page.src = {}, {}
-    local function box(key, x, y)
-        local b = UI.EditBox(page, 64, 22, false, 10)
+    local function box(key, x, y, w)
+        local b = UI.EditBox(page, w or 64, 22, false, 10)
         b:SetPoint("TOPLEFT", x, y)
         return b
     end
@@ -398,24 +398,32 @@ local function buildBoosters(f, page)
     label("Maximum par jour (en tout)", 300, -82)
     page.fields.cap = box("cap", 490, -78)
 
-    -- Sources in two columns: label, every N, daily maximum.
-    local COL_W, ROW_H, TOP = 358, 26, -140
+    -- Sources in two columns: label, boosters, every N, daily maximum.
+    local COL_W, ROW_H, TOP, BOX_W = 358, 26, -140, 50
+    local QTY_X, N_X, CAP_X = 160, 220, 280
     local perCol = math.ceil(#R.Album.SOURCES / 2)
     for c = 0, 1 do
         label("Source", c * COL_W, TOP + 22, 10, UI.C.dim)
-        label("Tous les", c * COL_W + 190, TOP + 22, 10, UI.C.dim)
-        label("Max/jour", c * COL_W + 266, TOP + 22, 10, UI.C.dim)
+        label("Boosters", c * COL_W + QTY_X + 2, TOP + 22, 10, UI.C.dim)
+        label("Tous les", c * COL_W + N_X + 2, TOP + 22, 10, UI.C.dim)
+        label("Max/jour", c * COL_W + CAP_X + 2, TOP + 22, 10, UI.C.dim)
     end
     for i, s in ipairs(R.Album.SOURCES) do
         local c, r = math.floor((i - 1) / perCol), (i - 1) % perCol
         local x, y = c * COL_W, TOP - r * ROW_H
-        label(s.label, x, y - 4)
-        page.src[s.key] = { n = box(s.key .. ".n", x + 186, y), cap = box(s.key .. ".cap", x + 262, y) }
+        local name = label(s.label, x, y - 4)
+        name:SetWidth(QTY_X - 6)
+        name:SetWordWrap(false)
+        page.src[s.key] = {
+            qty = box(s.key .. ".qty", x + QTY_X, y, BOX_W),
+            n = box(s.key .. ".n", x + N_X, y, BOX_W),
+            cap = box(s.key .. ".cap", x + CAP_X, y, BOX_W),
+        }
     end
 
     local function each(fn)
         for _, b in pairs(page.fields) do fn(b) end
-        for _, s in pairs(page.src) do fn(s.n); fn(s.cap) end
+        for _, s in pairs(page.src) do fn(s.qty); fn(s.n); fn(s.cap) end
     end
     -- shiny cards: 1 card in N comes out shiny (0 = none), on the publish row
     local bottom = TOP - perCol * ROW_H - 14
@@ -425,7 +433,7 @@ local function buildBoosters(f, page)
 
     page.publish = UI.Button(page, "Diffuser", 100, 22, function()
         local rule = { day = page.fields.day:GetText(), cap = page.fields.cap:GetText(), shiny = page.fields.shiny:GetText(), src = {} }
-        for key, s in pairs(page.src) do rule.src[key] = { n = s.n:GetText(), cap = s.cap:GetText() } end
+        for key, s in pairs(page.src) do rule.src[key] = { qty = s.qty:GetText(), n = s.n:GetText(), cap = s.cap:GetText() } end
         local _, why = GC.Publish({ boosters = rule })
         notify(why)
         each(function(b) b.edit:ClearFocus() end)
@@ -444,7 +452,7 @@ local function buildBoosters(f, page)
         local full = R.Album.Expand(rule)
         local function set(b, v) if not b.edit:HasFocus() then b:SetText(tostring(v)) end end
         set(self.fields.day, full.day); set(self.fields.cap, full.cap); set(self.fields.shiny, full.shiny)
-        for key, s in pairs(self.src) do set(s.n, full.src[key].n); set(s.cap, full.src[key].cap) end
+        for key, s in pairs(self.src) do set(s.qty, full.src[key].qty); set(s.n, full.src[key].n); set(s.cap, full.src[key].cap) end
         self.publish:SetDisabled(not A.IsOfficer())
     end
 end
