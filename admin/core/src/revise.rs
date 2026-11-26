@@ -219,7 +219,8 @@ fn restat(fo: i64, en: i64, rarity: &str) -> (i64, i64) {
 /// officer corrected by hand, withdrawn ones and the base set stay as they are, as do the
 /// cards whose correction already waits in Press.lua. Published with the issue `edition`.
 pub fn rerate_items(ch: &Chronicle, pending: &[Value], edition: &str) -> Vec<Value> {
-    let rules: HashMap<String, &'static str> = cards::candidates(ch, &Default::default())
+    let (published, _) = cards::published(ch, pending);
+    let rules: HashMap<String, &'static str> = cards::rules(ch, &published)
         .into_iter()
         .map(|c| (c.id, c.rarity))
         .collect();

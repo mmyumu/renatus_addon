@@ -24,6 +24,8 @@ Commandes :
   discord [n°] [encore]  poste le numéro sur Discord (webhook discordWebhook du fichier de
                     réglages) ; un numéro déjà posté ne l'est pas deux fois : « encore » remplace
                     ses pages dans le même message (--dry-run : affiche le message, n'envoie rien)
+  rarete            cartes déjà publiées dont la rareté ne suit plus les règles -> Press.lua
+                    (sinon, la correction part avec le prochain numéro)
   rival [guilde]    guilde rivale depuis l'armurerie (nom ou lien) -> Press.lua
   run               deaths (+ rival une fois par jour, + gazette chaque semaine si autoGazette)
   install-admin     installe ou met à jour l'addon Renatus_Admin depuis GitHub
@@ -334,6 +336,26 @@ fn run() -> Result<(), String> {
             let (_, ch) = ops::load(&p)?;
             let only = arg1.map(|f| local_path(f));
             publish(&p, &ch, ops::deaths(&p, &ch, only.as_deref()), args.dry_run)?;
+        }
+        "rarete" => {
+            let p = paths(&args, &cfg)?;
+            let (_, ch) = ops::load(&p)?;
+            let prop = ops::rerate(&p, &ch);
+            if args.show {
+                for c in prop
+                    .items
+                    .iter()
+                    .flat_map(|i| i["p"]["cards"].as_array().cloned().unwrap_or_default())
+                {
+                    println!(
+                        "{} -> {}  {}",
+                        c["id"].as_str().unwrap_or("?"),
+                        c["r"].as_str().unwrap_or("?"),
+                        c["n"].as_str().unwrap_or("")
+                    );
+                }
+            }
+            publish(&p, &ch, prop, args.dry_run)?;
         }
         "articles" => {
             let p = paths(&args, &cfg)?;

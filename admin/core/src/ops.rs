@@ -371,6 +371,26 @@ pub fn album_cards(
     (items, notes)
 }
 
+/// The rarity corrections of the published cards alone (revise::rerate_items), without
+/// waiting for the next issue.
+pub fn rerate(paths: &WowPaths, ch: &Chronicle) -> Proposal {
+    let items = revise::rerate_items(ch, &pending(paths, ch), &now().to_string());
+    let count: usize = items
+        .iter()
+        .map(|i| i["p"]["cards"].as_array().map_or(0, Vec::len))
+        .sum();
+    let notes = vec![if count > 0 {
+        format!("{count} carte(s) déjà publiée(s) changent de rareté (règles de l'album).")
+    } else {
+        "Toutes les cartes publiées suivent déjà les règles de rareté.".into()
+    }];
+    Proposal {
+        items,
+        notes,
+        answer: None,
+    }
+}
+
 /// The new cards of an issue (album_cards).
 fn new_cards(
     ch: &Chronicle,

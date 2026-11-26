@@ -288,16 +288,41 @@ fn opted_out(ch: &Chronicle) -> HashSet<String> {
 
 /// Every card the journal deserves that is not published yet, oldest facts first.
 pub fn candidates(ch: &Chronicle, already: &HashSet<String>) -> Vec<Candidate> {
+    rules(ch, already)
+        .into_iter()
+        .filter(|c| !already.contains(&c.id))
+        .collect()
+}
+
+/// Every card the rules give, published or not (`published`: ids already published or
+/// waiting). A member killed by the same player gets one card for that pair: the one
+/// already published if any (older issues published one per death; those stay, ruled
+/// like the others), else the first death.
+pub fn rules(ch: &Chronicle, published: &HashSet<String>) -> Vec<Candidate> {
     let events = public(ch);
     let consent = gazette::consent(ch);
     let agrees = |guid: &str| consent.get(guid).copied().unwrap_or(false);
     let out_of_album = opted_out(ch);
     let mut out = Vec::new();
     let mut push = |c: Candidate| {
-        if !already.contains(&c.id) && !out.iter().any(|x: &Candidate| x.id == c.id) {
+        if !out.iter().any(|x: &Candidate| x.id == c.id) {
             out.push(c);
         }
     };
+    // (victim, killer) pairs of deaths by a player that have a card, published or given.
+    let pvp_pair = |e: &Value| -> Option<(String, String)> {
+        let k = payload(e).get("killer")?;
+        if k.get("pl").and_then(Value::as_bool) != Some(true) {
+            return None;
+        }
+        Some((str_of(e, "a")?.to_string(), first_name(str_of(k, "n")?)))
+    };
+    let mut pvp_pairs: HashSet<(String, String)> = events
+        .iter()
+        .filter(|e| str_of(e, "k") == Some("DEATH"))
+        .filter(|e| published.contains(&format!("D:{}", str_of(e, "id").unwrap_or(""))))
+        .filter_map(|e| pvp_pair(e))
+        .collect();
 
     // Members: who they are (name, class), what they did.
     struct Member {
@@ -656,6 +681,15 @@ pub fn candidates(ch: &Chronicle, already: &HashSet<String>) -> Vec<Candidate> {
                         0,
                     ));
                     entry.2 += 1;
+                    // One card per (victim, killer): the next deaths only add to the
+                    // killer's own card (sworn series).
+                    if !published.contains(&format!("D:{id}")) {
+                        if let Some(pair) = pvp_pair(e) {
+                            if !pvp_pairs.insert(pair) {
+                                continue;
+                            }
+                        }
+                    }
                 }
                 fact(
                     format!("D:{id}"),
@@ -1242,6 +1276,45 @@ mod tests {
         // already published: left out
         let done: HashSet<String> = ["X:ENC:1".to_string()].into();
         assert!(!candidates(&ch, &done).iter().any(|c| c.id == "X:ENC:1"));
+    }
+
+    #[test]
+    fn one_card_per_victim_and_player_killer() {
+        let death = |id: &str, t: i64, killer: &str| {
+            format!(
+                r#"["{id}"] = {{ ["id"] = "{id}", ["a"] = "P-B", ["n"] = "Bob", ["k"] = "DEATH", ["t"] = {t}, ["vis"] = "G", ["p"] = {{ ["killer"] = {{ ["n"] = "{killer}", ["pl"] = true }} }} }},"#
+            )
+        };
+        // Bob, already killed by Ladou (P-B:2), again twice, and once by Zork.
+        let ch = chronicle_with(
+            &[
+                death("P-B:3", 20, "Ladou"),
+                death("P-B:4", 21, "Ladou Forever"),
+                death("P-B:5", 22, "Zork"),
+            ]
+            .concat(),
+        );
+        let ids = |cards: Vec<Candidate>| -> Vec<String> {
+            cards
+                .into_iter()
+                .filter(|c| c.id.starts_with("D:"))
+                .map(|c| c.id)
+                .collect()
+        };
+        assert_eq!(
+            ids(candidates(&ch, &HashSet::new())),
+            ["D:P-B:2", "D:P-B:5"]
+        );
+        // the killer's own card still counts every death
+        let cards = candidates(&ch, &HashSet::new());
+        let ladou = cards.iter().find(|c| c.id == "E:ladou").unwrap();
+        assert_eq!(ladou.text, "A envoyé 3 des nôtres au cimetière.");
+        // a pair already published (older issues: one card per death) gets no new card,
+        // and its published cards stay ruled (rarity corrections)
+        let done: HashSet<String> = ["D:P-B:3".to_string(), "D:P-B:4".to_string()].into();
+        assert_eq!(ids(candidates(&ch, &done)), ["D:P-B:5"]);
+        let ruled = ids(rules(&ch, &done));
+        assert_eq!(ruled, ["D:P-B:3", "D:P-B:4", "D:P-B:5"]);
     }
 
     #[test]
