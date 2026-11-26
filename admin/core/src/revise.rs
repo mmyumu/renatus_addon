@@ -226,7 +226,13 @@ pub fn rerate_items(ch: &Chronicle, pending: &[Value], edition: &str) -> Vec<Val
     let waiting: std::collections::HashSet<&str> = pending
         .iter()
         .filter(|i| str_of(i, "kind") == Some("CARD_SET"))
-        .flat_map(|i| payload(i).get("cards").and_then(Value::as_array).into_iter().flatten())
+        .flat_map(|i| {
+            payload(i)
+                .get("cards")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+        })
         .filter_map(|c| str_of(c, "id"))
         .collect();
     let mut changed = Vec::new();
@@ -234,8 +240,12 @@ pub fn rerate_items(ch: &Chronicle, pending: &[Value], edition: &str) -> Vec<Val
         if pc.base || pc.withdrawn || pc.by_hand || pc.pending {
             continue;
         }
-        let Some(id) = str_of(&pc.card, "id") else { continue };
-        let Some(&rarity) = rules.get(id) else { continue };
+        let Some(id) = str_of(&pc.card, "id") else {
+            continue;
+        };
+        let Some(&rarity) = rules.get(id) else {
+            continue;
+        };
         if waiting.contains(id) || str_of(&pc.card, "r") == Some(rarity) {
             continue;
         }
@@ -559,7 +569,12 @@ mod tests {
     #[test]
     fn rules_rerate_published_cards_but_not_hand_corrections() {
         let death = |id: &str, t: f64| {
-            ev(id, "DEATH", t, json!({"killer": {"n": "Ladou", "pl": true}}))
+            ev(
+                id,
+                "DEATH",
+                t,
+                json!({"killer": {"n": "Ladou", "pl": true}}),
+            )
         };
         let set = |id: &str, t: f64, name: &str, cards: Value| {
             ev(id, "CARD_SET", t, json!({"set": name, "cards": cards}))
@@ -567,15 +582,25 @@ mod tests {
         let published = vec![
             death("A:1", 1.0),
             death("A:2", 2.0),
-            set("A:3", 3.0, "2026-01", json!([
-                {"id": "D:A:1", "no": 1, "s": "faits", "r": "rare", "n": "Off, tué par Ladou", "f": "x"},
-                {"id": "D:A:2", "no": 2, "s": "faits", "r": "rare", "n": "Encore", "f": "x"},
-                {"id": "E:ladou", "no": 3, "s": "sworn", "r": "uncommon", "n": "Ladou", "f": "x", "fo": 2, "en": 4},
-            ])),
+            set(
+                "A:3",
+                3.0,
+                "2026-01",
+                json!([
+                    {"id": "D:A:1", "no": 1, "s": "faits", "r": "rare", "n": "Off, tué par Ladou", "f": "x"},
+                    {"id": "D:A:2", "no": 2, "s": "faits", "r": "rare", "n": "Encore", "f": "x"},
+                    {"id": "E:ladou", "no": 3, "s": "sworn", "r": "uncommon", "n": "Ladou", "f": "x", "fo": 2, "en": 4},
+                ]),
+            ),
             // An officer made the second death rare on purpose.
-            set("A:4", 4.0, "fix:4", json!([
-                {"id": "D:A:2", "no": 2, "s": "faits", "r": "rare", "n": "Encore", "f": "y"},
-            ])),
+            set(
+                "A:4",
+                4.0,
+                "fix:4",
+                json!([
+                    {"id": "D:A:2", "no": 2, "s": "faits", "r": "rare", "n": "Encore", "f": "y"},
+                ]),
+            ),
         ];
         let ch = chronicle(published.clone());
         let items = rerate_items(&ch, &[], "2026-02");
@@ -584,11 +609,17 @@ mod tests {
         let cards = items[0]["p"]["cards"].as_array().unwrap();
         let ids: Vec<&str> = cards.iter().filter_map(|c| c["id"].as_str()).collect();
         assert_eq!(ids, ["D:A:1", "E:ladou"], "the hand correction stays");
-        assert_eq!(cards[0]["r"], "uncommon", "killed by a player once: uncommon");
+        assert_eq!(
+            cards[0]["r"], "uncommon",
+            "killed by a player once: uncommon"
+        );
         assert_eq!(cards[0]["no"], 1);
         assert_eq!(cards[1]["r"], "rare", "two victims: rare");
         // budget 9 split as 2/4 before
-        assert_eq!((cards[1]["fo"].as_i64(), cards[1]["en"].as_i64()), (Some(3), Some(6)));
+        assert_eq!(
+            (cards[1]["fo"].as_i64(), cards[1]["en"].as_i64()),
+            (Some(3), Some(6))
+        );
         // waiting in Press.lua: not proposed again
         assert!(rerate_items(&ch, &items, "2026-02").is_empty());
         // once published, the rules agree and the card still follows them later

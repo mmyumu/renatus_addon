@@ -421,7 +421,12 @@ fn run() -> Result<(), String> {
             if args.dry_run {
                 let pages = print::render(&ch, ed)?;
                 let size: usize = pages.iter().map(Vec::len).sum();
-                println!("{} : {} page(s), {} Ko", ed.name(), pages.len(), size / 1024);
+                println!(
+                    "{} : {} page(s), {} Ko",
+                    ed.name(),
+                    pages.len(),
+                    size / 1024
+                );
                 println!("\n{}", discord::content(ed, pages.len()));
                 return Ok(());
             }
