@@ -1,8 +1,9 @@
 //! The gazette printed as images (for Discord): the same pages as in game
 //! (Renatus/UI/Newsprint.lua and TabGazette.lua, ported), but nothing is clickable, so
-//! every article is printed in full: a story cut on its page ends with "Suite page N",
-//! a teaser with "Lire page N", and the rest of the text runs on "Suites" pages in three
-//! columns, as in a real newspaper.
+//! every article is printed in full. A page grows as tall as its stories need, so a
+//! story is read in one go on its page; only past MAX_BOTTOM is it cut ("Suite page N").
+//! A teaser ends with "Lire page N", and articles only teased (or cut) run on "Suites"
+//! pages in three columns, as in a real newspaper.
 //!
 //! Issues are assembled as the addon does (Views.Editions): numbers (special issues
 //! apart), the period each covers, the readers' letters, the latest layout (EDITION).
@@ -394,6 +395,8 @@ const X0: f32 = 48.0;
 const BODY_TOP: f32 = 222.0;
 const BODY_TOP_INNER: f32 = 148.0;
 const BODY_BOTTOM: f32 = PAGE_H as f32 - 72.0;
+/// How far a page may grow to keep its stories whole (a sanity bound, not a layout one).
+const MAX_BOTTOM: f32 = 3.0 * PAGE_H as f32;
 const GUTTER: f32 = 52.0;
 const ROW_GAP: f32 = 28.0;
 const BLOCK_GAP: f32 = 24.0;
@@ -2112,8 +2115,25 @@ fn page_top(i: usize) -> f32 {
     }
 }
 
+/// Where each layout page's body ends: PAGE_H's at least, more when its stories need it
+/// to be printed whole (up to MAX_BOTTOM). Leaves no jump behind.
+fn page_bottoms(ctx: &mut Ctx, pages: &[Page]) -> Vec<f32> {
+    let out = pages
+        .iter()
+        .enumerate()
+        .map(|(i, pg)| {
+            ctx.page = i + 1;
+            let need = draw_body(&mut Canvas::paper(8, 8), ctx, pg, page_top(i), MAX_BOTTOM);
+            (need + 4.0).clamp(BODY_BOTTOM - 2.0, MAX_BOTTOM)
+        })
+        .collect();
+    ctx.jumps.clear();
+    out
+}
+
 /// The pages of an issue as JPEG images: its layout pages, then the "Suites" pages. Each
-/// page is as tall as its content (at most PAGE_H).
+/// page is as tall as its content: shorter than PAGE_H when it has little, taller when
+/// its stories need it.
 pub fn render(ch: &Chronicle, ed: &Edition) -> Result<Vec<Vec<u8>>, String> {
     let (pages, placed) = layout_pages(ed);
     let guild = ch.main_guild();
@@ -2142,6 +2162,7 @@ pub fn render(ch: &Chronicle, ed: &Edition) -> Result<Vec<Vec<u8>>, String> {
         story_page,
         page: 1,
     };
+    let limits = page_bottoms(&mut ctx, &pages);
     // First pass: what jumps, from which page, and how tall each page is.
     let mut bottoms = Vec::new();
     for (i, pg) in pages.iter().enumerate() {
@@ -2152,7 +2173,7 @@ pub fn render(ch: &Chronicle, ed: &Edition) -> Result<Vec<Vec<u8>>, String> {
             &mut ctx,
             pg,
             page_top(i),
-            BODY_BOTTOM - 2.0,
+            limits[i],
         ));
     }
     let jumps = ctx.jumps.clone();
@@ -2176,7 +2197,7 @@ pub fn render(ch: &Chronicle, ed: &Edition) -> Result<Vec<Vec<u8>>, String> {
             };
             running_head(&mut cv, ed, &title);
         }
-        let bottom = draw_body(&mut cv, &mut ctx, pg, page_top(i), BODY_BOTTOM - 2.0);
+        let bottom = draw_body(&mut cv, &mut ctx, pg, page_top(i), limits[i]);
         footer(&mut cv, bottom, i + 1, total);
         out.push(cv.jpeg()?);
     }
@@ -2267,13 +2288,11 @@ mod tests {
         let list = editions(&ch);
         let ed = &list[0];
         let pages = render(&ch, ed).unwrap();
-        assert!(
-            pages.len() >= 3,
-            "une, suite de l'édition, suites : {}",
-            pages.len()
-        );
+        // Front page and "suite de l'édition", each grown to hold its stories: no "Suites".
+        assert_eq!(pages.len(), 2);
         assert!(pages.iter().all(|p| p.starts_with(&[0xFF, 0xD8])));
-        // Every article cut or teased has a jump, and the jumps fit in the pages.
+        // Pages kept at PAGE_H: every article cut or teased has a jump, and the jumps fit
+        // in the "Suites" pages.
         let (lp, placed) = layout_pages(ed);
         let mut ctx = Ctx {
             ed,
@@ -2304,5 +2323,45 @@ mod tests {
             .filter(|(_, i)| matches!(i, Item::Text(_)))
             .count();
         assert!(lines > 10);
+    }
+
+    #[test]
+    fn stories_are_not_cut_when_the_page_can_grow() {
+        let mut evs: Vec<Value> = (1..=5)
+            .map(|i| article(&format!("k{i}"), 1000.0 + i as f64, "E", i, 160))
+            .collect();
+        evs.push(json!({"id": "ed", "k": "EDITION", "t": 2000.0, "p": crate::edition::item("grande_une", &evs, "E")["p"].clone()}));
+        let ch = chronicle(evs);
+        let list = editions(&ch);
+        let ed = &list[0];
+        let (lp, placed) = layout_pages(ed);
+        let mut ctx = Ctx {
+            ed,
+            ch: &ch,
+            guild: None,
+            placed,
+            jumps: Vec::new(),
+            jump_page: BTreeMap::new(),
+            story_page: BTreeMap::new(),
+            page: 1,
+        };
+        let limits = page_bottoms(&mut ctx, &lp);
+        assert!(ctx.jumps.is_empty());
+        assert!(limits.iter().any(|&b| b > BODY_BOTTOM), "{limits:?}");
+        for (i, pg) in lp.iter().enumerate() {
+            ctx.page = i + 1;
+            draw_body(
+                &mut Canvas::paper(8, 8),
+                &mut ctx,
+                pg,
+                page_top(i),
+                limits[i],
+            );
+        }
+        assert!(
+            ctx.jumps.iter().all(|j| j.from.is_none()),
+            "aucune suite : {:?}",
+            ctx.jumps
+        );
     }
 }

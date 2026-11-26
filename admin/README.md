@@ -41,8 +41,8 @@ Rien n'est diffusé à la guilde sans ce clic, sauf l'effectif de la guilde riva
   son numéro et change aussi chez ceux qui l'ont déjà ouverte ; une carte retirée ne sort plus
   des boosters mais reste à ceux qui l'ont ; un article corrigé reste à sa place dans son numéro.
 - **Discord** : chaque numéro publié en jeu part sur le salon de la guilde par un webhook
-  (Réglages), en images : les pages comme en jeu, articles en entier (un article coupé continue
-  sur les pages « Suites »). L'app le poste au /reload ou à la déconnexion qui suit la
+  (Réglages), en images : les pages comme en jeu, articles en entier, chacun d'un bloc sur
+  sa page (la page s'allonge au besoin). L'app le poste au /reload ou à la déconnexion qui suit la
   publication, puis remplace ses pages si un article est corrigé ou retiré. Les numéros parus
   avant le réglage du webhook partent par le bouton de l'Éditeur. Le webhook reste sur le PC.
 - **Automatique** : fenêtre ouverte, après chaque `/reload` ou déconnexion, elle analyse les
