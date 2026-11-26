@@ -53,6 +53,9 @@ details { margin-top: 8px; }
 button.small { padding: 2px 8px; font-size: 12px; }
 .facts { max-height: 420px; overflow-y: auto; border: 1px solid var(--border); border-radius: 4px; margin-top: 6px; }
 .facts-filters { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 8px; }
+.facts-presets { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin-top: 6px; }
+.facts-presets .hint { margin: 0 4px 0 0; }
+#mon-period { font-size: 12px; text-transform: none; }
 .facts-filters #facts-search { flex: 1; min-width: 160px; }
 .facts-table td { padding: 3px 6px; border-bottom: 1px solid var(--border); vertical-align: top; user-select: text; }
 .facts-table th { position: sticky; top: 0; background: var(--card); z-index: 1; }

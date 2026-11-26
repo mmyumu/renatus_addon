@@ -115,6 +115,7 @@ pub fn status(paths: &WowPaths) -> Status {
                 &ch,
                 now(),
                 st.renatus_version.as_deref(),
+                crate::issues::last_issue_end(&ch, &st.pending_items).map(|t| t as i64),
             ));
         }
     }

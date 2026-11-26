@@ -71,6 +71,11 @@
     <section class="page" id="page-monitor" hidden>
       <div class="grid">
         <div class="card">
+          <div class="label">Événements · <select id="mon-period" title="Période des compteurs et des derniers événements"></select></div>
+          <div class="big" id="mon-period-count">—</div>
+          <p class="hint" id="mon-period-hint"></p>
+        </div>
+        <div class="card">
           <div class="label">Membres équipés</div>
           <div class="big" id="mon-equipped">—</div>
           <p class="hint" id="mon-equipped-hint"></p>
@@ -101,11 +106,13 @@
               <option value="all">Tous</option>
               <option value="equipped">Équipés</option>
               <option value="missing">Sans addon</option>
+              <option value="active">Actifs sur la période</option>
+              <option value="quiet">Équipés, muets sur la période</option>
             </select>
           </div>
         </div>
         <table id="mon-members">
-          <thead><tr><th>Personnage</th><th>Classe</th><th>Niv.</th><th>Rang</th><th>Addon</th><th>Gazette IA</th><th>Apparu</th><th>Dernière activité</th><th>Événements</th></tr></thead>
+          <thead><tr><th>Personnage</th><th>Classe</th><th>Niv.</th><th>Rang</th><th>Addon</th><th>Gazette IA</th><th>Apparu</th><th>Dernière activité</th><th id="mon-count-head">Événements</th></tr></thead>
           <tbody></tbody>
         </table>
         <p class="hint">« Équipé » : a publié un événement ou a été vu sur le canal de l'addon. La version n'est connue qu'avec la nouvelle version de l'addon. « Gazette IA » : accord pour que la gazette parle du personnage ; « jamais annoncé » = ses faits sont exclus.</p>
@@ -116,7 +123,7 @@
       </div>
       <div class="card">
         <div class="facts-head">
-          <span>Derniers événements</span>
+          <span id="mon-feed-title">Derniers événements</span>
           <div class="facts-tools">
             <select id="mon-feed-who"><option value="">Tout le monde</option></select>
             <select id="mon-feed-kind"><option value="">Tous les types</option></select>
@@ -192,8 +199,16 @@
             <span class="facts-tools">
               <button id="facts-all" class="small">Cocher l'affichage</button>
               <button id="facts-none" class="small">Décocher l'affichage</button>
-              <button id="facts-default" class="small">Par défaut</button>
             </span>
+          </div>
+          <div class="facts-presets">
+            <span class="hint">Cocher seulement :</span>
+            <button id="facts-default" class="small">Depuis le dernier numéro</button>
+            <button class="small" data-preset="today">Aujourd'hui</button>
+            <button class="small" data-preset="day">Dernières 24 h</button>
+            <button class="small" data-preset="week">7 derniers jours</button>
+            <button class="small" data-preset="untold">Tout le non raconté</button>
+            <button class="small" data-preset="none">Rien</button>
           </div>
           <div class="facts">
             <table class="facts-table">

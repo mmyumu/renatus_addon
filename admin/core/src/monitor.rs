@@ -22,6 +22,8 @@ pub const NEW_DAYS: i64 = 7;
 /// An equipped member silent for this long gets an alert.
 pub const SILENT_DAYS: i64 = 14;
 const FEED_LEN: usize = 300;
+/// The feed never lists more than this, whatever the period.
+const FEED_MAX: usize = 3000;
 const ACTIVITY_DAYS: i64 = 30;
 
 #[derive(Debug, Clone, Default, Serialize)]
@@ -32,7 +34,20 @@ pub struct Monitor {
     pub members: Vec<Member>,
     /// Events per day (local date), oldest first, `ACTIVITY_DAYS` entries.
     pub activity: Vec<DayCount>,
+    /// Periods offered by the "Période" filter, shortest first; "all" last.
+    pub periods: Vec<Period>,
+    /// Most recent events: every one of the longest bounded period, at least `FEED_LEN`.
     pub feed: Vec<FeedItem>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Period {
+    pub key: &'static str,
+    pub label: String,
+    pub since: i64,
+    /// Events (shared or this account's private ones) dated since then.
+    pub count: usize,
 }
 
 #[derive(Debug, Clone, Default, Serialize)]
@@ -83,6 +98,8 @@ pub struct Member {
     pub last_activity: Option<i64>,
     pub last_peer: Option<i64>,
     pub shared: usize,
+    /// Shared events per period of `Monitor::periods` (same order).
+    pub counts: Vec<usize>,
     pub last_kind: Option<String>,
     /// Missing shared sequence numbers (at most 20 listed).
     pub missing: Vec<i64>,
@@ -249,9 +266,53 @@ fn is_direct(e: &Value, rx: &Value) -> bool {
         || matches!((str_of(rx, "by"), str_of(e, "n")), (Some(by), Some(n)) if same_name(by, n))
 }
 
-pub fn build(ch: &Chronicle, now: i64, installed: Option<&str>) -> Monitor {
+/// Local midnight of the day of `t`.
+fn day_start(t: i64) -> i64 {
+    chrono::Local
+        .timestamp_opt(t, 0)
+        .single()
+        .and_then(|d| d.date_naive().and_hms_opt(0, 0, 0))
+        .and_then(|d| chrono::Local.from_local_datetime(&d).earliest())
+        .map_or(t - t.rem_euclid(DAY), |d| d.timestamp())
+}
+
+/// The periods of the filter: since the last issue (when there is one), today, 7 and
+/// 30 days, everything. Counts are filled later.
+fn periods(now: i64, last_issue: Option<i64>) -> Vec<Period> {
+    let mut out = Vec::new();
+    let p = |key, label: String, since| Period {
+        key,
+        label,
+        since,
+        count: 0,
+    };
+    if let Some(t) = last_issue.filter(|t| *t > 0 && *t <= now) {
+        let at = chrono::Local
+            .timestamp_opt(t, 0)
+            .single()
+            .map(|d| d.format(" (%d/%m %H:%M)").to_string())
+            .unwrap_or_default();
+        out.push(p("issue", format!("Depuis le dernier numéro{at}"), t));
+    }
+    out.push(p("today", "Aujourd'hui".into(), day_start(now)));
+    out.push(p("week", "7 derniers jours".into(), now - 7 * DAY));
+    out.push(p("month", "30 derniers jours".into(), now - 30 * DAY));
+    out.push(p("all", "Depuis le début".into(), 0));
+    out
+}
+
+/// `last_issue`: end of the last regular gazette issue (issues::last_issue_end).
+pub fn build(
+    ch: &Chronicle,
+    now: i64,
+    installed: Option<&str>,
+    last_issue: Option<i64>,
+) -> Monitor {
     let mon = &ch.monitor;
-    let mut m = Monitor::default();
+    let mut m = Monitor {
+        periods: periods(now, last_issue),
+        ..Monitor::default()
+    };
     let mut members: Vec<Member> = Vec::new();
 
     // 1. Guild roster snapshot.
@@ -285,6 +346,7 @@ pub fn build(ch: &Chronicle, now: i64, installed: Option<&str>) -> Monitor {
         class: Option<String>,
         seqs: BTreeSet<i64>,
         shared: usize,
+        counts: Vec<usize>,
         private: bool,
         first: Option<i64>,
         last: Option<(i64, String)>,
@@ -292,7 +354,10 @@ pub fn build(ch: &Chronicle, now: i64, installed: Option<&str>) -> Monitor {
     let mut authors: BTreeMap<String, Author> = BTreeMap::new();
     for e in ch.events.values() {
         let Some(a) = str_of(e, "a") else { continue };
-        let au = authors.entry(a.to_string()).or_default();
+        let au = authors.entry(a.to_string()).or_insert_with(|| Author {
+            counts: vec![0; m.periods.len()],
+            ..Author::default()
+        });
         if let Some(n) = str_of(e, "n") {
             au.name = n.to_string();
         }
@@ -308,12 +373,15 @@ pub fn build(ch: &Chronicle, now: i64, installed: Option<&str>) -> Monitor {
         if e.get("del").is_some() {
             continue;
         }
+        let t = num_of(e, "t") as i64;
         if shared {
             au.shared += 1;
+            for (c, p) in au.counts.iter_mut().zip(&m.periods) {
+                *c += usize::from(t >= p.since);
+            }
         } else {
             au.private = true;
         }
-        let t = num_of(e, "t") as i64;
         if t > 0 {
             au.first = Some(au.first.map_or(t, |f| f.min(t)));
             if au.last.as_ref().is_none_or(|(l, _)| t > *l) {
@@ -343,6 +411,13 @@ pub fn build(ch: &Chronicle, now: i64, installed: Option<&str>) -> Monitor {
         row.class = row.class.take().or(au.class);
         row.equipped = true;
         row.shared += au.shared;
+        if row.counts.is_empty() {
+            row.counts = au.counts;
+        } else {
+            for (c, n) in row.counts.iter_mut().zip(au.counts) {
+                *c += n;
+            }
+        }
         row.first_seen = au.first;
         if let Some((t, k)) = au.last {
             row.last_activity = Some(t);
@@ -385,6 +460,7 @@ pub fn build(ch: &Chronicle, now: i64, installed: Option<&str>) -> Monitor {
 
     let consent = crate::gazette::consent(ch);
     for row in &mut members {
+        row.counts.resize(m.periods.len(), 0);
         if row.equipped {
             row.ai_consent = row.guid.as_ref().map(|g| match consent.get(g) {
                 Some(true) => "yes",
@@ -543,10 +619,25 @@ pub fn build(ch: &Chronicle, now: i64, installed: Option<&str>) -> Monitor {
         .into_iter()
         .map(|(day, count)| DayCount { day, count })
         .collect();
+    for p in &mut m.periods {
+        p.count = all
+            .iter()
+            .filter(|e| num_of(e, "t") as i64 >= p.since)
+            .count();
+    }
+    // The feed holds every event of the longest bounded period (so that filtering it on
+    // a period shows them all), at least FEED_LEN, at most FEED_MAX.
+    let longest = m
+        .periods
+        .iter()
+        .filter(|p| p.key != "all")
+        .map(|p| p.count)
+        .max()
+        .unwrap_or(0);
     all.sort_by(|a, b| num_of(b, "t").total_cmp(&num_of(a, "t")));
     m.feed = all
         .into_iter()
-        .take(FEED_LEN)
+        .take(longest.clamp(FEED_LEN, FEED_MAX))
         .map(|e| {
             let kind = str_of(e, "k").unwrap_or("?").to_string();
             let rx = e.get("rx");
@@ -617,7 +708,7 @@ mod tests {
 
     #[test]
     fn members_merge_roster_authors_and_peers() {
-        let m = build(&chronicle(), NOW, Some("1.0.1"));
+        let m = build(&chronicle(), NOW, Some("1.0.1"), None);
         assert_eq!(m.members.len(), 4, "{:#?}", m.members);
         let dakey = member(&m, "Dakey Dak");
         assert!(dakey.equipped && dakey.mine && dakey.in_roster);
@@ -648,7 +739,7 @@ mod tests {
 
     #[test]
     fn health_and_alerts() {
-        let m = build(&chronicle(), NOW, Some("1.0.1"));
+        let m = build(&chronicle(), NOW, Some("1.0.1"), None);
         assert_eq!(m.health.rejected, 1);
         assert_eq!(m.health.peers, 2);
         assert_eq!(m.health.equipped, 3);
@@ -672,7 +763,7 @@ mod tests {
 
     #[test]
     fn feed_and_activity() {
-        let m = build(&chronicle(), NOW, None);
+        let m = build(&chronicle(), NOW, None, None);
         assert_eq!(m.feed.len(), 5);
         assert_eq!(m.feed[0].kind, "BOOSTER_OPEN");
         assert_eq!(m.feed[0].detail, "5 carte(s)");
@@ -683,6 +774,21 @@ mod tests {
         assert_eq!(quest.delay, Some(DAY));
         assert_eq!(m.activity.len(), ACTIVITY_DAYS as usize);
         assert_eq!(m.activity.iter().map(|d| d.count).sum::<usize>(), 5);
+    }
+
+    #[test]
+    fn counts_per_period() {
+        let m = build(&chronicle(), NOW, None, Some(NOW - 3 * DAY));
+        let keys: Vec<&str> = m.periods.iter().map(|p| p.key).collect();
+        assert_eq!(keys, ["issue", "today", "week", "month", "all"]);
+        let counts: Vec<usize> = m.periods.iter().map(|p| p.count).collect();
+        assert_eq!(counts, [3, 0, 3, 5, 5], "private events count too");
+        assert_eq!(member(&m, "Dakey Dak").counts, [0, 0, 0, 2, 2]);
+        assert_eq!(member(&m, "Renaa Fitzherak").counts, [2, 0, 2, 2, 2]);
+        assert_eq!(member(&m, "Hurtige Henning").counts, [0; 5]);
+        let none = build(&chronicle(), NOW, None, None);
+        assert_eq!(none.periods[0].key, "today", "no issue yet: no such period");
+        assert_eq!(member(&none, "Dakey Dak").counts.len(), 4);
     }
 
     #[test]

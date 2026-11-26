@@ -155,9 +155,37 @@ function fillSelect(sel, values, label) {
   sel.value = values.includes(keep) ? keep : "";
 }
 
+// Period of the Suivi counters and feed (a key of monitor.periods); null = the default:
+// since the last issue when there is one, else today.
+let monPeriod = null;
+
+function renderPeriod(m) {
+  const sel = $("mon-period");
+  const periods = m?.periods ?? [];
+  const keys = periods.map((p) => p.key);
+  if (!keys.includes(monPeriod)) monPeriod = keys.includes("issue") ? "issue" : keys.includes("today") ? "today" : keys[0] ?? null;
+  // Rebuilt only when the periods change, so that an open list is not closed.
+  const sig = periods.map((p) => `${p.key}:${p.label}`).join("|");
+  if (sel.dataset.sig !== sig) {
+    sel.dataset.sig = sig;
+    sel.textContent = "";
+    for (const p of periods) sel.add(new Option(p.label, p.key));
+  }
+  sel.value = monPeriod ?? "";
+  const i = keys.indexOf(monPeriod);
+  const p = periods[i];
+  $("mon-period-count").textContent = p ? p.count : "—";
+  const active = m ? m.members.filter((x) => x.counts?.[i] > 0).length : 0;
+  $("mon-period-hint").textContent = p
+    ? (p.since ? `depuis le ${when(p.since)}` : "tout le journal") + ` · ${active} membre(s) actif(s)`
+    : "";
+  return { i, p };
+}
+
 function renderMonitor(st) {
   const m = st && !st.error ? st.monitor : null;
   const h = m?.health;
+  const { i: pi, p: period } = renderPeriod(m);
   const others = m ? m.members.filter((x) => x.equipped && !x.mine).length : 0;
   $("mon-equipped").textContent = m ? h.equipped : "—";
   $("mon-equipped-hint").textContent = m
@@ -190,6 +218,8 @@ function renderMonitor(st) {
   for (const x of m?.members ?? []) {
     if (filter === "equipped" && !x.equipped) continue;
     if (filter === "missing" && x.equipped) continue;
+    if (filter === "active" && !(x.counts?.[pi] > 0)) continue;
+    if (filter === "quiet" && (!x.equipped || x.counts?.[pi] > 0)) continue;
     const tr = document.createElement("tr");
     tr.className = (x.equipped ? "" : "absent") + (x.mine ? " mine" : "");
     const name = cell(tr, x.name);
@@ -206,7 +236,8 @@ function renderMonitor(st) {
     cell(tr, x.firstSeen ? when(x.firstSeen) : "—");
     const last = cell(tr, x.lastActivity ? ago(x.lastActivity) : "—");
     if (x.lastKind) last.title = `dernier événement : ${x.lastKind}`;
-    const n = cell(tr, x.equipped ? x.shared : "");
+    const n = cell(tr, x.equipped ? (x.counts?.[pi] ?? x.shared) : "");
+    if (x.equipped && period?.key !== "all") n.title = `${x.shared} depuis le début`;
     if (x.missingCount) badge(n, `${x.missingCount} manquant(s)`, "warn");
     body.appendChild(tr);
   }
@@ -223,8 +254,10 @@ function renderMonitor(st) {
     act.appendChild(b);
   }
 
-  // Feed
-  const feed = m?.feed ?? [];
+  $("mon-count-head").textContent = period && period.key !== "all" ? "Événements (période)" : "Événements";
+
+  // Feed: the events of the period only.
+  const feed = (m?.feed ?? []).filter((f) => !period || f.t >= period.since);
   fillSelect($("mon-feed-who"), [...new Set(feed.map((f) => f.name))].sort());
   const kinds = new Map(feed.map((f) => [f.kind, f.label]));
   fillSelect($("mon-feed-kind"), [...kinds.keys()].sort((a, b) => kinds.get(a).localeCompare(kinds.get(b))), (k) => kinds.get(k));
@@ -232,8 +265,12 @@ function renderMonitor(st) {
   const kind = $("mon-feed-kind").value;
   const fb = $("mon-feed").querySelector("tbody");
   fb.textContent = "";
-  for (const f of feed) {
-    if ((who && f.name !== who) || (kind && f.kind !== kind)) continue;
+  const rows = feed.filter((f) => !(who && f.name !== who) && !(kind && f.kind !== kind));
+  const cut = period && period.count > feed.length ? ` (les ${feed.length} plus récents sur ${period.count})` : "";
+  $("mon-feed-title").textContent = m
+    ? `Derniers événements · ${rows.length}${rows.length < feed.length ? ` sur ${feed.length}` : ""}${cut}`
+    : "Derniers événements";
+  for (const f of rows) {
     const tr = document.createElement("tr");
     cell(tr, when(f.t));
     cell(tr, f.name);
@@ -245,6 +282,10 @@ function renderMonitor(st) {
   }
 }
 
+$("mon-period").addEventListener("change", () => {
+  monPeriod = $("mon-period").value;
+  if (state) renderMonitor(state.status);
+});
 for (const id of ["mon-members-filter", "mon-feed-who", "mon-feed-kind"]) {
   $(id).addEventListener("change", () => state && renderMonitor(state.status));
 }
@@ -398,6 +439,7 @@ function fillFacts() {
   }
   const recent = selection.candidates.filter((c) => c.recent).length;
   const sp = selection.special;
+  $("facts-default").textContent = sp ? "Par défaut" : selection.afterIssue ? "Depuis le dernier numéro" : "Par défaut (30 jours)";
   $("selection-title").textContent = sp
     ? `Hors-série « ${sp.title} » : ${selection.candidates.length} fait(s) du ${day(selection.since)} au ${day(selection.until)}`
     : selection.afterIssue
@@ -1106,6 +1148,20 @@ $("facts-default").addEventListener("click", () => {
   for (const c of selection.candidates) if (c.checked) ticked.add(c.key);
   fillFacts();
 });
+// Presets: tick only the facts of a period (all of them, whatever the filters), never
+// the ones already fully told.
+for (const b of document.querySelectorAll(".facts-presets [data-preset]")) {
+  b.addEventListener("click", () => {
+    const now = Date.now() / 1000;
+    const midnight = new Date().setHours(0, 0, 0, 0) / 1000;
+    const since = { today: midnight, day: now - 86400, week: now - 7 * 86400, untold: -Infinity }[b.dataset.preset];
+    ticked.clear();
+    if (since !== undefined) {
+      for (const c of selection.candidates) if (statusOf(c) !== "told" && c.when >= since) ticked.add(c.key);
+    }
+    fillFacts();
+  });
+}
 for (const id of ["facts-search", "facts-status", "facts-cat", "facts-who"]) {
   $(id).addEventListener("input", () => fillFacts());
 }
