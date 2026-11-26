@@ -1,7 +1,7 @@
 -- UI/Options.lua: every Renatus setting, in the game's Esc > Options > AddOns > Renatus.
 -- The addon window only shows content (gazette, album, journals).
 --
---   Renatus            native controls: display, privacy, AI consent, album
+--   Renatus            native controls: display, rival alarm, privacy, AI consent, album
 --     Voix             native controls: Renacoach voice lines
 --
 -- Members only see their own settings. Guild settings (rival guild), the editorial
@@ -28,6 +28,8 @@ local function sharePast()
     if UI.Refresh then UI.Refresh() end
 end
 
+local ALARM_HELP = "Un bandeau en haut de l'écran et un son quand un membre de la guilde rivale apparaît (cible, survol, barres de nom). Une alarme par ennemi toutes les 5 minutes, jamais en champ de bataille ni en arène. Rien n'est envoyé à personne. Décoché : plus rien du tout."
+local ALARM_TEST_HELP = "Affiche un faux rival, pour voir et entendre l'alarme. Pour l'essayer en jeu sans croiser la guilde rivale : /renatus alarme essai (tout joueur ennemi la déclenche jusqu'au prochain /reload)."
 local PRIVACY_HELP = "Désactivé : rien n'est enregistré. Privé : visible par toi seul. Guilde : partagé avec les membres équipés de l'addon."
 local CONSENT_HELP = "Si coché, tes événements partagés avec la guilde peuvent être envoyés à une IA (Claude) par l'application du rédacteur, pour écrire la gazette. Si décoché, rien de toi n'est envoyé et ton nom est retiré des faits des autres. Ton choix est partagé avec la guilde."
 
@@ -104,6 +106,11 @@ local function buildCanvas()
         if ns.Profile then ns.Profile.Publish() end
     end)
     f.optOut:SetPoint("TOPLEFT", x, y - 72)
+    f.alarm = UI.Checkbox(f, "Alarme quand un rival est en vue", function(v) ns.char.alarm.enabled = v end)
+    f.alarm:SetPoint("TOPLEFT", x, y - 96)
+    UI.Tooltip(f.alarm, "Alarme guilde rivale", { ALARM_HELP })
+    f.alarmSound = UI.Checkbox(f, "Alarme : avec un son", function(v) ns.char.alarm.sound = v end)
+    f.alarmSound:SetPoint("TOPLEFT", x, y - 120)
 
     function f:Refresh()
         for key, d in pairs(self.privacy) do d:SetValue(ns.char.privacy[key] or "G") end
@@ -111,6 +118,8 @@ local function buildCanvas()
         self.minimap:SetChecked(ns.char.ui.showMinimap)
         self.widget:SetChecked(ns.char.ui.showWidget)
         self.optOut:SetChecked(ns.char.albumOptOut)
+        self.alarm:SetChecked(ns.char.alarm.enabled)
+        self.alarmSound:SetChecked(ns.char.alarm.sound)
     end
     f:SetScript("OnShow", function(self) self:Refresh() end)
     return f
@@ -182,6 +191,10 @@ local function buildNative()
     P.checkbox("showWidget", char.ui, "showWidget", "Icône de la gazette (nouveautés)", true,
         "Petite icône déplaçable à l'écran : un « ! » rouge quand la gazette a de nouveaux articles, une pastille dorée avec le nombre de boosters à ouvrir. Clic gauche : la gazette ; clic droit : l'album.",
         function() if UI.Notifier then UI.Notifier:Update() end end)
+    P.header("Alarme guilde rivale")
+    P.checkbox("alarmEnabled", char.alarm, "enabled", "Alarme quand un rival est en vue", true, ALARM_HELP)
+    P.checkbox("alarmSound", char.alarm, "sound", "Avec un son", true, "Le son d'avertissement de raid, sur le canal Général.")
+    P.button("Alarme", "Tester", ALARM_TEST_HELP, function() ns.Alarm.Test() end)
     P.header("Collecte et confidentialité")
     for _, cat in ipairs(ns.Types.CATEGORIES) do
         P.dropdown("privacy_" .. cat.key, char.privacy, cat.key, cat.label, "G", MODES, PRIVACY_HELP)

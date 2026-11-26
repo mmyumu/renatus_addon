@@ -1326,6 +1326,95 @@ test("autre guilde, PNJ ou nom secret : ignores", function()
     eq(#eventsOf(ns, "ENEMY_SEEN"), 0)
 end)
 
+print("Alarme guilde rivale")
+
+-- Plays the sounds into S.alarmSounds (the stub has no PlaySound).
+local function withAlarmSound(S)
+    S.alarmSounds = {}
+    function PlaySound(id, channel) table.insert(S.alarmSounds, { id = id, channel = channel }) end
+end
+
+test("alarme : rival en vue, bandeau et son, une fois par 5 min", function()
+    local ns, S = boot({ specIndex = 1, units = { target = GORBASH, nameplate1 = GORBASH } })
+    withAlarmSound(S)
+    ns.char.rivalGuild = "Les Crocs de Sang"
+    Stub.fire("PLAYER_TARGET_CHANGED")
+    local banner = ns.Alarm.frame
+    assert(banner and banner:IsShown(), "bandeau affiche")
+    eq(ns.Alarm.lastTitle, "Rival en vue")
+    assert(ns.Alarm.lastText:find("Gorbash"), ns.Alarm.lastText)
+    assert(ns.Alarm.lastText:find("25"), "niveau")
+    eq(#S.alarmSounds, 1); eq(S.alarmSounds[1].channel, "Master")
+    Stub.fire("NAME_PLATE_UNIT_ADDED", "nameplate1")
+    eq(#S.alarmSounds, 1, "meme ennemi : pas de nouvelle alarme")
+    Stub.advance(ns.Alarm.SHOW_TIME + 0.5)
+    eq(banner:IsShown(), false, "le bandeau s'efface")
+    Stub.advance(ns.Alarm.COOLDOWN)
+    Stub.fire("NAME_PLATE_UNIT_ADDED", "nameplate1")
+    eq(#S.alarmSounds, 2, "5 minutes plus tard : nouvelle alarme")
+    PlaySound = nil
+end)
+
+test("alarme : plusieurs rivaux regroupes, un seul son", function()
+    local function rival(name) return { name = name, guild = "Les Crocs de Sang", level = 30, class = "MAGE" } end
+    local ns, S = boot({ specIndex = 1, units = { nameplate1 = rival("Aa"), nameplate2 = rival("Bb"),
+        nameplate3 = rival("Cc"), nameplate4 = rival("Dd") } })
+    withAlarmSound(S)
+    ns.char.rivalGuild = "Les Crocs de Sang"
+    for i = 1, 4 do Stub.fire("NAME_PLATE_UNIT_ADDED", "nameplate" .. i) end
+    eq(ns.Alarm.lastTitle, "4 rivaux en vue")
+    assert(ns.Alarm.lastText:find("et 1 autre"), ns.Alarm.lastText)
+    eq(#S.alarmSounds, 1)
+    PlaySound = nil
+end)
+
+test("alarme : desactivee, sans son, autre guilde, champ de bataille", function()
+    local ns, S = boot({ specIndex = 1, units = { target = GORBASH, mouseover = { name = "Passant", guild = "Les Gentils" } } })
+    withAlarmSound(S)
+    ns.char.rivalGuild = "Les Crocs de Sang"
+    Stub.fire("UPDATE_MOUSEOVER_UNIT")
+    eq(ns.Alarm.frame, nil, "autre guilde : rien")
+    ns.char.alarm.enabled = false
+    Stub.fire("PLAYER_TARGET_CHANGED")
+    eq(ns.Alarm.frame, nil, "desactivee : rien")
+    eq(#eventsOf(ns, "ENEMY_SEEN"), 1, "le tableau de chasse continue")
+    ns.char.alarm.enabled, ns.char.alarm.sound = true, false
+    S.instance = { type = "pvp", name = "Goulet des Chanteguerres", iid = 489 }
+    Stub.fire("PLAYER_TARGET_CHANGED")
+    eq(ns.Alarm.frame, nil, "champ de bataille : rien")
+    S.instance = nil
+    Stub.fire("PLAYER_TARGET_CHANGED")
+    assert(ns.Alarm.frame:IsShown(), "bandeau")
+    eq(#S.alarmSounds, 0, "sans son")
+    PlaySound = nil
+end)
+
+test("alarme : test toujours possible, mode essai sur tout joueur ennemi", function()
+    local horde = { name = "Grunt", guild = "La Horde Unie", level = 40, class = "ROGUE" }
+    local ns, S = boot({ specIndex = 1, units = { target = horde } })
+    withAlarmSound(S)
+    function UnitIsEnemy(_, unit) return unit ~= "player" end
+    ns.char.alarm.enabled, ns.char.alarm.sound = false, false
+    SlashCmdList.RENATUS("alarme test")
+    assert(ns.Alarm.frame:IsShown(), "le test s'affiche meme desactivee")
+    eq(#S.alarmSounds, 1, "et se fait entendre")
+    ns.Alarm.frame:Hide()
+    ns.char.alarm.enabled = true
+    Stub.fire("PLAYER_TARGET_CHANGED")
+    eq(ns.Alarm.frame:IsShown(), false, "pas rival, pas d'essai : rien")
+    SlashCmdList.RENATUS("alarme essai")
+    eq(ns.Alarm.trial, true)
+    Stub.fire("PLAYER_TARGET_CHANGED")
+    assert(ns.Alarm.frame:IsShown(), "essai : tout ennemi")
+    eq(ns.Alarm.lastTitle, "Ennemi en vue (essai)")
+    assert(ns.Alarm.lastText:find("<La Horde Unie>"), ns.Alarm.lastText)
+    SlashCmdList.RENATUS("alarme off")
+    eq(ns.char.alarm.enabled, false)
+    UnitIsEnemy, PlaySound = nil, nil
+end)
+
+print("Tableau de chasse automatique (suite)")
+
 test("mort juste apres avoir vu un rival : present (suppose), pas tueur", function()
     local ns = boot({ specIndex = 1, units = { nameplate3 = GORBASH } })
     ns.char.rivalGuild = "Les Crocs de Sang"
@@ -2003,7 +2092,7 @@ test("menu Options du jeu : page principale et sous-page Voix", function()
     for _, c in ipairs(reg.controls) do
         if c.category == reg.categories[1] then main = main + 1 else voice = voice + 1 end
     end
-    eq(main, 4 + #ns.Types.CATEGORIES, "minicarte, icone gazette, consentement, album + confidentialite")
+    eq(main, 6 + #ns.Types.CATEGORIES, "minicarte, icone gazette, alarme et son, consentement, album + confidentialite")
     eq(voice, 8 + 10, "voix : 8 reglages + 10 familles")
     -- privacy: same table as everywhere
     reg.byVar.Renatus_privacy_combat:SetValue("G")

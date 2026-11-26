@@ -58,6 +58,10 @@ local CHAR_DEFAULTS = {
     mobsKilled = {},         -- [npc id] = true: creatures already recorded (Collectors/Kills.lua)
     itemsSeen = {},          -- [item id] = true: rare items already recorded (Collectors/Loot.lua)
     enemySeenAt = {},        -- [name] = last recorded observation (rate limit)
+    alarm = {                -- rival guild alarm (UI/Alarm.lua)
+        enabled = true,      -- off: no banner, no sound, nothing at all
+        sound = true,
+    },
     expSeq = 0,              -- local expedition counter
     -- expedition = nil      -- current expedition (Collectors/Expedition.lua)
     ui = {

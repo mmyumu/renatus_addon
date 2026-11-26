@@ -40,11 +40,25 @@ local function isHostile(unit)
 end
 
 local function remember(unit, name, guild)
-    if not isHostile(unit) then return end
+    if not isHostile(unit) then return nil end
     local level = try(UnitLevel, unit)
     local className, class = try(UnitClass, unit)
     hostile[name] = { t = now(), level = (level and level > 0) and level or nil, race = try(UnitRace, unit),
         class = class, className = className, guild = guild }
+    return hostile[name]
+end
+
+-- Tells the alarm (UI/Alarm.lua) an enemy player or a rival is in view, on every sighting:
+-- the alarm has its own rate limit.
+local function spotted(unit, name, guild, info, isRival)
+    if not (info or isRival) then return end
+    if not info then
+        local level = try(UnitLevel, unit)
+        local className, class = try(UnitClass, unit)
+        info = { level = (level and level > 0) and level or nil, class = class, className = className }
+    end
+    ns.EventBus.Publish("ENEMY_SPOTTED", { name = name, guild = guild, level = info.level, class = info.class,
+        className = info.className, rival = isRival or nil })
 end
 
 function Enemies.Observe(unit)
@@ -53,10 +67,11 @@ function Enemies.Observe(unit)
     local name, realm = try(UnitName, unit)
     if not name or name == "" then return nil end
     local guild = try(GetGuildInfo, unit)
-    remember(unit, name, guild)
+    local info = remember(unit, name, guild)
     local target = rival()
-    if not target then return nil end
-    if not guild or string.lower(guild) ~= target then return nil end
+    local isRival = target ~= nil and guild ~= nil and string.lower(guild) == target
+    spotted(unit, name, guild, info, isRival)
+    if not isRival then return nil end
     local t = now()
     recent[name] = t
     local seenAt = ns.char.enemySeenAt
