@@ -627,15 +627,21 @@ Album.DayKey = dayKey
 
 -- Boosters earned by `me`: from their own events and the days they played. Each day
 -- is counted with the rule in force that day (`rules`, see Album.RuleOn), so changing
--- the rule never takes back boosters already earned.
+-- the rule never takes back boosters already earned. A day never gives fewer boosters
+-- than were opened that day: a rule changed during the day, or received late (the sync
+-- is peer to peer), leaves no debt; the boosters opened under the former rule are a gift.
 function Album.Earned(events, me, playedDays, rules)
-    local days = {} -- [dayKey] = { bonus = legacy bonus events, hits = { [source] = n } }
+    local days = {} -- [dayKey] = { bonus = legacy bonus events, hits = { [source] = n }, opened = n }
     local function day(key)
-        days[key] = days[key] or { bonus = 0, hits = {} }
+        days[key] = days[key] or { bonus = 0, hits = {}, opened = 0 }
         return days[key]
     end
     for key in pairs(playedDays or {}) do day(key) end
     for _, ev in ipairs(events) do
+        if ev.a == me and not ev.del and ev.k == "BOOSTER_OPEN" then
+            local d = day(dayKey(ev.t))
+            d.opened = d.opened + 1
+        end
         if ev.a == me and not ev.del then
             local def = ns.Types.Get(ev.k)
             if not def.hidden then
@@ -651,7 +657,7 @@ function Album.Earned(events, me, playedDays, rules)
     end
     local total = 0
     for key, d in pairs(days) do
-        total = total + Album.DayTotal(Album.RuleOn(rules, key), d.hits, d.bonus)
+        total = total + math.max(d.opened, Album.DayTotal(Album.RuleOn(rules, key), d.hits, d.bonus))
     end
     return total
 end

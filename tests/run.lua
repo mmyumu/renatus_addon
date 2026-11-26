@@ -2637,6 +2637,15 @@ test("album : regle des boosters par jour, une nouvelle regle ne reprend rien", 
     -- stingier rule from day 2: day 1 keeps the old one
     local rules = { { from = A.DayKey(t0 + D), rule = A.Rule({ day = 0, bonus = 1, cap = 2 }) } }
     eq(A.Earned(events, me, played, rules), 3 + 2 + 0)
+    -- no debt: boosters opened under a former rule (changed during the day, or received
+    -- late) stay earned; a day never gives fewer than were opened that day
+    local function open(t) return { a = me, k = "BOOSTER_OPEN", t = t, p = { cards = {} } } end
+    local opened = { lvl(t0 + D), open(t0 + D), open(t0 + D), open(t0 + D), open(t0 + D) }
+    eq(A.Earned(opened, me, {}, rules), 4, "4 ouverts le jour 2, la regle n'en donne que 1")
+    opened[#opened + 1] = { a = "Player-2-OTHER", k = "BOOSTER_OPEN", t = t0 + D, p = {} }
+    opened[#opened + 1] = { a = me, k = "BOOSTER_OPEN", t = t0 + D, del = true, p = {} }
+    eq(A.Earned(opened, me, {}, rules), 4, "ni ceux d'un autre ni ceux supprimes")
+    eq(A.Earned({ open(t0 + D), lvl(t0 + D), lvl(t0 + D) }, me, {}, rules), 2, "la regle donne plus : la regle")
     -- out of range / missing values
     local r = A.Rule({ day = -3, bonus = "x", cap = 99 })
     eq(r.day, 0); eq(r.bonus, 1); eq(r.cap, 20)
