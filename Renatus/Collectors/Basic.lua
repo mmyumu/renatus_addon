@@ -13,7 +13,11 @@ local function onLevelUp(_, level)
     if level then ns.Store.Add("LEVEL_UP", { lvl = level }) end
 end
 
+-- With a pet out (hunter, warlock) PLAYER_DEAD fires twice for one death.
+local firstDeath = ns.Once(ns.Store.DEATH_TWIN)
+
 local function onDead()
+    if not firstDeath() then return end
     -- Rivals seen just before: "present", not "killers" (a deduction, flagged as such).
     local enemies = ns.EnemyWatch and ns.EnemyWatch.RecentNames() or {}
     local level = try(UnitLevel, "player")
@@ -90,6 +94,7 @@ end
 
 function Basic:OnLogin()
     ns.Store.MarkPlayed()   -- one booster per day played
+    ns.Store.RetractTwinDeaths()   -- deaths recorded twice by older versions
     ns:RegisterGameEvent("PLAYER_LEVEL_UP", onLevelUp)
     ns:RegisterGameEvent("PLAYER_DEAD", onDead)
     ns:RegisterGameEvent("QUEST_TURNED_IN", onQuestTurnedIn)

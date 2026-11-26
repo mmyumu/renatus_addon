@@ -17,6 +17,14 @@ local function test(name, fn)
     end
 end
 
+-- Separate deaths: two PLAYER_DEAD within Store.DEATH_TWIN seconds are one (pet classes).
+local function die(n)
+    for i = 1, n or 1 do
+        if i > 1 then Stub.advance(6) end
+        Stub.fire("PLAYER_DEAD")
+    end
+end
+
 local function eq(actual, expected, msg)
     if actual ~= expected then
         error((msg or "") .. " attendu=" .. tostring(expected) .. " obtenu=" .. tostring(actual), 2)
@@ -929,7 +937,7 @@ end)
 test("trou dans la sequence : demande ciblee, l'auteur repond", function()
     local nsA, SA = boot({ specIndex = 1, me = ALICE })
     nsA.char.privacy.combat = "G"
-    Stub.fire("PLAYER_DEAD"); Stub.fire("PLAYER_DEAD")
+    die(2)
     Stub.advance(5)
     local savedA, savedAC = RenatusDB, RenatusCharDB
     -- regroup the chunks of each message, keep those of event #2
@@ -966,7 +974,7 @@ end)
 test("plusieurs trous : chacun est redemande, pas seulement le premier", function()
     local nsA, SA = boot({ specIndex = 1, me = ALICE })
     nsA.char.privacy.combat = "G"
-    for _ = 1, 6 do Stub.fire("PLAYER_DEAD") end
+    die(6)
     Stub.advance(10)
     -- Bob only gets #1, #3 and #6: gaps 2 and 4-5
     local keep, current = {}, {}
@@ -994,7 +1002,7 @@ test("vecteurs : un nouveau venu rattrape l'historique via un relais", function(
     -- Bob holds 2 of Alice's events; Carol has nothing.
     local nsA, SA = boot({ specIndex = 1, me = ALICE })
     nsA.char.privacy.combat = "G"
-    Stub.fire("PLAYER_DEAD"); Stub.fire("PLAYER_DEAD")
+    die(2)
     Stub.advance(5)
     local fromAlice = SA.sent
     local nsB = boot({ specIndex = 1, me = BOB })
@@ -1056,7 +1064,7 @@ end)
 test("trace de synchro : desactivee par defaut, puis demandes, reponses et messages illisibles gardes", function()
     local nsA, SA = boot({ specIndex = 1, me = ALICE })
     nsA.char.privacy.combat = "G"
-    Stub.fire("PLAYER_DEAD"); Stub.fire("PLAYER_DEAD"); Stub.fire("PLAYER_DEAD")
+    die(3)
     Stub.advance(5)
     local savedA, savedAC = RenatusDB, RenatusCharDB
     -- keep only the chunks of event #3 for Bob
@@ -2558,10 +2566,55 @@ test("visibilite : partager un evenement prive, puis le rendre prive (synchro, t
     eq(RenatusDB.events[shared.id].del, true, "videe chez Bob")
 end)
 
+test("mort : PLAYER_DEAD en double (familier) = une mort, une replique", function()
+    local ns = boot({ specIndex = 1 })
+    ns.char.privacy.combat = "G"
+    ns.Voice:SetEnabled(true)
+    local played = #Stub.state.played
+    Stub.fire("PLAYER_DEAD"); Stub.advance(1); Stub.fire("PLAYER_DEAD")
+    eq(#eventsOf(ns, "DEATH"), 1)
+    eq(#Stub.state.played - played, 1, "une seule replique")
+    Stub.advance(6); Stub.fire("PLAYER_DEAD")
+    eq(#eventsOf(ns, "DEATH"), 2, "mort suivante comptee")
+end)
+
+test("mort : doublons d'anciennes versions retires par leur auteur au login, chez tous", function()
+    local ns, S = boot({ specIndex = 1, me = ALICE })
+    ns.char.privacy.combat = "G"
+    die(3)
+    local d = eventsOf(ns, "DEATH")
+    table.sort(d, function(a, b) return a.s < b.s end)
+    d[1].t, d[2].t, d[3].t = 1795001000, 1795001001, 1795001100   -- 1 and 2 are twins
+    -- a member's twins are only theirs to retract
+    for i, t in ipairs({ 1795001000, 1795001001 }) do
+        local id = BOB.guid .. ":" .. i
+        ns.db.events[id] = { v = 1, id = id, a = BOB.guid, n = "Bob", s = i, t = t, k = "DEATH", vis = "G", p = {} }
+    end
+    Stub.advance(5)
+    local sent, aliceDB, aliceChar = S.sent, RenatusDB, RenatusCharDB
+    -- Bob already holds the twins
+    boot({ specIndex = 1, me = BOB })
+    Stub.deliver(sent, "Alice-Forever")
+    assert(RenatusDB.events[d[2].id] and not RenatusDB.events[d[2].id].del, "doublon recu par Bob")
+    local bobDB, bobChar = RenatusDB, RenatusCharDB
+    -- Alice logs in with the fixed version
+    local ns2, S2 = boot({ specIndex = 1, me = ALICE, savedAccount = aliceDB, savedChar = aliceChar })
+    eq(ns2.db.events[d[1].id].del, nil, "premiere mort gardee")
+    eq(ns2.db.events[d[2].id].del, true, "doublon retire")
+    eq(ns2.db.events[d[3].id].del, nil, "mort distincte gardee")
+    eq(ns2.db.events[BOB.guid .. ":2"].del, nil, "doublon d'un autre : pas touche")
+    eq(ns2.Store.RetractTwinDeaths(), 0, "rien de plus ensuite")
+    Stub.advance(5)
+    boot({ specIndex = 1, me = BOB, savedAccount = bobDB, savedChar = bobChar })
+    Stub.deliver(S2.sent, "Alice-Forever")
+    eq(RenatusDB.events[d[2].id].del, true, "retire chez Bob aussi")
+    eq(RenatusDB.events[d[1].id].del, nil)
+end)
+
 test("visibilite : bouton « partager mes evenements passes », categories Guilde seulement", function()
     local ns = boot({ specIndex = 1 })
     ns.char.privacy.combat = "P"; ns.char.privacy.progression = "P"
-    Stub.fire("PLAYER_DEAD"); Stub.fire("PLAYER_DEAD")
+    die(2)
     Stub.fire("PLAYER_LEVEL_UP", 21)
     ns.char.privacy.combat = "G"                 -- progression stays private
     local c = ns.UI.Options.fallbackPanel

@@ -258,7 +258,11 @@ local function onCombatEnd()
     Voice:Play("endFight")
 end
 
+-- PLAYER_DEAD fires twice with a pet out: one line per death.
+local firstDeath = ns.Once(ns.Store.DEATH_TWIN)
+
 local function onDeath()
+    if not firstDeath() then return end
     Voice:Play("death")
 end
 

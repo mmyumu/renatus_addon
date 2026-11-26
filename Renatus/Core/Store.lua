@@ -25,6 +25,19 @@ local function try(fn, ...)
 end
 ns.Try = try
 
+-- Some game events fire twice for one occurrence (PLAYER_DEAD with a pet out, on
+-- hunters and warlocks). Returns a guard: true on the first call, false on the
+-- calls within `window` seconds after it. One guard per listener.
+function ns.Once(window)
+    local last
+    return function()
+        local now = (GetTime and GetTime()) or time()
+        if last and now - last < window then return false end
+        last = now
+        return true
+    end
+end
+
 ------------------------------------------------------------------------
 -- Context: who, where, with whom
 ------------------------------------------------------------------------
@@ -294,6 +307,42 @@ function Store.CanDelete(ev)
     return ev.a == Store.Dataset().me
 end
 
+-- Removes one of our own events: dropped if private, a TOMBSTONE tells the others if shared.
+local function retract(ev)
+    if ev.vis ~= "G" then
+        -- Private: never left this client, simply removed.
+        ns.db.events[ev.id] = nil
+        cache = nil
+        ns.EventBus.Publish("CHRONICLE_EVENT", ev)
+        return true
+    end
+    local tomb = Store.Build("TOMBSTONE", {}, { vis = "G", prov = "MAN", refs = { ev.id }, noExp = true, loc = {} })
+    return Store.Insert(tomb) and true or false
+end
+
+-- Before v1.0.18 one death of a hunter or warlock was recorded twice (PLAYER_DEAD
+-- fired twice). The author retracts the second copy: two of our deaths less than
+-- DEATH_TWIN seconds apart are one. Returns the number of copies retracted.
+Store.DEATH_TWIN = 5
+function Store.RetractTwinDeaths()
+    local me = Context.Me()
+    if not me or me == "Player-0-UNKNOWN" then return 0 end
+    local deaths = {}
+    for _, ev in pairs(ns.db.events) do
+        if ev.a == me and ev.k == "DEATH" and not ev.del then deaths[#deaths + 1] = ev end
+    end
+    table.sort(deaths, function(a, b) return (a.s or 0) < (b.s or 0) end)
+    local n, kept = 0, nil
+    for _, ev in ipairs(deaths) do
+        if kept and math.abs(ev.t - kept.t) < Store.DEATH_TWIN then
+            if retract(ev) then n = n + 1 end
+        else
+            kept = ev
+        end
+    end
+    return n
+end
+
 function Store.Delete(id)
     local ds = Store.Dataset()
     if ds.isDemo then
@@ -308,15 +357,7 @@ function Store.Delete(id)
     end
     local ev = ns.db.events[id]
     if not Store.CanDelete(ev) then return false end
-    if ev.vis ~= "G" then
-        -- Private: never left this client, simply removed.
-        ns.db.events[id] = nil
-        cache = nil
-        ns.EventBus.Publish("CHRONICLE_EVENT", ev)
-        return true
-    end
-    local tomb = Store.Build("TOMBSTONE", {}, { vis = "G", prov = "MAN", refs = { id }, noExp = true, loc = {} })
-    return Store.Insert(tomb) and true or false
+    return retract(ev)
 end
 
 -- Officer tool (Renatus_Admin, "Remise à zéro"): removes every own event that `keep`
