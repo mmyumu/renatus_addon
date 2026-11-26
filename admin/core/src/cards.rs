@@ -975,12 +975,19 @@ pub fn items(cards: &[Candidate], edition: &str, last: i64) -> Vec<Value> {
         }
         list.push(v);
     }
-    pack(list, edition, "cards", |n| format!("{n} carte(s) de l'album"))
+    pack(list, edition, "cards", |n| {
+        format!("{n} carte(s) de l'album")
+    })
 }
 
 /// Packs cards into CARD_SET items of set `set` (each under MAX_SET_BYTES, the size a
 /// guild message carries), with ids `{kind}:{set}:{k}`.
-pub fn pack(cards: Vec<Value>, set: &str, kind: &str, note: impl Fn(usize) -> String) -> Vec<Value> {
+pub fn pack(
+    cards: Vec<Value>,
+    set: &str,
+    kind: &str,
+    note: impl Fn(usize) -> String,
+) -> Vec<Value> {
     let mut sets: Vec<Vec<Value>> = vec![Vec::new()];
     for v in cards {
         let current = sets.last_mut().unwrap();

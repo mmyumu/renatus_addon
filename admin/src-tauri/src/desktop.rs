@@ -14,8 +14,7 @@ use renatus_admin_core::config::{self, Config, GazetteOptions};
 use renatus_admin_core::ops::{self, Proposal, Status};
 use renatus_admin_core::paths::{WowPaths, ADMIN_ADDON};
 use renatus_admin_core::{
-    addon, armory, chronicle::Chronicle, discord, edition, gazette, issues, print, revise,
-    special,
+    addon, armory, chronicle::Chronicle, discord, edition, gazette, issues, print, revise, special,
 };
 use renatus_launcher_core::wow;
 use serde::{Deserialize, Serialize};

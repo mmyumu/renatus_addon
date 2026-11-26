@@ -598,9 +598,17 @@ impl Canvas {
     /// JPEG: the paper's grain makes PNG pages weigh megabytes, too much for Discord.
     pub fn jpeg(&self) -> Result<Vec<u8>, String> {
         let (w, h) = (self.pix.width(), self.pix.height());
-        let (w16, h16) = (u16::try_from(w).map_err(|e| e.to_string())?, u16::try_from(h).map_err(|e| e.to_string())?);
+        let (w16, h16) = (
+            u16::try_from(w).map_err(|e| e.to_string())?,
+            u16::try_from(h).map_err(|e| e.to_string())?,
+        );
         // Opaque page: premultiplied RGBA is plain RGBA.
-        let rgb: Vec<u8> = self.pix.data().chunks_exact(4).flat_map(|p| [p[0], p[1], p[2]]).collect();
+        let rgb: Vec<u8> = self
+            .pix
+            .data()
+            .chunks_exact(4)
+            .flat_map(|p| [p[0], p[1], p[2]])
+            .collect();
         let mut out = Vec::new();
         jpeg_encoder::Encoder::new(&mut out, 88)
             .encode(&rgb, w16, h16, jpeg_encoder::ColorType::Rgb)

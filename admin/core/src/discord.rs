@@ -90,7 +90,13 @@ pub fn stamp(ed: &Edition) -> String {
     use sha1::{Digest, Sha1};
     let mut h = Sha1::new();
     for a in &ed.articles {
-        for part in [&a.id, &a.title, &a.body, a.quote.as_deref().unwrap_or(""), a.portrait.as_deref().unwrap_or("")] {
+        for part in [
+            &a.id,
+            &a.title,
+            &a.body,
+            a.quote.as_deref().unwrap_or(""),
+            a.portrait.as_deref().unwrap_or(""),
+        ] {
             h.update(part.as_bytes());
             h.update([0]);
         }
@@ -118,7 +124,8 @@ pub fn content(ed: &Edition, pages: usize) -> String {
         if n > 1 { "s" } else { "" },
         if pages > 1 { "s" } else { "" },
     );
-    let foot = "\n-# Sources, archives et courrier des lecteurs : dans l'addon Renatus, onglet Gazette.";
+    let foot =
+        "\n-# Sources, archives et courrier des lecteurs : dans l'addon Renatus, onglet Gazette.";
     for (i, a) in ed.articles.iter().enumerate() {
         let line = if i == 0 {
             format!("\n**À la une :** {}\n", a.title)
@@ -148,13 +155,22 @@ fn describe(e: ureq::Error) -> (String, Option<f64>) {
         ureq::Error::Status(code, resp) => {
             let body: Value = resp.into_json().unwrap_or(Value::Null);
             let retry = body.get("retry_after").and_then(Value::as_f64);
-            let msg = body.get("message").and_then(Value::as_str).unwrap_or("").to_string();
+            let msg = body
+                .get("message")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
             let hint = match code {
                 401 | 403 | 404 => " (webhook supprimé ou invalide : recrée-le dans Discord)",
                 413 => " (images trop lourdes)",
                 _ => "",
             };
-            (format!("Discord répond {code} {msg}{hint}").trim().to_string(), retry.filter(|_| code == 429))
+            (
+                format!("Discord répond {code} {msg}{hint}")
+                    .trim()
+                    .to_string(),
+                retry.filter(|_| code == 429),
+            )
         }
         ureq::Error::Transport(t) => (format!("Discord injoignable ({})", t.kind()), None),
     }
@@ -185,7 +201,12 @@ fn multipart(payload: &Value, files: &[(String, &[u8])]) -> (String, Vec<u8>) {
 }
 
 /// Sends a request, waiting once if Discord asks to slow down.
-fn send(method: &str, url: &str, ctype: Option<&str>, body: &[u8]) -> Result<Option<Value>, String> {
+fn send(
+    method: &str,
+    url: &str,
+    ctype: Option<&str>,
+    body: &[u8],
+) -> Result<Option<Value>, String> {
     for attempt in 0..2 {
         let mut req = agent().request(method, url);
         if let Some(c) = ctype {
@@ -196,12 +217,17 @@ fn send(method: &str, url: &str, ctype: Option<&str>, body: &[u8]) -> Result<Opt
                 if resp.status() == 204 {
                     return Ok(None);
                 }
-                return resp.into_json().map(Some).map_err(|e| format!("réponse de Discord illisible ({e})"));
+                return resp
+                    .into_json()
+                    .map(Some)
+                    .map_err(|e| format!("réponse de Discord illisible ({e})"));
             }
             Err(e) => {
                 let (msg, retry) = describe(e);
                 match retry {
-                    Some(s) if attempt == 0 => std::thread::sleep(Duration::from_secs_f64(s.clamp(0.5, 30.0))),
+                    Some(s) if attempt == 0 => {
+                        std::thread::sleep(Duration::from_secs_f64(s.clamp(0.5, 30.0)))
+                    }
                     _ => return Err(msg),
                 }
             }
@@ -239,7 +265,11 @@ fn messages<'p>(ed: &Edition, pages: &'p [Vec<u8>]) -> Vec<Message<'p>> {
             "allowed_mentions": {"parse": []},
             "attachments": attachments,
         });
-        payload["content"] = json!(if m == 0 { content(ed, total) } else { String::new() });
+        payload["content"] = json!(if m == 0 {
+            content(ed, total)
+        } else {
+            String::new()
+        });
         out.push((payload, files));
     }
     out
@@ -253,7 +283,11 @@ pub fn post(webhook: &str, ed: &Edition, pages: &[Vec<u8>]) -> Result<Vec<String
     for (payload, files) in messages(ed, pages) {
         let (ctype, body) = multipart(&payload, &files);
         let msg = send("POST", &url, Some(&ctype), &body)?;
-        if let Some(id) = msg.as_ref().and_then(|v| v.get("id")).and_then(Value::as_str) {
+        if let Some(id) = msg
+            .as_ref()
+            .and_then(|v| v.get("id"))
+            .and_then(Value::as_str)
+        {
             ids.push(id.to_string());
         }
     }
@@ -262,7 +296,12 @@ pub fn post(webhook: &str, ed: &Edition, pages: &[Vec<u8>]) -> Result<Vec<String
 
 /// Replaces the pages and text of messages already posted, in place (same spot in the
 /// channel). With another number of messages, posts anew and deletes the old ones.
-pub fn update(webhook: &str, ids: &[String], ed: &Edition, pages: &[Vec<u8>]) -> Result<Vec<String>, String> {
+pub fn update(
+    webhook: &str,
+    ids: &[String],
+    ed: &Edition,
+    pages: &[Vec<u8>],
+) -> Result<Vec<String>, String> {
     check_webhook(webhook)?;
     let msgs = messages(ed, pages);
     if msgs.len() != ids.len() {
@@ -280,11 +319,19 @@ pub fn update(webhook: &str, ids: &[String], ed: &Edition, pages: &[Vec<u8>]) ->
 
 /// Posts an issue, or updates it if it was already posted; records it in the log.
 /// Returns what was done, for the activity log.
-pub fn publish(webhook: &str, ch: &Chronicle, ed: &Edition, log: &mut Log, now: i64) -> Result<String, String> {
+pub fn publish(
+    webhook: &str,
+    ch: &Chronicle,
+    ed: &Edition,
+    log: &mut Log,
+    now: i64,
+) -> Result<String, String> {
     let pages = crate::print::render(ch, ed)?;
     let done = log.posted.get(&ed.key).cloned();
     let (ids, what) = match &done {
-        Some(p) if !p.messages.is_empty() => (update(webhook, &p.messages, ed, &pages)?, "mis à jour"),
+        Some(p) if !p.messages.is_empty() => {
+            (update(webhook, &p.messages, ed, &pages)?, "mis à jour")
+        }
         _ => (post(webhook, ed, &pages)?, "posté"),
     };
     log.posted.insert(
@@ -296,7 +343,11 @@ pub fn publish(webhook: &str, ch: &Chronicle, ed: &Edition, log: &mut Log, now: 
             stamp: stamp(ed),
         },
     );
-    Ok(format!("Discord : {} {what} ({} page(s)).", ed.name(), pages.len()))
+    Ok(format!(
+        "Discord : {} {what} ({} page(s)).",
+        ed.name(),
+        pages.len()
+    ))
 }
 
 /// After the game saved: posts the issues published in game since `log.since` and not
@@ -381,7 +432,11 @@ mod tests {
     #[test]
     fn content_stays_within_discord_limits() {
         let c = content(&ed(3), 4);
-        assert!(c.contains("N° 5") && c.contains("**À la une :** Titre numéro 0") && c.contains("4 pages"));
+        assert!(
+            c.contains("N° 5")
+                && c.contains("**À la une :** Titre numéro 0")
+                && c.contains("4 pages")
+        );
         let long = content(&ed(200), 9);
         assert!(long.chars().count() <= CONTENT_MAX);
         assert!(long.contains("- …"));
@@ -392,7 +447,10 @@ mod tests {
         let (ctype, body) = multipart(&json!({"content": "x"}), &[("p.jpg".into(), &[1u8, 2, 3])]);
         let boundary = ctype.split("boundary=").nth(1).unwrap();
         let text = String::from_utf8_lossy(&body);
-        assert!(text.contains("name=\"payload_json\"") && text.contains("name=\"files[0]\"; filename=\"p.jpg\""));
+        assert!(
+            text.contains("name=\"payload_json\"")
+                && text.contains("name=\"files[0]\"; filename=\"p.jpg\"")
+        );
         assert!(text.ends_with(&format!("--{boundary}--\r\n")));
     }
 }
