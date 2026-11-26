@@ -7,7 +7,7 @@ use std::process::ExitCode;
 use renatus_admin_core::chronicle::{num_of, str_of};
 use renatus_admin_core::config::Config;
 use renatus_admin_core::paths::{local_path, WowPaths};
-use renatus_admin_core::{addon, gazette, ops};
+use renatus_admin_core::{addon, discord, gazette, ops, print};
 
 const HELP: &str = "Renatus admin : renatus-admin [options] <commande>
 
@@ -19,6 +19,11 @@ Commandes :
   articles [dossier] articles .md écrits à la main -> Press.lua, hors numéro
   gazette [--show]  nouveau numéro : faits pas encore parus + articles .md -> Press.lua
                     (--show : affiche les faits et la demande, n'appelle rien)
+  print [n°] [dossier]  pages du numéro en images JPEG, comme pour Discord (n° : 12, hs2 ou
+                    sa clé ; défaut : le dernier numéro régulier ; list : les numéros parus)
+  discord [n°] [encore]  poste le numéro sur Discord (webhook discordWebhook du fichier de
+                    réglages) ; un numéro déjà posté ne l'est pas deux fois : « encore » remplace
+                    ses pages dans le même message (--dry-run : affiche le message, n'envoie rien)
   rival [guilde]    guilde rivale depuis l'armurerie (nom ou lien) -> Press.lua
   run               deaths (+ rival une fois par jour, + gazette chaque semaine si autoGazette)
   install-admin     installe ou met à jour l'addon Renatus_Admin depuis GitHub
@@ -161,9 +166,14 @@ fn run() -> Result<(), String> {
                 cfg.save(&args.config)?;
             }
             println!("{}", args.config.display());
+            // The webhook is a secret: shown as set or not, never printed.
+            let mut shown = serde_json::to_value(&cfg).map_err(|e| e.to_string())?;
+            if !cfg.discord_webhook.is_empty() {
+                shown["discordWebhook"] = serde_json::json!("(réglé)");
+            }
             println!(
                 "{}",
-                serde_json::to_string_pretty(&cfg).map_err(|e| e.to_string())?
+                serde_json::to_string_pretty(&shown).map_err(|e| e.to_string())?
             );
         }
         "status" => {
@@ -359,6 +369,66 @@ fn run() -> Result<(), String> {
             let dir = articles_dir(&cfg, None);
             let prop = ops::gazette(&ch, &sel, &keys, dir.as_deref(), &cfg.gazette_options());
             publish(&p, &ch, prop, args.dry_run)?;
+        }
+        "print" => {
+            let p = paths(&args, &cfg)?;
+            let (_, ch) = ops::load(&p)?;
+            let list = print::editions(&ch);
+            if arg1.map(String::as_str) == Some("list") {
+                for e in &list {
+                    let title = e.articles.first().map_or("", |a| a.title.as_str());
+                    println!(
+                        "{:<16} {}  {}  « {title} »",
+                        e.name(),
+                        print::date_label(e.t),
+                        e.key
+                    );
+                }
+                return Ok(());
+            }
+            let ed = print::find(&list, arg1.map(String::as_str))
+                .ok_or("numéro introuvable (renatus-admin print list)")?;
+            let dir = PathBuf::from(
+                args.rest
+                    .get(2)
+                    .cloned()
+                    .unwrap_or_else(|| format!("gazette-{}", ed.key.replace(':', "-"))),
+            );
+            std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+            let pages = print::render(&ch, ed)?;
+            for (i, png) in pages.iter().enumerate() {
+                let f = dir.join(format!("page-{}.jpg", i + 1));
+                std::fs::write(&f, png).map_err(|e| e.to_string())?;
+                println!("{}", f.display());
+            }
+        }
+        "discord" => {
+            let p = paths(&args, &cfg)?;
+            let (_, ch) = ops::load(&p)?;
+            let list = print::editions(&ch);
+            let ed = print::find(&list, arg1.map(String::as_str).filter(|a| *a != "encore"))
+                .ok_or("numéro introuvable (renatus-admin print list)")?;
+            let again = args.rest.iter().any(|a| a == "encore");
+            let log_path = args.config.with_file_name("discord.json");
+            let mut log = discord::Log::load(&log_path);
+            if log.posted.contains_key(&ed.key) && !again {
+                println!(
+                    "{} déjà posté. « encore » pour remplacer ses pages sur Discord.",
+                    ed.name()
+                );
+                return Ok(());
+            }
+            if args.dry_run {
+                let pages = print::render(&ch, ed)?;
+                let size: usize = pages.iter().map(Vec::len).sum();
+                println!("{} : {} page(s), {} Ko", ed.name(), pages.len(), size / 1024);
+                println!("\n{}", discord::content(ed, pages.len()));
+                return Ok(());
+            }
+            discord::check_webhook(&cfg.discord_webhook)?;
+            let done = discord::publish(&cfg.discord_webhook, &ch, ed, &mut log, ops::now());
+            log.save(&log_path)?;
+            println!("{}", done?);
         }
         "rival" => {
             let p = paths(&args, &cfg)?;

@@ -104,7 +104,16 @@ function render(s) {
     $("auto").checked = s.config.auto;
     $("auto-gazette").checked = s.config.autoGazette;
     $("test-channel").checked = s.config.testChannel;
+    $("discord-auto").checked = s.config.discordAuto;
   }
+  // Re-draw the issues only when Discord changed (a form being typed in stays intact).
+  const discordNow = JSON.stringify([s.discordSet, s.discordPosted ?? {}]);
+  const discordChanged = discordNow !== JSON.stringify([discordSet, discordPosted]);
+  discordSet = s.discordSet;
+  discordPosted = s.discordPosted ?? {};
+  $("discord-state").textContent = s.discordSet ? "(réglé)" : "(aucun)";
+  $("discord-clear").disabled = !s.discordSet;
+  if (published && discordChanged && !editing) renderArchive();
 }
 
 // Suivi: members, sync health, recent events (read-only, built in Rust: monitor.rs).
@@ -981,6 +990,35 @@ function articleForm(a) {
   return div;
 }
 
+// Discord: post an issue by hand (older ones, or with the automatic posting off), or
+// replace its pages after a correction.
+let discordSet = false;
+let discordPosted = {};
+
+function discordRow(issue) {
+  const row = document.createElement("div");
+  row.className = "buttons discord-row";
+  const posted = discordPosted[issue.key];
+  const info = document.createElement("span");
+  info.className = "meta";
+  info.textContent = !discordSet
+    ? "Discord : aucun webhook (Réglages)."
+    : posted
+      ? `Sur Discord depuis le ${dayFr(posted)}.`
+      : "Pas encore sur Discord.";
+  const b = document.createElement("button");
+  b.textContent = posted ? "Mettre à jour sur Discord" : "Poster sur Discord";
+  b.disabled = !discordSet;
+  b.addEventListener("click", async () => {
+    b.disabled = true;
+    info.textContent = "Envoi à Discord…";
+    const s = await call("post_discord", { key: issue.key });
+    if (!s) info.textContent = "Échec : voir le journal.";
+  });
+  row.append(b, info);
+  return row;
+}
+
 function renderArchive() {
   const box = $("archive");
   box.textContent = "";
@@ -1008,6 +1046,7 @@ function renderArchive() {
       ? `N° ${issue.number} · paru le ${dayFr(issue.t)} · ${live} article(s)`
       : `Articles d'avant les numéros · ${live} article(s)`;
     d.appendChild(sum);
+    if (issue.key) d.appendChild(discordRow(issue));
     for (const a of issue.articles) {
       d.appendChild(editing?.key === `article:${a.id}` ? articleForm(a) : articleView(a));
     }
@@ -1116,10 +1155,43 @@ $("save-settings").addEventListener("click", async () => {
         auto: $("auto").checked,
         autoGazette: $("auto-gazette").checked,
         testChannel: $("test-channel").checked,
+        discordWebhook: $("discord-webhook").value,
+        discordClear: false,
+        discordAuto: $("discord-auto").checked,
+      },
+    });
+    $("discord-webhook").value = "";
+    render(s);
+    msg.textContent = "Enregistré.";
+    msg.className = "ok";
+  } catch (e) {
+    msg.textContent = String(e);
+    msg.className = "error";
+  }
+});
+
+$("discord-clear").addEventListener("click", async () => {
+  if (!confirm("Retirer le webhook Discord ? Plus rien ne sera posté.")) return;
+  const msg = $("settings-message");
+  try {
+    const s = await invoke("save_settings", {
+      settings: {
+        account: $("account").value || null,
+        llmCommand: $("llm-command").value,
+        llmTimeoutSecs: Number($("llm-timeout").value) || 600,
+        gazetteTemplate: $("gazette-template").value,
+        maxArticles: Number($("max-articles").value) || 5,
+        gazettePrompt: $("gazette-prompt").value,
+        auto: $("auto").checked,
+        autoGazette: $("auto-gazette").checked,
+        testChannel: $("test-channel").checked,
+        discordWebhook: "",
+        discordClear: true,
+        discordAuto: $("discord-auto").checked,
       },
     });
     render(s);
-    msg.textContent = "Enregistré.";
+    msg.textContent = "Webhook retiré.";
     msg.className = "ok";
   } catch (e) {
     msg.textContent = String(e);

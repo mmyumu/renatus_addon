@@ -52,6 +52,12 @@ pub struct Config {
     pub last_armory: Option<i64>,
     /// Also install test versions of Renatus_Admin.
     pub test_channel: bool,
+    /// Discord webhook the gazette is posted to (empty: none). A secret: whoever has it
+    /// can post under the gazette's name, so it is never printed.
+    pub discord_webhook: String,
+    /// Post by itself to Discord each issue published in game (and update it when an
+    /// article is corrected or withdrawn).
+    pub discord_auto: bool,
 }
 
 impl Default for Config {
@@ -70,6 +76,8 @@ impl Default for Config {
             auto: true,
             last_armory: None,
             test_channel: false,
+            discord_webhook: String::new(),
+            discord_auto: true,
         }
     }
 }

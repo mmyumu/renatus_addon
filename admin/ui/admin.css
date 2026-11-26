@@ -109,6 +109,7 @@ code { font-family: Consolas, monospace; color: var(--gold); }
 .edit-form .error { font-size: 12px; margin: 0; }
 #archive details.issue { border-top: 1px solid var(--border); padding-top: 6px; }
 #archive details.issue > summary { color: var(--text); font-weight: 600; }
+#archive .discord-row { align-items: center; margin: 6px 0; }
 .article .actions { margin-top: 4px; }
 
 /* Éditeur: shared header (stays visible while scrolling) and its sub-tabs */

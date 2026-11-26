@@ -40,6 +40,11 @@ Rien n'est diffusé à la guilde sans ce clic, sauf l'effectif de la guilde riva
   correction part dans Press.lua et se publie en jeu comme le reste. Une carte corrigée garde
   son numéro et change aussi chez ceux qui l'ont déjà ouverte ; une carte retirée ne sort plus
   des boosters mais reste à ceux qui l'ont ; un article corrigé reste à sa place dans son numéro.
+- **Discord** : chaque numéro publié en jeu part sur le salon de la guilde par un webhook
+  (Réglages), en images : les pages comme en jeu, articles en entier (un article coupé continue
+  sur les pages « Suites »). L'app le poste au /reload ou à la déconnexion qui suit la
+  publication, puis remplace ses pages si un article est corrigé ou retiré. Les numéros parus
+  avant le réglage du webhook partent par le bouton de l'Éditeur. Le webhook reste sur le PC.
 - **Automatique** : fenêtre ouverte, après chaque `/reload` ou déconnexion, elle analyse les
   journaux de combat s'il y en a et, si coché, rédige
   un numéro quand le précédent a une semaine (faits nouveaux seulement), puis le signale par
@@ -56,6 +61,7 @@ cd admin && cargo build --release
 target/release/renatus-admin config wowPath "C:/MyGames/World of Warcraft/_forever_"
 target/release/renatus-admin status | monitor [json] | facts | deaths | articles <dossier> | gazette [--show]
 target/release/renatus-admin rival "<nom ou lien>" | run | install-admin
+target/release/renatus-admin print [n°] | discord [n°] [encore]
 ```
 
 `--dry-run` n'écrit rien. Réglages : `~/.config/renatus-admin/config.json`.

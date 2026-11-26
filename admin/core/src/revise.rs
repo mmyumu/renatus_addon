@@ -330,6 +330,12 @@ pub struct PublishedArticle {
     pub quote: Option<String>,
     pub format: Option<String>,
     pub style: Option<String>,
+    /// Member drawn in the layout's portrait block.
+    pub portrait: Option<String>,
+    /// p.key: how the layout's blocks name the article.
+    pub key: Option<String>,
+    /// Name of the member who published it (the byline).
+    pub author: Option<String>,
     pub order: Option<i64>,
     pub ia: bool,
     pub revised: Option<f64>,
@@ -364,6 +370,7 @@ fn apply(a: &mut PublishedArticle, p: &Value) {
         ("quote", &mut a.quote),
         ("format", &mut a.format),
         ("style", &mut a.style),
+        ("portrait", &mut a.portrait),
     ] {
         if let Some(s) = str_of(p, key) {
             *field = (!s.is_empty()).then(|| s.to_string());
@@ -408,6 +415,9 @@ pub fn archive(ch: &Chronicle, pending: &[Value]) -> Vec<Issue> {
             quote: opt(p, "quote"),
             format: opt(p, "format"),
             style: opt(p, "style"),
+            portrait: opt(p, "portrait"),
+            key: opt(p, "key"),
+            author: opt(e, "n"),
             order: p.get("order").and_then(Value::as_f64).map(|n| n as i64),
             ia: p.get("ia").and_then(Value::as_bool) == Some(true),
             revised: None,

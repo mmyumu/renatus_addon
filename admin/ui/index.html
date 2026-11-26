@@ -338,6 +338,17 @@
         </div>
       </div>
       <div class="card">
+        <div class="label">Discord</div>
+        <div class="field column">
+          <span>Webhook du salon (Discord : Paramètres du salon › Intégrations › Webhooks › Copier l'URL) <em id="discord-state"></em></span>
+          <input id="discord-webhook" type="password" autocomplete="off" spellcheck="false" placeholder="https://discord.com/api/webhooks/…">
+          <small>Secret : quiconque a cette adresse peut poster au nom de la gazette. Elle reste sur ce PC.
+            Laisser vide pour garder celle déjà réglée.</small>
+          <div class="buttons"><button id="discord-clear">Retirer le webhook</button></div>
+        </div>
+        <label><input type="checkbox" id="discord-auto"> Poster sur Discord chaque numéro publié en jeu (après le /reload ou la déconnexion qui suit), et le mettre à jour quand un article est corrigé ou retiré</label>
+      </div>
+      <div class="card">
         <label><input type="checkbox" id="auto"> Automatique : après chaque /reload, analyser les journaux de combat et relever l'armurerie une fois par jour</label>
         <label><input type="checkbox" id="auto-gazette"> Rédiger aussi la gazette IA, une fois par semaine</label>
         <label><input type="checkbox" id="test-channel"> Installer les versions de test de Renatus_Admin</label>

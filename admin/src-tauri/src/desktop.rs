@@ -14,7 +14,8 @@ use renatus_admin_core::config::{self, Config, GazetteOptions};
 use renatus_admin_core::ops::{self, Proposal, Status};
 use renatus_admin_core::paths::{WowPaths, ADMIN_ADDON};
 use renatus_admin_core::{
-    addon, armory, chronicle::Chronicle, edition, gazette, issues, revise, special,
+    addon, armory, chronicle::Chronicle, discord, edition, gazette, issues, print, revise,
+    special,
 };
 use renatus_launcher_core::wow;
 use serde::{Deserialize, Serialize};
@@ -48,6 +49,11 @@ struct State {
     draft: Option<Draft>,
     /// Facts offered for the next issue (prepare_gazette), kept for write_gazette.
     selection: Option<issues::Selection>,
+    /// What was posted to Discord (discord.json, next to the settings).
+    discord: discord::Log,
+    discord_path: PathBuf,
+    /// The game saved (or the app started): look for issues to post to Discord.
+    discord_check: bool,
 }
 
 /// AI gazette written from the window, kept here until the editor proposes or discards it.
@@ -104,6 +110,11 @@ struct View {
     default_prompt: &'static str,
     /// Special issue themes, with their default period and reminder.
     specials: Vec<special::ThemeView>,
+    /// A Discord webhook is set (its URL stays in the backend: config.discordWebhook is
+    /// always empty here).
+    discord_set: bool,
+    /// Issues posted to Discord: key -> when.
+    discord_posted: std::collections::BTreeMap<String, i64>,
 }
 
 fn view(app: &AppHandle) -> View {
@@ -136,8 +147,10 @@ fn view(app: &AppHandle) -> View {
             })
             .collect(),
     });
+    let mut config = s.config.clone();
+    config.discord_webhook.clear();
     View {
-        config: s.config.clone(),
+        config,
         accounts: s
             .config
             .paths()
@@ -154,6 +167,13 @@ fn view(app: &AppHandle) -> View {
         app_update: s.app_update.clone(),
         default_prompt: gazette::PROMPT,
         specials: special::themes(ops::now() as f64),
+        discord_set: !s.config.discord_webhook.trim().is_empty(),
+        discord_posted: s
+            .discord
+            .posted
+            .iter()
+            .map(|(k, p)| (k.clone(), p.t))
+            .collect(),
     }
 }
 
@@ -592,6 +612,11 @@ struct Settings {
     auto: bool,
     auto_gazette: bool,
     test_channel: bool,
+    /// A new webhook (empty: keep the one set).
+    discord_webhook: String,
+    /// Remove the webhook.
+    discord_clear: bool,
+    discord_auto: bool,
 }
 
 #[tauri::command]
@@ -610,6 +635,10 @@ fn save_settings(app: AppHandle, settings: Settings) -> Result<View, String> {
         gazette::check_template(custom)?;
         settings.gazette_prompt.clone()
     };
+    let webhook = settings.discord_webhook.trim().to_string();
+    if !webhook.is_empty() {
+        discord::check_webhook(&webhook)?;
+    }
     save_config(&app, |c| {
         c.account = settings.account.filter(|a| !a.is_empty());
         c.llm_command = command;
@@ -625,7 +654,15 @@ fn save_settings(app: AppHandle, settings: Settings) -> Result<View, String> {
         c.auto = settings.auto;
         c.auto_gazette = settings.auto_gazette;
         c.test_channel = settings.test_channel;
+        if settings.discord_clear {
+            c.discord_webhook.clear();
+        } else if !webhook.is_empty() {
+            c.discord_webhook = webhook;
+        }
+        c.discord_auto = settings.discord_auto;
     })?;
+    // A new webhook: the next check notes from when issues are posted by themselves.
+    app.state::<Shared>().state.lock().unwrap().discord_check = true;
     refresh_status(&app);
     Ok(view(&app))
 }
@@ -782,6 +819,7 @@ async fn watch(app: AppHandle) {
             refresh_status(&app);
             publish_view(&app);
         }
+        discord_tick(&app, &cfg).await;
         let Some(modified) = sv_modified(&cfg) else {
             continue;
         };
@@ -795,6 +833,7 @@ async fn watch(app: AppHandle) {
         if !changed {
             continue;
         }
+        app.state::<Shared>().state.lock().unwrap().discord_check = true;
         refresh_status(&app);
         publish_view(&app);
         if !cfg.auto {
@@ -839,6 +878,101 @@ async fn watch(app: AppHandle) {
                 .show();
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Discord
+// ---------------------------------------------------------------------------
+
+/// Runs `work` on the Discord log as a job, then saves the log (even after an error:
+/// what was posted before it stays recorded).
+async fn discord_job<F>(app: &AppHandle, label: &str, work: F) -> Result<Vec<String>, String>
+where
+    F: FnOnce(&Config, &Chronicle, &mut discord::Log) -> Result<Vec<String>, String>
+        + Send
+        + 'static,
+{
+    let mut dlog = app.state::<Shared>().state.lock().unwrap().discord.clone();
+    let result = busy(app, label, move |cfg, _, ch| {
+        let r = work(cfg, ch, &mut dlog);
+        Ok((r, dlog))
+    })
+    .await;
+    let (result, dlog) = match result {
+        Ok(pair) => pair,
+        Err(e) => return Err(e),
+    };
+    {
+        let shared = app.state::<Shared>();
+        let mut s = shared.state.lock().unwrap();
+        let _ = dlog.save(&s.discord_path);
+        s.discord = dlog;
+    }
+    match &result {
+        Ok(lines) => log(app, lines.iter().cloned()),
+        Err(e) => log(app, [format!("Discord : {e}")]),
+    }
+    publish_view(app);
+    result
+}
+
+/// After the game saved (and at start): posts the newly published issues and updates
+/// the corrected ones, if a webhook is set and the automatic posting is on.
+async fn discord_tick(app: &AppHandle, cfg: &Config) {
+    let due = {
+        let shared = app.state::<Shared>();
+        let s = shared.state.lock().unwrap();
+        s.discord_check && s.busy.is_none()
+    };
+    if !due {
+        return;
+    }
+    app.state::<Shared>().state.lock().unwrap().discord_check = false;
+    if !cfg.discord_auto || cfg.discord_webhook.trim().is_empty() || cfg.paths().is_none() {
+        return;
+    }
+    let result = discord_job(app, "Discord", |cfg, ch, dlog| {
+        discord::sync(&cfg.discord_webhook, ch, dlog, ops::now())
+    })
+    .await;
+    if let Ok(lines) = result {
+        let posted: Vec<&String> = lines.iter().filter(|l| l.contains(" posté (")).collect();
+        if !posted.is_empty() {
+            let _ = app
+                .notification()
+                .builder()
+                .title("Renatus Admin")
+                .body(
+                    posted
+                        .iter()
+                        .map(|l| l.as_str())
+                        .collect::<Vec<_>>()
+                        .join("\n"),
+                )
+                .show();
+        }
+    }
+}
+
+/// Éditeur button: posts an issue to Discord, or replaces its pages if already posted.
+#[tauri::command]
+async fn post_discord(app: AppHandle, key: String) -> Result<View, String> {
+    discord_job(&app, "Discord", move |cfg, ch, dlog| {
+        let list = print::editions(ch);
+        let ed = list
+            .iter()
+            .find(|e| e.key == key)
+            .ok_or("Numéro introuvable dans le journal.")?;
+        Ok(vec![discord::publish(
+            &cfg.discord_webhook,
+            ch,
+            ed,
+            dlog,
+            ops::now(),
+        )?])
+    })
+    .await?;
+    Ok(view(&app))
 }
 
 fn pending(app: &AppHandle) -> usize {
@@ -989,11 +1123,15 @@ pub fn run() {
             }
             let _ = config.save(&config_path);
             let sv_seen = sv_modified(&config);
+            let discord_path = config_path.with_file_name("discord.json");
             app.manage(Shared {
                 state: Mutex::new(State {
                     config,
                     config_path,
                     sv_seen,
+                    discord: discord::Log::load(&discord_path),
+                    discord_path,
+                    discord_check: true,
                     ..State::default()
                 }),
             });
@@ -1033,7 +1171,8 @@ pub fn run() {
             install_admin_addon,
             check_admin_addon,
             update_app,
-            open_folder
+            open_folder,
+            post_discord
         ])
         .run(tauri::generate_context!())
         .expect("échec du démarrage de Renatus Admin");
