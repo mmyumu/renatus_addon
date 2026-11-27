@@ -232,13 +232,20 @@ end
 
 -- A creature with several looks (the Defias Bandit is a man or a woman) gets a random one
 -- from SetCreature: the first look shown is kept, per account, so the card never changes.
+-- Before v1.0.21 the model frame (reused from card to card) still held the previous card's
+-- creature while the new one loaded, and that look was pinned to the new card (a stag shown
+-- as a banshee): those pins are dropped, the new ones live under another key.
 local function pinnedDisplays()
     if not ns.db then return nil end
-    ns.db.cardModels = ns.db.cardModels or {}
-    return ns.db.cardModels
+    ns.db.cardModels = nil
+    ns.db.cardModelPins = ns.db.cardModelPins or {}
+    return ns.db.cardModelPins
 end
 
 local function setCreature(m, npc)
+    -- empty first: until the creature is loaded, the frame must not show (nor report, for
+    -- the pin) the creature of the card it showed before
+    call(m, "ClearModel")
     local pins = pinnedDisplays()
     local display = pins and pins[npc]
     if display and call(m, "SetCreature", npc, display) then return true end
