@@ -2788,6 +2788,15 @@ test("album : regle des boosters par jour, une nouvelle regle ne reprend rien", 
     opened[#opened + 1] = { a = me, k = "BOOSTER_OPEN", t = t0 + D, del = true, p = {} }
     eq(A.Earned(opened, me, {}, rules), 4, "ni ceux d'un autre ni ceux supprimes")
     eq(A.Earned({ open(t0 + D), lvl(t0 + D), lvl(t0 + D) }, me, {}, rules), 2, "la regle donne plus : la regle")
+    -- boosters kept from earlier days and opened later are used up, never earned again
+    local stocked = {}
+    for i = 1, 6 do stocked[i] = lvl(t0 + i) end                       -- day 1: 1 + 6 levels, cap 5
+    for i = 1, 5 do stocked[#stocked + 1] = open(t0 + D + i) end       -- day 2: 1 for the day, 5 opened
+    eq(A.Earned(stocked, me, {}) - 5, 1, "5 + 1 gagnes, 5 ouverts : il en reste 1")
+    stocked[#stocked + 1] = open(t0 + D + 9)
+    eq(A.Earned(stocked, me, {}) - 6, 0, "le dernier ouvert, plus rien")
+    stocked[#stocked + 1] = open(t0 + D + 10)
+    eq(A.Earned(stocked, me, {}) - 7, 0, "ouvert en trop (regle recue en retard) : cadeau, pas de dette")
     -- out of range / missing values
     local r = A.Rule({ day = -3, bonus = "x", cap = 99 })
     eq(r.day, 0); eq(r.bonus, 1); eq(r.cap, 20)

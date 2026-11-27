@@ -627,9 +627,12 @@ Album.DayKey = dayKey
 
 -- Boosters earned by `me`: from their own events and the days they played. Each day
 -- is counted with the rule in force that day (`rules`, see Album.RuleOn), so changing
--- the rule never takes back boosters already earned. A day never gives fewer boosters
--- than were opened that day: a rule changed during the day, or received late (the sync
--- is peer to peer), leaves no debt; the boosters opened under the former rule are a gift.
+-- the rule never takes back boosters already earned. No debt: the days are replayed in
+-- order and an opening that the stock (boosters left from earlier days plus that day's)
+-- cannot cover, because the rule changed during the day or was received late (the sync
+-- is peer to peer), is a gift. Openings the stock covers use it up (before v1.0.20 a day
+-- gave as many as were opened that day, so opening older boosters never emptied the
+-- stock). Returns openings + stock left, so Earned - opened = boosters available.
 function Album.Earned(events, me, playedDays, rules)
     local days = {} -- [dayKey] = { bonus = legacy bonus events, hits = { [source] = n }, opened = n }
     local function day(key)
@@ -655,11 +658,16 @@ function Album.Earned(events, me, playedDays, rules)
             end
         end
     end
-    local total = 0
-    for key, d in pairs(days) do
-        total = total + math.max(d.opened, Album.DayTotal(Album.RuleOn(rules, key), d.hits, d.bonus))
+    local keys = {}
+    for key in pairs(days) do keys[#keys + 1] = key end
+    table.sort(keys)
+    local opened, stock = 0, 0
+    for _, key in ipairs(keys) do
+        local d = days[key]
+        stock = math.max(0, stock + Album.DayTotal(Album.RuleOn(rules, key), d.hits, d.bonus) - d.opened)
+        opened = opened + d.opened
     end
-    return total
+    return opened + stock
 end
 
 -- Own BOOSTER_OPEN events: number opened and card counts.
