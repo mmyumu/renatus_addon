@@ -44,7 +44,8 @@ pub struct Merge {
 }
 
 fn is_deleted(e: &Value) -> bool {
-    e.get("del").is_some_and(|d| !d.is_null() && d != &Value::Bool(false))
+    e.get("del")
+        .is_some_and(|d| !d.is_null() && d != &Value::Bool(false))
 }
 
 fn strip(e: &Value) -> Value {
@@ -197,7 +198,8 @@ mod tests {
         let path = path_for(&sv);
         assert_eq!(path, dir.path().join("ACC").join(FILE_NAME));
 
-        let quest = json!({"id": "P-1:1", "a": "P-1", "k": "QUEST_DONE", "t": 10, "p": {"title": "Q"}});
+        let quest =
+            json!({"id": "P-1:1", "a": "P-1", "k": "QUEST_DONE", "t": 10, "p": {"title": "Q"}});
         let boss = json!({"id": "P-1:2", "a": "P-1", "k": "BOSS_KILL", "t": 20, "p": {}});
         let mut first = events(&[quest.clone(), boss.clone()]);
         let m = merge(&path, &mut first).unwrap();
@@ -252,7 +254,11 @@ mod tests {
     fn a_broken_line_is_skipped() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join(FILE_NAME);
-        fs::write(&path, "{\"id\":\"P-1:1\",\"k\":\"DEATH\"}\n{\"id\":\"P-1:2\",\"k\"").unwrap();
+        fs::write(
+            &path,
+            "{\"id\":\"P-1:1\",\"k\":\"DEATH\"}\n{\"id\":\"P-1:2\",\"k\"",
+        )
+        .unwrap();
         let mut evs = Map::new();
         let m = merge(&path, &mut evs).unwrap();
         assert_eq!((m.total, m.only_archived), (1, 1));
