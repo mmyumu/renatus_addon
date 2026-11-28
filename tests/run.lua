@@ -1200,6 +1200,162 @@ test("debit limite : rafale de 4 puis 1 message par 1,2 s", function()
     eq(#S.sent, 10)
 end)
 
+print("Synchro : priorites et rattrapage")
+
+local GUILD = "Les Testeurs-Forever"
+local DAY = 86400
+
+-- Addon messages as the channel carries them (chunks of at most 250 bytes).
+local function wire(ns, msg)
+    msg.g = msg.g or GUILD
+    local text = ns.Serialize.Encode(msg)
+    local out, size = {}, 249
+    if #text <= size then return { { prefix = "Renatus", channel = "GUILD", msg = "S" .. text } } end
+    for i = 1, #text, size do
+        local tag = (i == 1) and "F" or ((i + size > #text) and "L" or "M")
+        out[#out + 1] = { prefix = "Renatus", channel = "GUILD", msg = tag .. text:sub(i, i + size - 1) }
+    end
+    return out
+end
+
+-- A shared event of someone else, already held by this client.
+local function held(ns, who, s, kind, ageDays, p)
+    local ev = { v = 1, id = who.guid .. ":" .. s, a = who.guid, n = who.name, s = s, k = kind,
+        t = Stub.state.now - ageDays * DAY, g = GUILD, vis = "G", prov = "OBS", p = p or {}, loc = {},
+        rx = { by = who.name, direct = true, at = Stub.state.now } }
+    ns.Store.Insert(ev)
+    return ev
+end
+
+local function wireCopy(ev)
+    local e = {}
+    for k, v in pairs(ev) do if k ~= "rx" and k ~= "g" then e[k] = v end end
+    return e
+end
+
+test("priorites : un evenement en direct passe devant le rattrapage d'un nouveau venu", function()
+    local ns, S = boot({ specIndex = 1, me = BOB })
+    ns.char.privacy.combat = "G"
+    for s = 1, 25 do held(ns, ALICE, s, "QUEST_DONE", 30, { title = "Quete " .. s }) end
+    Stub.deliver(wire(ns, { o = "R", a = ALICE.guid, f = 1, t = 25 }), "Carol-Forever")
+    Stub.advance(9)
+    Stub.fire("PLAYER_DEAD")
+    Stub.advance(120)
+    local order, death = {}, nil
+    for _, m in ipairs(ops(ns, S.sent, "E")) do
+        if m.e.a == ALICE.guid or m.e.k == "DEATH" then order[#order + 1] = m.e end
+        if m.e.a == BOB.guid and m.e.k == "DEATH" then death = #order end
+    end
+    eq(#order, 26)
+    assert(death and death <= 6, "la mort part tout de suite (rang " .. tostring(death) .. ")")
+end)
+
+test("doublons : une reponse en attente n'est pas renvoyee si quelqu'un l'a diffusee entre-temps", function()
+    local ns, S = boot({ specIndex = 1, me = BOB, instance = { type = "party", name = "Mortemines", iid = 36 } })
+    local evs = {}
+    for s = 1, 3 do evs[s] = held(ns, ALICE, s, "QUEST_DONE", 30) end
+    Stub.deliver(wire(ns, { o = "R", a = ALICE.guid, f = 1, t = 3 }), "Carol-Forever")
+    Stub.advance(80) -- in an instance: the replies wait in the queue
+    Stub.deliver(wire(ns, { o = "E", e = wireCopy(evs[1]) }), "Dave-Forever")
+    S.instance = nil
+    Stub.advance(10)
+    local sent = {}
+    for _, m in ipairs(ops(ns, S.sent, "E")) do if m.e.a == ALICE.guid then sent[m.e.s] = true end end
+    assert(not sent[1], "deja diffuse par Dave")
+    assert(sent[2] and sent[3], "les autres partent")
+end)
+
+-- Events of Alice sent by the current client (its own login events left out).
+local function aliceEs(ns, sent)
+    local out = {}
+    for _, m in ipairs(ops(ns, sent, "E")) do if m.e.a == ALICE.guid then out[#out + 1] = m end end
+    return out
+end
+
+test("rattrapage : un membre envoie une page de la classe demandee, la plus recente d'abord", function()
+    local ns, S = boot({ specIndex = 1, me = BOB })
+    ns.Sync.PAGE = 2
+    for s = 1, 5 do held(ns, ALICE, s, "QUEST_DONE", 30) end
+    held(ns, ALICE, 6, "ARTICLE", 20, { title = "Vieux" })
+    held(ns, ALICE, 7, "ARTICLE", 10, { title = "Moyen" })
+    held(ns, ALICE, 8, "DEATH", 9, { enemies = { "Ladou" } })   -- the rival guild: with the gazette
+    held(ns, ALICE, 9, "ARTICLE", 1, { title = "Recent" })
+    Stub.deliver(wire(ns, { o = "Q", to = "Bob", c = "gazette", v = {} }), "Carol-Forever")
+    Stub.advance(30)
+    local as = ops(ns, S.sent, "A")
+    eq(#as, 1); eq(as[1].to, "Carol"); eq(as[1].c, "gazette"); eq(as[1].n, 2)
+    eq(as[1].cur.id, ALICE.guid .. ":8")
+    local es = aliceEs(ns, S.sent)
+    eq(#es, 2); eq(es[1].e.s, 9); eq(es[2].e.s, 8)
+    -- next page from the cursor; what the asker already holds (v) is left out
+    S.sent = {}
+    Stub.deliver(wire(ns, { o = "Q", to = "Bob Leponge", c = "gazette", v = { [ALICE.guid] = 6 }, cur = as[1].cur }), "Carol-Forever")
+    Stub.advance(30)
+    as = ops(ns, S.sent, "A")
+    eq(as[1].n, 1); eq(as[1].cur, nil)
+    es = aliceEs(ns, S.sent)
+    eq(#es, 1); eq(es[1].e.s, 7)
+    -- a question for someone else: silence
+    S.sent = {}
+    Stub.deliver(wire(ns, { o = "Q", to = "Dave", c = "gazette", v = {} }), "Carol-Forever")
+    Stub.advance(30)
+    eq(#S.sent, 0)
+end)
+
+test("rattrapage : un nouveau venu demande les classes dans l'ordre, puis l'historique", function()
+    local ns, S = boot({ specIndex = 1, me = CAROL })
+    Stub.deliver(wire(ns, { o = "V", pr = 1, v = { [ALICE.guid] = 154 } }), "Bob-Forever")
+    Stub.advance(15) -- the gap requests (R) go first
+    local qs = ops(ns, S.sent, "Q")
+    eq(#qs, 1); eq(qs[1].to, "Bob"); eq(qs[1].c, "essential")
+    eq(ns.Sync.Catchup().class, "essential")
+    -- Bob: one event in this class
+    local cfg = { v = 1, id = ALICE.guid .. ":152", a = ALICE.guid, n = "Alice", s = 152, k = "GUILD_CONFIG",
+        t = Stub.state.now - 5 * DAY, vis = "G", prov = "MAN", p = { rival = "Les Rivaux" } }
+    Stub.deliver(wire(ns, { o = "A", to = "Carol", c = "essential", n = 1 }), "Bob-Forever")
+    Stub.deliver(wire(ns, { o = "E", e = cfg }), "Bob-Forever")
+    Stub.advance(1)
+    qs = ops(ns, S.sent, "Q")
+    eq(#qs, 2); eq(qs[2].c, "gazette")
+    for i, c in ipairs({ "gazette", "ledger", "recent" }) do
+        Stub.deliver(wire(ns, { o = "A", to = "Carol", c = c, n = 0 }), "Bob-Forever")
+        Stub.advance(1)
+        qs = ops(ns, S.sent, "Q")
+        if i < 3 then eq(qs[#qs].c, ({ "ledger", "recent" })[i]) end
+    end
+    eq(ns.Sync.Catchup(), nil, "fini")
+    eq(#ops(ns, S.sent, "Q"), 4)
+end)
+
+test("rattrapage : sans reponse, un autre membre est sollicite", function()
+    local ns, S = boot({ specIndex = 1, me = CAROL })
+    Stub.deliver(wire(ns, { o = "V", pr = 1, v = { [ALICE.guid] = 3 } }), "Dave-Forever")
+    Stub.deliver(wire(ns, { o = "V", pr = 1, v = { [ALICE.guid] = 300 } }), "Bob-Forever")
+    Stub.advance(15)
+    local qs = ops(ns, S.sent, "Q")
+    eq(#qs, 1); eq(qs[1].to, "Dave"); eq(qs[1].c, "essential")
+    Stub.advance(40)
+    qs = ops(ns, S.sent, "Q")
+    eq(#qs, 2); eq(qs[2].to, "Bob")
+    -- Bob's vector showed we are far behind: the catch-up goes on past the essentials
+    Stub.deliver(wire(ns, { o = "A", to = "Carol", c = "essential", n = 0 }), "Bob-Forever")
+    Stub.advance(2)
+    qs = ops(ns, S.sent, "Q")
+    eq(#qs, 3); eq(qs[3].c, "gazette"); eq(qs[3].to, "Bob")
+end)
+
+test("rattrapage : un membre a jour ne verifie l'essentiel qu'une fois par session", function()
+    local ns, S = boot({ specIndex = 1, me = CAROL })
+    Stub.deliver(wire(ns, { o = "V", pr = 1, v = {} }), "Bob-Forever")
+    Stub.advance(1)
+    Stub.deliver(wire(ns, { o = "A", to = "Carol", c = "essential", n = 0 }), "Bob-Forever")
+    Stub.advance(1)
+    eq(ns.Sync.Catchup(), nil)
+    Stub.deliver(wire(ns, { o = "V", pr = 1, v = {} }), "Dave-Forever")
+    Stub.advance(1)
+    eq(#ops(ns, S.sent, "Q"), 1)
+end)
+
 print("Expeditions")
 
 local ROSTER = { { name = "Bob" }, { name = "Testeur" } }

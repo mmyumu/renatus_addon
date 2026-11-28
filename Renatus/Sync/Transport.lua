@@ -15,7 +15,12 @@ Transport.PREFIX = "Renatus"
 Transport.CHUNK = 250          -- payload bytes per message (client limit: 255)
 Transport.BURST = 4            -- max tokens
 Transport.RATE = 1.2           -- seconds per token
-Transport.PRIORITY = { CONFIG = 1, CONTROL = 2, EVENT = 3, BULK = 4, LOW = 5 }
+-- Lower goes first. LIVE: what just happened (new events, gap fills of recent ones). Then
+-- the catch-up tiers of a member who is far behind (Sync.ClassOf): what makes the addon
+-- work (settings, catalogue), the gazette and the rival guild, the card ledger, the last
+-- days, and the old history last. EVENT is the default for anything else.
+Transport.PRIORITY = { CONFIG = 1, CONTROL = 2, LIVE = 3, EVENT = 3,
+    ESSENTIAL = 4, GAZETTE = 5, LEDGER = 6, RECENT = 7, HISTORY = 8 }
 
 local queue = {}       -- { prio, seq, make, parts, index }
 local queueSeq = 0

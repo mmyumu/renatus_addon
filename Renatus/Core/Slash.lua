@@ -84,6 +84,13 @@ local function syncCommand(args)
         ns.Print("envoi %s%s | file %d | reçus %d | rejetés %d | trace %s (%d)",
             onOff(st.canSend), st.reason and (" (" .. st.reason .. ")") or "", st.queue,
             st.received, st.rejected, onOff(tr.on), #tr.entries)
+        local CLASS_LABEL = { essential = "réglages et catalogue", gazette = "gazette et guilde rivale",
+            ledger = "boosters et échanges", recent = "derniers jours" }
+        if st.catchup then
+            ns.Print("rattrapage en cours avec %s : %s%s", tostring(st.catchup.peer),
+                CLASS_LABEL[st.catchup.class] or tostring(st.catchup.class),
+                st.catchup.expect and (" (%d/%d)"):format(st.catchup.got or 0, st.catchup.expect) or "")
+        end
         for author, info in pairs(ns.Sync.Vector()) do
             if info.top > info.max then
                 local last = ns.db.events[author .. ":" .. info.top]
