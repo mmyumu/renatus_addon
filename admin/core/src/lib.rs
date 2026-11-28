@@ -5,6 +5,7 @@
 //! both drive `ops`.
 
 pub mod addon;
+pub mod archive;
 pub mod armory;
 pub mod articles;
 pub mod cards;

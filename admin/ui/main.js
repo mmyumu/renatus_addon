@@ -41,7 +41,9 @@ function render(s) {
   $("install-admin").textContent = st?.adminVersion ? "Mettre à jour Renatus_Admin" : "Installer Renatus_Admin";
   $("install-admin").hidden = !!upToDate;
   $("admin-hint").textContent = avail ? `Dernière version publiée : ${avail}` : "";
-  $("events").textContent = st && !st.error ? `${st.events} (${st.shared} partagés)` : "—";
+  $("events").textContent = st && !st.error
+    ? `${st.events} (${st.shared} partagés${st.archived ? `, dont ${st.archived} seulement dans l'archive de l'application` : ""})`
+    : "—";
   $("authors").textContent = st && !st.error ? st.authors : "—";
   $("saved-at").textContent = when(st?.savedAt);
   $("combat-logs").textContent = st ? st.combatLogs : "—";

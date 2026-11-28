@@ -28,6 +28,8 @@ pub struct Chronicle {
     pub monitor: Value,
     /// GUIDs of this account's characters (`RenatusDB.seq`).
     pub own: std::collections::BTreeSet<String>,
+    /// The archive merged into `events` (`ops::load`), if any.
+    pub archive: Option<crate::archive::Merge>,
 }
 
 pub fn str_of<'a>(v: &'a Value, key: &str) -> Option<&'a str> {
@@ -69,6 +71,7 @@ impl Chronicle {
             press_done,
             monitor,
             own,
+            archive: None,
         }
     }
 

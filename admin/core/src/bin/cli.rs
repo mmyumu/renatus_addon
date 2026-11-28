@@ -201,6 +201,12 @@ fn run() -> Result<(), String> {
                 "  {} événement(s), dont {} partagé(s) ; {} auteur(s)",
                 st.events, st.shared, st.authors
             );
+            if st.archived > 0 {
+                println!(
+                    "  dont {} seulement dans l'archive de l'application (résumés en jeu)",
+                    st.archived
+                );
+            }
             println!("Journaux de combat : {}", st.combat_logs);
             println!(
                 "Guilde rivale (réglage de guilde) : {}",

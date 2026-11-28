@@ -504,6 +504,8 @@ Les enrichissements `LOG` (causes de mort, coups fataux PvP) passent par le mêm
 - **Doublons** : une réponse en attente est annulée si l'événement est passé sur le canal **après** qu'on l'a programmée (avant : dans les 60 dernières secondes, ce qu'une file longue dépassait).
 - Trous : jusqu'à 8 plages et 100 numéros demandés par auteur et par tour (après un rattrapage par classe, les trous sont nombreux et petits).
 
+**Archive de Renatus Admin (0.6.0)**. À chaque lecture des SavedVariables, l'application copie les événements qu'elle n'a pas encore vus dans `WTF/Account/<compte>/Renatus.archive.jsonl` (un événement par ligne, hors du dossier SavedVariables : le jeu ne le lit ni ne l'efface). Le journal sur lequel elle travaille est l'archive plus les SavedVariables : records, jalons, anniversaires et cartes restent calculés sur tout l'historique même quand le jeu en a résumé une partie (bilans, ci-dessous). Les suppressions sont respectées : un événement vidé (`del`) ou visé par un `TOMBSTONE` de son auteur est vidé dans l'archive aussi. Une ligne coupée (application arrêtée pendant l'écriture) est ignorée et le fichier réécrit proprement.
+
 Conception d'origine :
 - Journaux par auteur en ajout seul ; anti-entropie par vecteur `{auteur → séquence contiguë max}`.
 - Messages `H` (hello), `V` (vecteur), `R` (requête), `E` (événements), `N` (nouveau) ; préfixe `Renatus`.

@@ -37,6 +37,7 @@ const HIDDEN: &[&str] = &[
     "TRADE_OFFER",
     "TRADE_REPLY",
     "TOMBSTONE",
+    "BILAN",
 ];
 
 fn class_fr(class: &str) -> &'static str {

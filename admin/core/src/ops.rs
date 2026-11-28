@@ -49,6 +49,8 @@ pub struct Status {
     pub error: Option<String>,
     pub events: usize,
     pub shared: usize,
+    /// Events only the app's archive still holds (summed up in game).
+    pub archived: usize,
     pub authors: usize,
     pub last_event: Option<i64>,
     pub combat_logs: usize,
@@ -63,9 +65,15 @@ pub struct Status {
     pub monitor: Option<crate::monitor::Monitor>,
 }
 
+/// The journal: the SavedVariables plus the archive the app keeps of them (`archive`),
+/// which still holds the old facts the game has summed up.
 pub fn load(paths: &WowPaths) -> Result<(PathBuf, Chronicle), String> {
     let sv = paths.saved_variables()?;
-    let ch = Chronicle::load(&sv)?;
+    let mut ch = Chronicle::load(&sv)?;
+    ch.archive = Some(crate::archive::merge(
+        &crate::archive::path_for(&sv),
+        &mut ch.events,
+    )?);
     Ok((sv, ch))
 }
 
@@ -83,6 +91,7 @@ pub fn status(paths: &WowPaths) -> Status {
         error: None,
         events: 0,
         shared: 0,
+        archived: 0,
         authors: 0,
         last_event: None,
         combat_logs: paths.combat_logs().len(),
@@ -100,6 +109,7 @@ pub fn status(paths: &WowPaths) -> Status {
             st.saved_at = modified(&sv);
             st.saved_variables = Some(sv.display().to_string());
             st.events = ch.events.len();
+            st.archived = ch.archive.map_or(0, |a| a.only_archived);
             st.shared = ch.all().filter(|e| str_of(e, "vis") == Some("G")).count();
             st.authors = ch.members().len();
             st.last_event = ch.all().map(|e| num_of(e, "t") as i64).max();

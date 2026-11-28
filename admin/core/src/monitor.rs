@@ -164,6 +164,7 @@ pub fn kind_label(kind: &str) -> &str {
         "CARD_SET" => "Cartes publiées",
         "CARD_PROFILE" => "Profil de carte",
         "TOMBSTONE" => "Suppression",
+        "BILAN" => "Bilan (historique résumé en jeu)",
         "DEATH_CAUSE" => "Cause de mort",
         "LETTER" => "Courrier",
         other => other,
