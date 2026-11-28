@@ -1221,7 +1221,7 @@ end
 -- A shared event of someone else, already held by this client.
 local function held(ns, who, s, kind, ageDays, p)
     local ev = { v = 1, id = who.guid .. ":" .. s, a = who.guid, n = who.name, s = s, k = kind,
-        t = Stub.state.now - ageDays * DAY, g = GUILD, vis = "G", prov = "OBS", p = p or {}, loc = {},
+        t = 1795000000 + math.floor(Stub.state.now) - ageDays * DAY, g = GUILD, vis = "G", prov = "OBS", p = p or {}, loc = {},
         rx = { by = who.name, direct = true, at = Stub.state.now } }
     ns.Store.Insert(ev)
     return ev
@@ -4091,6 +4091,181 @@ test("echanges : pas en mode demo", function()
     local t = ns.UI.ShowTrades()
     eq(t.new.gcDisabled, true)
     assert(t.info:GetText():find("mode démo"))
+end)
+
+print("Bilans : faits anciens resumes")
+
+-- (BOB and CAROL are GUID strings in the trade tests above)
+local BOB = { guid = "Player-1-BBB", name = "Bob" }
+local CAROL = { guid = "Player-1-CCC", name = "Carol" }
+
+-- Own shared facts, `ageDays` old (Store.Add with a date in the past).
+local function ownFacts(ns, kind, count, ageDays, p)
+    local out = {}
+    for i = 1, count do
+        out[i] = ns.Store.Add(kind, p and p(i) or {}, { vis = "G", t = Stub.state.now + 1795000000 - ageDays * DAY + i })
+    end
+    return out
+end
+
+-- A BILAN of `who` covering 1..upto, every number but those in `keep` gone.
+local function bilanOf(ns, who, upto, keep, extra)
+    local set = {}
+    for s = 1, upto do if not (keep and keep[s]) then set[s - 1] = true end end
+    local p = { from = 1, upto = upto, drop = ns.Compact.Bits.Encode(set, upto), n = { QUEST_DONE = upto }, lvl = 30 }
+    for k, v in pairs(extra or {}) do p[k] = v end
+    return p
+end
+
+test("bilan : les faits anciens d'un membre resumes, compteurs, titres et boosters gardes", function()
+    local ns = boot({ specIndex = 1, me = ALICE })
+    for _, cat in ipairs({ "combat", "progression", "exploration", "pvp", "anecdote" }) do ns.char.privacy[cat] = "G" end
+    ownFacts(ns, "QUEST_DONE", 230, 120, function(i) return { title = "Quete " .. i } end)
+    ownFacts(ns, "DEATH", 12, 110, function() return { lvl = 20 } end)
+    local hunt = ownFacts(ns, "DEATH", 1, 110, function() return { lvl = 20, enemies = { "Ladou" } } end)[1]
+    local story = ns.Store.Add("ANECDOTE", { title = "Le jour ou" }, { vis = "G", prov = "MAN", t = 1795000000 - 105 * DAY })
+    local booster = ns.Store.Add("BOOSTER_OPEN", { n = 1, cards = { "B:1" } }, { vis = "G", t = 1795000000 - 104 * DAY })
+    ownFacts(ns, "QUEST_DONE", 5, 1)  -- recent: stays
+    local before = ns.Store.Dataset()
+    local m0 = ns.Views.Members(before)[1]
+    eq(m0.stats.quests, 235); eq(m0.stats.deaths, 13)
+    local boosters0, opened0 = before.boosters, before.boostersOpened
+    local count0 = ns.Store.Count()
+    local out = ns.Compact.Run()
+    eq(#out, 1, "un bilan")
+    local b = out[1]
+    eq(b.k, "BILAN"); eq(b.vis, "G"); eq(b.p.from, 1); eq(b.p.n.QUEST_DONE, 230); eq(b.p.n.DEATH, 12)
+    assert(b.p.boost and b.p.boost.d, "instantane des boosters")
+    eq(ns.Store.Count(), count0 - 242 + 1, "faits resumes retires")
+    assert(ns.db.events[hunt.id], "mort face a un ennemi gardee (tableau de chasse)")
+    assert(ns.db.events[story.id], "ecrit a la main : garde")
+    assert(ns.db.events[booster.id], "booster garde (collection)")
+    local after = ns.Store.Dataset()
+    local m1 = ns.Views.Members(after)[1]
+    eq(m1.stats.quests, 235); eq(m1.stats.deaths, 13)
+    eq(after.boosters, boosters0, "boosters disponibles inchanges")
+    eq(after.boostersOpened, opened0)
+    local vec = ns.Sync.Vector()[ALICE.guid]
+    eq(vec.max, vec.top, "la synchro voit le journal complet")
+    -- nothing more to sum up: no second BILAN
+    eq(#ns.Compact.Run(), 0)
+end)
+
+test("bilan : pas pour une poignee de faits, ni avant le delai de la guilde", function()
+    local ns = boot({ specIndex = 1, me = ALICE })
+    ns.char.privacy.progression = "G"
+    ownFacts(ns, "QUEST_DONE", 150, 120)
+    eq(#ns.Compact.Run(), 0, "moins de 200")
+    ownFacts(ns, "QUEST_DONE", 100, 60)   -- younger than 90 days
+    eq(#ns.Compact.Run(), 0)
+end)
+
+test("bilan recu : faits retires, le reste garde, plus jamais redemandes ni reinseres", function()
+    local ns, S = boot({ specIndex = 1, me = BOB })
+    for s = 1, 240 do held(ns, ALICE, s, "QUEST_DONE", 120, { title = "Q" .. s }) end
+    local art = held(ns, ALICE, 241, "ARTICLE", 120, { title = "Gardé" })
+    held(ns, ALICE, 242, "ANECDOTE", 120, { title = "Retirée par Alice" })
+    local keep = { [241] = true }
+    local p = bilanOf(ns, ALICE, 242, keep, { n = { QUEST_DONE = 241 }, name = "Alice" })
+    local bilan = { v = 1, id = ALICE.guid .. ":243", a = ALICE.guid, n = "Alice", s = 243, k = "BILAN",
+        t = Stub.state.now + 1795000000, vis = "G", prov = "DED", p = p }
+    Stub.deliver(wire(ns, { o = "E", e = bilan }), "Alice-Forever")
+    assert(ns.db.events[bilan.id], "bilan recu")
+    eq(ns.db.events[ALICE.guid .. ":5"], nil, "fait resume retire")
+    assert(ns.db.events[art.id], "article garde")
+    eq(ns.Sync.Vector()[ALICE.guid].max, 243)
+    local m = ns.Views.Members(ns.Store.Dataset())
+    local alice
+    for _, x in ipairs(m) do if x.guid == ALICE.guid then alice = x end end
+    eq(alice.stats.quests, 241); eq(alice.level, 30)
+    -- an anecdote Alice deleted (her TOMBSTONE never reached Bob, summed up since): gone
+    eq(ns.db.events[ALICE.guid .. ":242"], nil)
+    -- an older client sends a summed up fact again: not taken back
+    local old = { v = 1, id = ALICE.guid .. ":7", a = ALICE.guid, n = "Alice", s = 7, k = "QUEST_DONE",
+        t = 1795000000 - 120 * DAY, vis = "G", prov = "OBS", p = {} }
+    Stub.deliver(wire(ns, { o = "E", e = old }), "Dave-Forever")
+    eq(ns.db.events[old.id], nil)
+    -- a newer member asks: nothing to request below the bilan
+    S.sent = {}
+    Stub.deliver(wire(ns, { o = "V", pr = 1, v = { [ALICE.guid] = 250 } }), "Dave-Forever")
+    Stub.advance(15)
+    for _, r in ipairs(ops(ns, S.sent, "R")) do
+        if r.a == ALICE.guid then assert(r.f >= 244, "demande " .. r.f .. "-" .. r.t) end
+    end
+end)
+
+test("bilan : jamais ses propres faits sur la parole d'un autre ; seul un officier resume pour autrui", function()
+    local ns = boot({ specIndex = 1, me = ALICE, roster = { { name = "Alice", rank = 3 }, { name = "Bob", rank = 1 }, { name = "Carol", rank = 4 } } })
+    ns.char.privacy.progression = "G"
+    local mine = ownFacts(ns, "QUEST_DONE", 210, 200)
+    for s = 1, 210 do held(ns, CAROL, s, "QUEST_DONE", 200) end
+    -- Bob (officer) sums up Alice's facts: Alice keeps hers
+    local p = bilanOf(ns, ALICE, 210, nil, { of = ALICE.guid })
+    Stub.deliver(wire(ns, { o = "E", e = { v = 1, id = BOB.guid .. ":1", a = BOB.guid, n = "Bob", s = 1, k = "BILAN",
+        t = 1795000000, vis = "G", prov = "DED", p = p } }), "Bob-Forever")
+    assert(ns.db.events[mine[1].id], "ses propres faits restent")
+    local me
+    for _, x in ipairs(ns.Views.Members(ns.Store.Dataset())) do if x.guid == ALICE.guid then me = x end end
+    eq(me.stats.quests, 210, "comptes une seule fois")
+    -- Carol (not an officer) cannot sum up for someone else
+    local q = bilanOf(ns, CAROL, 210, nil, { of = ALICE.guid })
+    Stub.deliver(wire(ns, { o = "E", e = { v = 1, id = CAROL.guid .. ":211", a = CAROL.guid, n = "Carol", s = 211, k = "BILAN",
+        t = 1795000000, vis = "G", prov = "DED", p = q } }), "Carol-Forever")
+    eq(ns.Compact.InChain(CAROL.guid .. ":211"), false)
+    assert(ns.db.events[CAROL.guid .. ":5"], "rien retire")
+end)
+
+test("bilan : un officier resume un membre qui ne joue plus", function()
+    local ns = boot({ specIndex = 1, rank = 0, roster = { { name = "Testeur", rank = 0 }, { name = "Carol", rank = 4 } } })
+    for s = 1, 220 do held(ns, CAROL, s, "QUEST_DONE", 200) end
+    held(ns, CAROL, 221, "BOOSTER_OPEN", 199, { n = 1, cards = { "B:1" } })
+    for s = 1, 220 do held(ns, BOB, s, "QUEST_DONE", 100) end -- idle for 100 days only: not yet
+    local out = ns.Compact.Run()
+    eq(#out, 1)
+    eq(out[1].p.of, CAROL.guid); eq(out[1].p.name, "Carol"); eq(out[1].p.upto, 221)
+    eq(ns.db.events[CAROL.guid .. ":3"], nil)
+    assert(ns.db.events[CAROL.guid .. ":221"], "booster garde")
+    assert(ns.db.events[BOB.guid .. ":3"], "Bob pas encore")
+    local carol
+    for _, x in ipairs(ns.Views.Members(ns.Store.Dataset())) do if x.guid == CAROL.guid then carol = x end end
+    eq(carol.stats.quests, 220)
+end)
+
+test("bilan : boosters, le stock de l'instantane remplace les jours resumes", function()
+    local ns = boot({ specIndex = 1 })
+    local A = ns.Album
+    local me = ns.Context.Me()
+    local function open(day) return { a = me, k = "BOOSTER_OPEN", t = 1795000000 + day * DAY, p = {} } end
+    local played = { [A.DayKey(1795000000)] = true, [A.DayKey(1795000000 + 5 * DAY)] = true }
+    local events = { open(0), open(5) }
+    local o, s = A.Replay(events, me, played, {}, nil)
+    -- with a snapshot of 3 boosters left after day 2: day 0 is not replayed
+    local o2, s2 = A.Replay(events, me, played, {}, { d = A.DayKey(1795000000 + 2 * DAY), s = 3 })
+    eq(o2, 2, "les ouvertures comptent toujours")
+    eq(s2, 3 + (s - 0), "stock de l'instantane, puis les jours suivants")
+    eq(o, 2)
+end)
+
+test("renatus_admin : historique garde en jeu, regle diffusee par un officier", function()
+    local ns, Adm = bootAdmin({ specIndex = 1, rank = 1, roster = OFFICERS })
+    eq(ns.GuildConfig.KeepDays(), 90, "par defaut")
+    Adm.Open("history")
+    local page = Adm.window.pages.history
+    eq(page.days:GetText(), "90")
+    assert(page.info:GetText():find("par défaut"), page.info:GetText())
+    page.days:SetText("abc")
+    page.publish:Click()
+    eq(ns.GuildConfig.KeepDays(), 90, "saisie invalide refusee")
+    page.days:SetText("0")
+    page.publish:Click()
+    eq(ns.GuildConfig.KeepDays(), 0, "0 veut dire 0")
+    page.days:SetText("365")
+    page.publish:Click()
+    eq(ns.GuildConfig.KeepDays(), 365)
+    eq(ns.GuildConfig.Current().p.keepDays, 365)
+    assert(page.info:GetText():find("Testeur"), page.info:GetText())
+    page.run:Click()
+    assert(page.resultText:GetText():find("Rien"), page.resultText:GetText())
 end)
 
 print(string.format("\n%d ok, %d echec(s)", passed, failed))

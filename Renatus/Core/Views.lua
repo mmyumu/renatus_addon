@@ -122,6 +122,25 @@ function Views.Members(ds)
         table.insert(m.events, ev) -- already sorted from most recent to oldest
         local stat = STAT_OF[ev.k]
         if stat then m.stats[stat] = m.stats[stat] + 1 end
+        -- Old facts summed up (Core/Compact.lua): their counts, for whoever they belong to.
+        -- A member keeps their own facts on someone else's BILAN: counted once, from them.
+        local target = ev.k == "BILAN" and type(ev.p) == "table" and (type(ev.p.of) == "string" and ev.p.of or ev.a)
+        if target and not ds.isDemo and not (target == ds.me and ev.a ~= ds.me) and ns.Compact.InChain(ev.id) then
+            local p = ev.p
+            local tm = byGuid[target]
+            if not tm then
+                tm = newMember(target, type(p.name) == "string" and p.name or "?", p.cls)
+                byGuid[target] = tm
+                byName[tm.name] = byName[tm.name] or tm
+                table.insert(list, tm)
+            end
+            for kind, n in pairs(type(p.n) == "table" and p.n or {}) do
+                local st = STAT_OF[kind]
+                if st and type(n) == "number" then tm.stats[st] = tm.stats[st] + n end
+            end
+            if type(p.lvl) == "number" and p.lvl > (tm.level or 0) then tm.level = p.lvl end
+            if type(p.last) == "number" and (not tm.last or p.last > tm.last) then tm.last = p.last end
+        end
         if ev.k == "LEVEL_UP" and (ev.p.lvl or 0) > (m.level or 0) then m.level = ev.p.lvl end
         if not m.last or ev.t > m.last then m.last = ev.t end
     end

@@ -224,7 +224,12 @@ local function refreshReader(c, ds, edition, a)
                 local prov = Types.PROVENANCE[ev.prov] or Types.PROVENANCE.OBS
                 table.insert(lines, "• " .. UI.Date(ev.t, true) .. " — " .. Types.Describe(ev, true) .. " [" .. string.lower(prov.label) .. "]")
             else
-                table.insert(lines, "• (événement " .. id .. " absent de ton journal local)")
+                local author, s = tostring(id):match("^(.*):(%d+)$")
+                if author and ns.Compact.Dropped(author, tonumber(s)) then
+                    table.insert(lines, "• (fait ancien, résumé depuis dans le bilan de son auteur)")
+                else
+                    table.insert(lines, "• (événement " .. id .. " absent de ton journal local)")
+                end
             end
         end
         if #(a.refs or {}) == 0 then table.insert(lines, "Aucune source référencée : article d'opinion.") end

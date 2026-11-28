@@ -632,8 +632,12 @@ Album.DayKey = dayKey
 -- cannot cover, because the rule changed during the day or was received late (the sync
 -- is peer to peer), is a gift. Openings the stock covers use it up (before v1.0.20 a day
 -- gave as many as were opened that day, so opening older boosters never emptied the
--- stock). Returns openings + stock left, so Earned - opened = boosters available.
-function Album.Earned(events, me, playedDays, rules)
+-- stock).
+-- `snap` = { d = day, s = stock }: the BILAN of `me` that summed up their facts until
+-- that day (Core/Compact.lua). Days up to it are not replayed (their facts are gone):
+-- the stock starts from s; their openings still count. `untilDay`: stop after that day.
+-- Returns the openings and the stock left.
+function Album.Replay(events, me, playedDays, rules, snap, untilDay)
     local days = {} -- [dayKey] = { bonus = legacy bonus events, hits = { [source] = n }, opened = n }
     local function day(key)
         days[key] = days[key] or { bonus = 0, hits = {}, opened = 0 }
@@ -659,14 +663,25 @@ function Album.Earned(events, me, playedDays, rules)
         end
     end
     local keys = {}
-    for key in pairs(days) do keys[#keys + 1] = key end
+    for key in pairs(days) do
+        if not untilDay or key <= untilDay then keys[#keys + 1] = key end
+    end
     table.sort(keys)
-    local opened, stock = 0, 0
+    local snapDay = type(snap) == "table" and type(snap.d) == "string" and type(snap.s) == "number" and snap.d or nil
+    local opened, stock = 0, snapDay and snap.s or 0
     for _, key in ipairs(keys) do
         local d = days[key]
-        stock = math.max(0, stock + Album.DayTotal(Album.RuleOn(rules, key), d.hits, d.bonus) - d.opened)
+        if not (snapDay and key <= snapDay) then
+            stock = math.max(0, stock + Album.DayTotal(Album.RuleOn(rules, key), d.hits, d.bonus) - d.opened)
+        end
         opened = opened + d.opened
     end
+    return opened, stock
+end
+
+-- Openings + stock left, so Earned - opened = boosters available.
+function Album.Earned(events, me, playedDays, rules, snap)
+    local opened, stock = Album.Replay(events, me, playedDays, rules, snap)
     return opened + stock
 end
 

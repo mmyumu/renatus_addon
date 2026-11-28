@@ -3,6 +3,7 @@
 --   Rédaction      gazette items from the Renatus Admin app: preview, publish, ignore
 --   Guilde rivale  rival guild in force, app proposals (setting + armory roster), manual entry
 --   Boosters       how many boosters members earn (guild setting)
+--   Historique     days of facts kept as they are in game (guild setting keepDays)
 --   Diagnostic     sync status, local data, unsupported events, demo mode
 -- Publishing is for officers (A.IsOfficer); everyone else can only look.
 local _, A = ...
@@ -365,6 +366,78 @@ local function buildReset(f, page)
 end
 
 ------------------------------------------------------------------------
+-- Historique: how long facts stay as they are in game (guild setting keepDays)
+------------------------------------------------------------------------
+local function buildHistory(f, page)
+    local sec = UI.Section(page, "Historique gardé en jeu", 340)
+    sec:SetPoint("TOPLEFT", 0, 0)
+    local hint = UI.Text(page, 11, UI.C.dim)
+    hint:SetPoint("TOPLEFT", 0, -30)
+    hint:SetWidth(BODY_W)
+    hint:SetText("Passé ce nombre de jours, chaque membre résume ses faits anciens (quêtes, créatures, morts, boss, sorties, "
+        .. "niveaux, petits exploits) dans un bilan : ses compteurs et ses titres restent justes, ses boosters aussi, "
+        .. "mais le détail quitte le jeu. La gazette, l'album, les échanges, les réglages, le tableau de chasse et ce qui a été "
+        .. "écrit à la main restent entiers. Renatus Admin garde tout dans son archive. "
+        .. "Un officier résume aussi les membres qui ne jouent plus depuis 30 jours de plus.")
+    page.days = UI.EditBox(page, 80, 24, false, 6)
+    page.days:SetPoint("TOPLEFT", 0, -104)
+    local unit = UI.Text(page, 12)
+    unit:SetPoint("LEFT", page.days, "RIGHT", 8, 0)
+    unit:SetText("jours")
+    page.publish = UI.Button(page, "Diffuser", 100, 22, function()
+        local n = tonumber(page.days:GetText() or "")
+        if not n or n < 0 then
+            R.Print("historique : un nombre de jours, 0 ou plus.")
+            return
+        end
+        local _, why = GC.Publish({ keepDays = math.floor(n) })
+        notify(why)
+        f:Refresh()
+    end)
+    page.publish:SetPoint("LEFT", unit, "RIGHT", 12, 0)
+    UI.Tooltip(page.publish, "Diffuser à la guilde", { "N'importe quel nombre ; 0 = seuls les faits du jour restent.",
+        "Les bilans déjà faits ne reviennent pas en arrière.", A.RankHelp() })
+    page.info = UI.Text(page, 11)
+    page.info:SetPoint("TOPLEFT", 0, -142)
+    page.info:SetWidth(BODY_W)
+    page.run = UI.Button(page, "Faire mes bilans maintenant", 220, 22, function()
+        local out = R.Compact.Run()
+        page.result = #out > 0 and (("%d bilan(s) publié(s)."):format(#out)) or "Rien à résumer pour l'instant."
+        f:Refresh()
+    end)
+    page.run:SetPoint("TOPLEFT", 0, -250)
+    page.result = nil
+    page.resultText = UI.Text(page, 11, UI.C.dim)
+    page.resultText:SetPoint("LEFT", page.run, "RIGHT", 12, 0)
+
+    function page:Refresh()
+        local cfg = GC.Current()
+        local days = GC.KeepDays()
+        if not self.days.edit:HasFocus() then self.days:SetText(tostring(days)) end
+        local lines = {}
+        if cfg and type(cfg.p.keepDays) == "number" then
+            table.insert(lines, ("En vigueur : %d jours, diffusé par %s, %s."):format(days, tostring(cfg.n), UI.Ago(cfg.t)))
+        else
+            table.insert(lines, ("En vigueur : %d jours (valeur par défaut)."):format(days))
+        end
+        table.insert(lines, "Les faits d'avant le " .. R.Views.DateLabel(R.Compact.Cutoff()) .. " sont résumés au fil des connexions.")
+        local bilans, summed, authors = 0, 0, 0
+        for author in pairs(R.Compact.Floors()) do
+            authors = authors + 1
+            for _, seg in ipairs(R.Compact.Chain(author)) do
+                bilans = bilans + 1
+                for _, n in pairs(seg.ev.p.n or {}) do summed = summed + (tonumber(n) or 0) end
+            end
+        end
+        table.insert(lines, ("Sur ce client : %d événement(s) ; %d bilan(s) de %d membre(s) résument %d fait(s)."):format(
+            R.Store.Count(), bilans, authors, summed))
+        self.info:SetText(table.concat(lines, "\n"))
+        self.publish:SetDisabled(not A.IsOfficer())
+        self.resultText:SetText(self.result or "")
+    end
+end
+
+------------------------------------------------------------------------
 -- Boosters
 ------------------------------------------------------------------------
 -- Form: "per day played" and the overall daily maximum, then for each source
@@ -464,6 +537,7 @@ local PAGES = {
     { key = "press", label = "Rédaction", build = buildPress },
     { key = "rival", label = "Guilde rivale", build = buildRival },
     { key = "boosters", label = "Boosters", build = buildBoosters },
+    { key = "history", label = "Historique", build = buildHistory },
     { key = "diag", label = "Diagnostic", build = buildDiag },
     { key = "reset", label = "Remise à zéro", build = buildReset },
 }
@@ -508,7 +582,7 @@ local function build()
     f.tabs, f.pages = {}, {}
     local prev
     for _, def in ipairs(PAGES) do
-        local b = UI.ToggleButton(f, def.label, 130, 24, function() f:ShowPage(def.key) end)
+        local b = UI.ToggleButton(f, def.label, 112, 24, function() f:ShowPage(def.key) end)
         if prev then b:SetPoint("LEFT", prev, "RIGHT", 6, 0) else b:SetPoint("TOPLEFT", PAD, -82) end
         prev = b
         f.tabs[def.key] = b

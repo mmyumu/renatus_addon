@@ -2,7 +2,8 @@
 --
 -- A GUILD_CONFIG event is an ordinary shared event (always "G") whose payload is the
 -- whole configuration: { rival = "Guild name", boosters = { day, bonus, cap },
--- huntSince = time the Wanted Board starts from (fights before it are left out) }. It travels with the sync like any
+-- huntSince = time the Wanted Board starts from (fights before it are left out),
+-- keepDays = days of facts kept before their author sums them up (Core/Compact.lua) }. It travels with the sync like any
 -- other event. Every client decides on its own which one applies:
 --   - its author must be, in the guild roster seen by this client, at rank
 --     OFFICER_MAX_RANK or above (0 = guild master, 1 = the rank below, ...);
@@ -150,6 +151,15 @@ function GuildConfig.HuntSince()
     return type(t) == "number" and t or nil
 end
 
+-- Days of facts kept as they are in game before their author sums them up (BILAN,
+-- Core/Compact.lua). Any whole number an officer chose, 0 included (0 = only today).
+function GuildConfig.KeepDays()
+    local cfg = GuildConfig.Current()
+    local d = cfg and cfg.p.keepDays
+    if type(d) == "number" and d >= 0 then return math.floor(d) end
+    return ns.Compact.DEFAULT_DAYS
+end
+
 -- Publishes a new configuration (officers only). Fields left out are kept from the
 -- configuration in force, so publishing { rival = "X" } does not reset the rest.
 -- { boosters = { day, bonus, cap } } applies from the day it is published on.
@@ -162,6 +172,8 @@ function GuildConfig.Publish(fields)
     payload.rival = trim(payload.rival)
     if payload.boosters ~= nil then payload.boosters = ns.Album.Rule(payload.boosters) end
     if type(payload.huntSince) ~= "number" then payload.huntSince = nil end -- false: from the start
+    if type(payload.keepDays) ~= "number" or payload.keepDays < 0 then payload.keepDays = nil
+    else payload.keepDays = math.floor(payload.keepDays) end
     local ev = ns.Store.Add("GUILD_CONFIG", payload, { vis = "G", prov = "MAN", noExp = true, loc = {} })
     GuildConfig.Invalidate()
     return ev

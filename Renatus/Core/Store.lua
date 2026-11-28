@@ -248,6 +248,9 @@ local function realEvents()
     return cache
 end
 
+-- Events removed behind the store's back (Compact.Purge): the sorted list is rebuilt.
+function Store.Forget() cache = nil end
+
 -- Active dataset, same shape in demo and real mode.
 function Store.Dataset()
     if ns.char.ui.demo then return ns.Demo:Get() end
@@ -288,7 +291,7 @@ function Store.Dataset()
     end
     ds.boostersOpened = opened
     ds.boosters = math.max(0, ns.Album.Earned(events, guid, ns.db.played[guid],
-        ns.GuildConfig.BoosterRules()) - opened)
+        ns.GuildConfig.BoosterRules(), ns.Compact.BoostOf(guid)) - opened)
     return ds
 end
 

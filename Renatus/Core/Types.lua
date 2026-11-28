@@ -214,6 +214,10 @@ local TYPES = {
     -- Daily trivia (Collectors/Counters.lua): jumps, drunk, emotes... For the gazette only.
     COUNTERS = { cat = "social", icon = "Interface\\Icons\\INV_Misc_Note_01", importance = 0, hidden = true,
         text = function() return "tient ses compteurs du jour" end },
+    -- Old facts of a member summed up (Core/Compact.lua): counts, booster snapshot, and
+    -- which numbers of their log are gone for good. Never displayed.
+    BILAN = { cat = "social", icon = "Interface\\Icons\\INV_Misc_Book_09", importance = 0, hidden = true,
+        text = function() return "résume ses faits anciens" end },
     LETTER = { cat = "anecdote", icon = "Interface\\Icons\\INV_Letter_15", importance = 1,
         text = function(ev) return "écrit au courrier des lecteurs : « " .. tostring(ev.p.title) .. " »" end },
 }
